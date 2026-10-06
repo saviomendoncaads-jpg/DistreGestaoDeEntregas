@@ -162,7 +162,11 @@ export default function KanbanComandas({
     const ehPedido = col === 'novos' || col === 'separacao';
     const aoAbrir = () => (ehPedido ? setDetalhe(d) : onAbrirComanda(d.id));
     return (
-      <BentoItem key={d.id} className="kanban-card" title="Abrir detalhes da comanda">
+      <BentoItem
+        key={d.id}
+        className={`kanban-card kanban-card--${col}${notasPorComanda?.[d.id]?.status === 'AUTORIZADA' ? ' kanban-card--faturado' : ''}`}
+        title="Abrir detalhes da comanda"
+      >
         <div className="kanban-card-inner" onClick={aoAbrir}>
           <div className="kanban-card-top">
             <div className="kanban-card-id">
