@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { broker } from './broker';
 import { salvarEntrega, obterProdutos } from './database';
 import { Entrega, FormaPagamento, Produto } from './types';
-import { lojas } from './tenants';
+import { lojas, empresas } from './tenants';
 import { deliveries, gerarIdComanda } from './gateway';
 import { geocodificarEndereco } from './geocoding';
 import { verificarLimiteEntregasMes, erroLimite } from './billing/planLimitsService';
@@ -75,6 +75,27 @@ function buscarLojaAtiva(lojaId: string) {
   return loja;
 }
 
+// Conta as unidades vendidas por produto a partir das linhas "Nx Nome (obs)" das
+// comandas da loja; devolve os ids do mais vendido para o menos vendido.
+function rankingMaisVendidos(lojaId: string, produtos: Produto[]): string[] {
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  const porNome = new Map(produtos.map(p => [norm(p.nome), p.id]));
+  const desde = Date.now() - 60 * 86_400_000;
+  const contagem = new Map<string, number>();
+  for (const e of deliveries.values()) {
+    // Só pedidos (ou entregas avulsas), para não contar a mesma venda duas vezes.
+    if (e.lojaId !== lojaId || e.status === 'CANCELADO' || (e.referencia || '').startsWith('Origem: Pedido')) continue;
+    if (new Date(e.criadoEm).getTime() < desde) continue;
+    for (const linha of e.itens || []) {
+      const m = linha.match(/^\s*(\d+)\s*x\s+(.*)$/i);
+      const nome = norm((m ? m[2] : linha).replace(/\s*\([^()]*\)\s*$/, ''));
+      const id = porNome.get(nome);
+      if (id) contagem.set(id, (contagem.get(id) || 0) + (m ? Number(m[1]) : 1));
+    }
+  }
+  return [...contagem.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+}
+
 // GET /api/vitrine/:lojaId — Dados públicos da loja + cardápio (produtos ativos)
 router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) => {
   try {
@@ -86,6 +107,7 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
 
     const suspensa = loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO';
     const produtos = suspensa ? [] : await obterProdutos(loja.id);
+    const empresa = empresas.find(e => e.id === loja.empresaId);
 
     res.json({
       loja: {
@@ -95,8 +117,17 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
         cidade: loja.cidade || undefined,
         uf: loja.uf || undefined,
         logoUrl: loja.logoUrl || undefined,
-        aceitandoPedidos: !suspensa
+        aceitandoPedidos: !suspensa,
+        // Contato público da rede (WhatsApp/telefone na vitrine).
+        telefone: (empresa?.telefone || '').replace(/\D/g, '') || undefined,
+        nomeEmpresa: empresa?.nome || undefined
       },
+      // "Trocar loja": outras lojas ativas da mesma rede.
+      outrasLojas: lojas
+        .filter(l => l.empresaId === loja.empresaId && l.id !== loja.id && l.ativo)
+        .map(l => ({ id: l.id, nome: l.nome, bairro: l.bairro || undefined, cidade: l.cidade || undefined })),
+      // "Mais vendidos": ranking pelos itens dos pedidos reais da loja (últimos 60 dias).
+      maisVendidos: rankingMaisVendidos(loja.id, produtos),
       produtos: produtos.map(p => ({
         id: p.id,
         nome: p.nome,

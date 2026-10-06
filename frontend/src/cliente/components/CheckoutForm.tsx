@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useCarrinho } from '../context/CarrinhoContext';
 import { buscarEnderecoPorCep, mascararCep } from '../services/cep';
 import { criarPedido, montarPayload } from '../services/pedidoService';
-import { formatarPreco } from '../types';
+import { formatarPreco, lerClienteIdentificado } from '../types';
 import type { EnderecoEntrega, FormaPagamentoVitrine, PedidoConfirmacao } from '../types';
 
 interface Props {
@@ -39,8 +39,9 @@ const FORMAS: { valor: FormaPagamentoVitrine; titulo: string; detalhe: string; i
 export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) {
   const { itens, subtotal, limpar } = useCarrinho();
 
-  const [nome, setNome] = useState('');
-  const [telefone, setTelefone] = useState('');
+  // Pré-preenche com a identificação feita em "Entrar" (se houver).
+  const [nome, setNome] = useState(() => lerClienteIdentificado()?.nome || '');
+  const [telefone, setTelefone] = useState(() => lerClienteIdentificado()?.telefone || '');
   const [endereco, setEndereco] = useState<EnderecoEntrega>(ENDERECO_VAZIO);
   const [formaPagamento, setFormaPagamento] = useState<FormaPagamentoVitrine>('pix');
   const [trocoStr, setTrocoStr] = useState('');
