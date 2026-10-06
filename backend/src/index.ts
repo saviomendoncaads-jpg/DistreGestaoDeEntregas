@@ -23,6 +23,7 @@ import integracaoPedidosRouter from './integracaoPedidos';
 import integracaoEntregasRouter from './integracaoEntregas';
 import vitrineRouter from './vitrine';
 import gestaoVitrineRouter, { uploadsDir } from './gestaoVitrine';
+import fiscalRouter from './fiscal/fiscalRoutes';
 import webhookRouter from './billing/webhookRoutes';
 import { iniciarWorkerWebhooks } from './billing/webhookProcessor';
 import { iniciarDunning } from './billing/dunningScheduler';
@@ -75,6 +76,10 @@ app.use('/api/billing/webhooks', express.raw({ type: '*/*' }), webhookRouter);
 // Gestão da vitrine (painel da loja): CRUD de produtos, logo e upload de imagens.
 // Montado ANTES do json global para usar um limite maior (imagens em base64).
 app.use('/api/gestao', express.json({ limit: '5mb' }), gestaoVitrineRouter);
+
+// Módulo Fiscal: NFC-e / NF-e por loja (emitente, credenciais, emissão, DANFE, cancelamento).
+// Antes do json global: o upload do certificado A1 (base64) passa do limite padrão.
+app.use('/api/fiscal', express.json({ limit: '1mb' }), fiscalRouter);
 
 app.use(express.json());
 

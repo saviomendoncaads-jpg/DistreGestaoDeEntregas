@@ -207,4 +207,11 @@ export interface Produto {
   // A sidebar de navegação da vitrine deriva a árvore destes campos.
   categoria?: string;
   subcategoria?: string;
+  // Dados fiscais (NFC-e/NF-e). Vazios = padrão da configuração fiscal da loja.
+  ncm?: string;          // 8 dígitos
+  cest?: string;         // 7 dígitos (produtos com substituição tributária)
+  cfop?: string;         // 4 dígitos
+  icmsSituacao?: string; // CSOSN (Simples) ou CST (Regime Normal)
+  unidade?: string;      // UN, CX, KG...
+  codigoBarras?: string; // GTIN/EAN (8, 12, 13 ou 14 dígitos)
 }

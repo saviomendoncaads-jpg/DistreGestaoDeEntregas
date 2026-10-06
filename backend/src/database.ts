@@ -264,6 +264,17 @@ async function inicializarBanco() {
       ALTER TABLE PRODUTOS ADD SUBCATEGORIA NVARCHAR(120) NULL;
     END
 
+    -- Dados fiscais do produto (NFC-e/NF-e). Vazios = usa o padrão da configuração fiscal da loja.
+    IF OBJECT_ID('PRODUTOS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('PRODUTOS') AND name = 'NCM')
+    BEGIN
+      ALTER TABLE PRODUTOS ADD NCM VARCHAR(8) NULL;
+      ALTER TABLE PRODUTOS ADD CEST VARCHAR(7) NULL;
+      ALTER TABLE PRODUTOS ADD CFOP VARCHAR(4) NULL;
+      ALTER TABLE PRODUTOS ADD ICMS_SITUACAO VARCHAR(4) NULL;
+      ALTER TABLE PRODUTOS ADD UNIDADE VARCHAR(6) NULL;
+      ALTER TABLE PRODUTOS ADD CODIGO_BARRAS VARCHAR(14) NULL;
+    END
+
     -- Garante que se a tabela LOJAS já existe, ela tenha a coluna CNPJ
     IF OBJECT_ID('LOJAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LOJAS') AND name = 'CNPJ')
     BEGIN
@@ -1129,6 +1140,26 @@ export async function salvarTipoVeiculo(vt: TipoVeiculo) {
   }
 }
 
+function linhaParaProduto(row: any): Produto {
+  return {
+    id: row.ID,
+    nome: row.NOME,
+    preco: Number(row.PRECO),
+    lojaId: row.LOJA_ID || undefined,
+    ativo: row.ATIVO === 1 || row.ATIVO === true,
+    imagemUrl: row.IMAGEM_URL || undefined,
+    descricao: row.DESCRICAO || undefined,
+    categoria: row.CATEGORIA || undefined,
+    subcategoria: row.SUBCATEGORIA || undefined,
+    ncm: row.NCM || undefined,
+    cest: row.CEST || undefined,
+    cfop: row.CFOP || undefined,
+    icmsSituacao: row.ICMS_SITUACAO || undefined,
+    unidade: row.UNIDADE || undefined,
+    codigoBarras: row.CODIGO_BARRAS || undefined
+  };
+}
+
 export async function obterProdutos(lojaId?: string): Promise<Produto[]> {
   try {
     if (!pool) return [];
@@ -1141,17 +1172,7 @@ export async function obterProdutos(lojaId?: string): Promise<Produto[]> {
       query += ' AND LOJA_ID IS NULL';
     }
     const result = await request.query(query);
-    return result.recordset.map((row: any) => ({
-      id: row.ID,
-      nome: row.NOME,
-      preco: Number(row.PRECO),
-      lojaId: row.LOJA_ID || undefined,
-      ativo: row.ATIVO === 1 || row.ATIVO === true,
-      imagemUrl: row.IMAGEM_URL || undefined,
-      descricao: row.DESCRICAO || undefined,
-      categoria: row.CATEGORIA || undefined,
-      subcategoria: row.SUBCATEGORIA || undefined
-    }));
+    return result.recordset.map(linhaParaProduto);
   } catch (err) {
     console.error('[Banco de Dados] Erro ao obter produtos:', err);
     return [];
@@ -1166,17 +1187,7 @@ export async function obterProdutosDaLoja(lojaId: string): Promise<Produto[]> {
     const result = await pool.request()
       .input('lojaId', mssql.VarChar, lojaId)
       .query('SELECT * FROM PRODUTOS WHERE LOJA_ID = @lojaId ORDER BY NOME');
-    return result.recordset.map((row: any) => ({
-      id: row.ID,
-      nome: row.NOME,
-      preco: Number(row.PRECO),
-      lojaId: row.LOJA_ID || undefined,
-      ativo: row.ATIVO === 1 || row.ATIVO === true,
-      imagemUrl: row.IMAGEM_URL || undefined,
-      descricao: row.DESCRICAO || undefined,
-      categoria: row.CATEGORIA || undefined,
-      subcategoria: row.SUBCATEGORIA || undefined
-    }));
+    return result.recordset.map(linhaParaProduto);
   } catch (err) {
     console.error('[Banco de Dados] Erro ao obter produtos da loja:', err);
     return [];
@@ -1190,10 +1201,11 @@ export async function salvarProduto(p: Produto): Promise<void> {
     USING (SELECT @id AS ID) AS source
     ON target.ID = source.ID
     WHEN MATCHED THEN
-      UPDATE SET NOME = @nome, PRECO = @preco, LOJA_ID = @lojaId, ATIVO = @ativo, IMAGEM_URL = @imagemUrl, DESCRICAO = @descricao, CATEGORIA = @categoria, SUBCATEGORIA = @subcategoria
+      UPDATE SET NOME = @nome, PRECO = @preco, LOJA_ID = @lojaId, ATIVO = @ativo, IMAGEM_URL = @imagemUrl, DESCRICAO = @descricao, CATEGORIA = @categoria, SUBCATEGORIA = @subcategoria,
+        NCM = @ncm, CEST = @cest, CFOP = @cfop, ICMS_SITUACAO = @icmsSituacao, UNIDADE = @unidade, CODIGO_BARRAS = @codigoBarras
     WHEN NOT MATCHED THEN
-      INSERT (ID, NOME, PRECO, LOJA_ID, ATIVO, IMAGEM_URL, DESCRICAO, CATEGORIA, SUBCATEGORIA)
-      VALUES (@id, @nome, @preco, @lojaId, @ativo, @imagemUrl, @descricao, @categoria, @subcategoria);
+      INSERT (ID, NOME, PRECO, LOJA_ID, ATIVO, IMAGEM_URL, DESCRICAO, CATEGORIA, SUBCATEGORIA, NCM, CEST, CFOP, ICMS_SITUACAO, UNIDADE, CODIGO_BARRAS)
+      VALUES (@id, @nome, @preco, @lojaId, @ativo, @imagemUrl, @descricao, @categoria, @subcategoria, @ncm, @cest, @cfop, @icmsSituacao, @unidade, @codigoBarras);
   `;
   await pool.request()
     .input('id', mssql.VarChar, p.id)
@@ -1205,6 +1217,12 @@ export async function salvarProduto(p: Produto): Promise<void> {
     .input('descricao', mssql.NVarChar, p.descricao || null)
     .input('categoria', mssql.NVarChar, p.categoria || null)
     .input('subcategoria', mssql.NVarChar, p.subcategoria || null)
+    .input('ncm', mssql.VarChar, p.ncm || null)
+    .input('cest', mssql.VarChar, p.cest || null)
+    .input('cfop', mssql.VarChar, p.cfop || null)
+    .input('icmsSituacao', mssql.VarChar, p.icmsSituacao || null)
+    .input('unidade', mssql.VarChar, p.unidade || null)
+    .input('codigoBarras', mssql.VarChar, p.codigoBarras || null)
     .query(query);
 }
 

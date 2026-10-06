@@ -50,6 +50,33 @@ function textoLimpo(valor: unknown, max: number): string {
   return valor.trim().slice(0, max);
 }
 
+type DadosFiscaisProduto = Pick<Produto, 'ncm' | 'cest' | 'cfop' | 'icmsSituacao' | 'unidade' | 'codigoBarras'>;
+
+// Campos fiscais opcionais do produto: vazio = usa o padrão da configuração fiscal da loja.
+function validarFiscalProduto(body: any): DadosFiscaisProduto | { erro: string } {
+  const dig = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? String(v).replace(/\D/g, '') : '');
+  const ncm = dig(body?.ncm);
+  if (ncm && ncm.length !== 8) return { erro: 'NCM deve ter 8 dígitos.' };
+  const cest = dig(body?.cest);
+  if (cest && cest.length !== 7) return { erro: 'CEST deve ter 7 dígitos.' };
+  const cfop = dig(body?.cfop);
+  if (cfop && !/^[56]\d{3}$/.test(cfop)) return { erro: 'CFOP do produto deve ser de saída (5xxx ou 6xxx).' };
+  const icmsSituacao = dig(body?.icmsSituacao);
+  if (icmsSituacao && !/^\d{2,3}$/.test(icmsSituacao)) return { erro: 'CSOSN/CST do produto inválido.' };
+  const unidade = textoLimpo(body?.unidade, 6).toUpperCase();
+  if (unidade && !/^[A-Z0-9]{1,6}$/.test(unidade)) return { erro: 'Unidade inválida (ex.: UN, CX, KG).' };
+  const codigoBarras = dig(body?.codigoBarras);
+  if (codigoBarras && ![8, 12, 13, 14].includes(codigoBarras.length)) return { erro: 'Código de barras (GTIN/EAN) deve ter 8, 12, 13 ou 14 dígitos.' };
+  return {
+    ncm: ncm || undefined,
+    cest: cest || undefined,
+    cfop: cfop || undefined,
+    icmsSituacao: icmsSituacao || undefined,
+    unidade: unidade || undefined,
+    codigoBarras: codigoBarras || undefined,
+  };
+}
+
 function validarProdutoEntrada(body: any): { nome: string; preco: number; descricao?: string; imagemUrl?: string; categoria?: string; subcategoria?: string } | { erro: string } {
   const nome = textoLimpo(body?.nome, 255);
   if (!nome) return { erro: 'nome é obrigatório.' };
@@ -98,7 +125,13 @@ router.post('/produtos', exigirLojaAdimplente, async (req: RequestComSessao, res
       res.status(400).json({ error: dados.erro });
       return;
     }
+    const fiscal = validarFiscalProduto(req.body);
+    if ('erro' in fiscal) {
+      res.status(400).json({ error: fiscal.erro });
+      return;
+    }
     const produto: Produto = {
+      ...fiscal,
       id: `prod-${crypto.randomBytes(5).toString('hex')}`,
       nome: dados.nome,
       preco: dados.preco,
@@ -136,8 +169,15 @@ router.put('/produtos/:id', exigirLojaAdimplente, async (req: RequestComSessao, 
       res.status(400).json({ error: dados.erro });
       return;
     }
+    // Campos fiscais ausentes do corpo (ex.: só alternar "ativo") mantêm o valor salvo.
+    const fiscal = validarFiscalProduto({ ...atual, ...req.body });
+    if ('erro' in fiscal) {
+      res.status(400).json({ error: fiscal.erro });
+      return;
+    }
     const atualizado: Produto = {
       ...atual,
+      ...fiscal,
       nome: dados.nome,
       preco: dados.preco,
       descricao: dados.descricao,
