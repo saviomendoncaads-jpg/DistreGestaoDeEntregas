@@ -121,7 +121,7 @@ const COLUNAS: ColDef[] = [
 
 export default function KanbanComandas({
   deliveries, drivers, selectedForManifest, onToggleManifest,
-  onPreparar, onFinalizar, onCancelar, onAbrirComanda, onDespachar, onImprimir,
+  onPreparar, onFinalizar, onCancelar, onAbrirComanda, onDespachar,
   getValor, getStatusText, notasPorComanda, onNotaFiscal,
 }: Props) {
   const [colAtiva, setColAtiva] = useState<ColKey>('novos');
