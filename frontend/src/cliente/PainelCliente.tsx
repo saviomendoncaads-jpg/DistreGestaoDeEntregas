@@ -169,6 +169,13 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
 
         <footer className="v-footer">
           Pedidos e entregas orquestrados por <strong className="v-footer-marca">Distre</strong>
+          <small className="vt-creditos">
+            Imagens ilustrativas de produtos:{' '}
+            <a href="https://world.openfoodfacts.org" target="_blank" rel="noreferrer">Open Food Facts</a>,{' '}
+            <a href="https://world.openbeautyfacts.org" target="_blank" rel="noreferrer">Open Beauty Facts</a> e{' '}
+            <a href="https://commons.wikimedia.org" target="_blank" rel="noreferrer">Wikimedia Commons</a>{' '}
+            (<a href="https://creativecommons.org/licenses/by-sa/3.0/deed.pt_BR" target="_blank" rel="noreferrer">CC BY-SA</a>).
+          </small>
         </footer>
       </div>
 
