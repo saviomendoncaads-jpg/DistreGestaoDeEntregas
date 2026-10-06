@@ -1,0 +1,90 @@
+[
+  {
+    "produto": "Dorflex",
+    "imagem": "/uploads/1791263467451-f2bb7e3e694d.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Neosaldina",
+    "imagem": "/uploads/1791263467459-58a84f2d623c.jpg",
+    "fonte": "Open Products Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Buscopan",
+    "imagem": "/uploads/1791263467465-9e43c3a5413f.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Tylenol Criança",
+    "imagem": "/uploads/1791263467469-9eb431a9c629.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Paracetamol Bebê EMS",
+    "imagem": "/uploads/1791263467473-aeb6c4675802.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Ibuprofeno 400mg Neo Química",
+    "imagem": "/uploads/1791263467478-61c3524f367c.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Advil Mulher 400mg",
+    "imagem": "/uploads/1791263467483-bbd40f4649be.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Leite de Magnésia Estomazil",
+    "imagem": "/uploads/1791263467487-1645971aa66d.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Engov After",
+    "imagem": "/uploads/1791263467491-481466632c6c.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Strepsils Mel e Limão",
+    "imagem": "/uploads/1791263467496-cff5e6425626.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Loratadina 10mg Cimed",
+    "imagem": "/uploads/1791263467501-ee9258ce2004.jpg",
+    "fonte": "Open Food Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Termômetro Digital",
+    "imagem": "/uploads/1791263467505-f42f7203511b.jpg",
+    "fonte": "Wikimedia Commons",
+    "licenca": "CC BY-SA 4.0",
+    "autor": "Jacek Halicki",
+    "origem": "https://commons.wikimedia.org/wiki/File:2023_Elektroniczny_termometr_lekarski.jpg"
+  },
+  {
+    "produto": "Creme Dental Sorriso Fresh",
+    "imagem": "/uploads/1791263467509-98479139e9f6.jpg",
+    "fonte": "Open Beauty Facts",
+    "licenca": "CC BY-SA 3.0"
+  },
+  {
+    "produto": "Sabonete Dove Original",
+    "imagem": "/uploads/1791263467515-f0897b4326db.jpg",
+    "fonte": "Wikimedia Commons",
+    "licenca": "CC BY-SA 2.5",
+    "autor": "",
+    "origem": "https://commons.wikimedia.org/wiki/File:Sabonete_Dove.jpg"
+  }
+]

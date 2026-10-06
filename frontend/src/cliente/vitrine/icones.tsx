@@ -52,7 +52,7 @@ export function tipoCategoria(nome: string): Tipo {
   if (/\bconvenios?\b|plano de saude/.test(n)) return 'convenio';
   if (/higien|pessoal|banho|cabelo|shampoo|bucal/.test(n)) return 'higiene';
   if (/dermo|pele|cosmet|beleza|protetor|maquiag/.test(n)) return 'dermo';
-  if (/saude|bem.?estar|vitamin|suplement/.test(n)) return 'saude';
+  if (/saude|bem.?estar|vitamin|suplement|socorro|curativ/.test(n)) return 'saude';
   if (/bebe|infantil|crianca|fralda|mamae/.test(n)) return 'bebe';
   if (/aliment|bebida|mercearia|lanche|doce|chocolate/.test(n)) return 'alimento';
   if (/ortoped|ortes|acessibil/.test(n)) return 'ortopedia';

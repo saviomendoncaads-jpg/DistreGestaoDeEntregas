@@ -199,3 +199,6 @@
 
 /* Barra 'Ver carrinho' só no celular (no desktop o carrinho fica no cabeçalho). */
 @media (min-width: 901px) { .vt-barra-mobile { display: none !important; } }
+
+.vt-creditos { display: block; margin-top: 6px; font-size: 11px; color: #94a3b8; }
+.vt-creditos a { color: inherit; }
