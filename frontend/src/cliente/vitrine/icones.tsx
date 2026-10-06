@@ -48,7 +48,8 @@ type Tipo = 'medicamento' | 'convenio' | 'higiene' | 'dermo' | 'saude' | 'bebe' 
 export function tipoCategoria(nome: string): Tipo {
   const n = norm(nome);
   if (/medicament|remedio|generico|farmac|analgesic/.test(n)) return 'medicamento';
-  if (/conveni|plano|desconto/.test(n)) return 'convenio';
+  if (/convenienc|mercearia/.test(n)) return 'alimento'; // "Conveniência" ≠ "Convênios"
+  if (/\bconvenios?\b|plano de saude/.test(n)) return 'convenio';
   if (/higien|pessoal|banho|cabelo|shampoo|bucal/.test(n)) return 'higiene';
   if (/dermo|pele|cosmet|beleza|protetor|maquiag/.test(n)) return 'dermo';
   if (/saude|bem.?estar|vitamin|suplement/.test(n)) return 'saude';
