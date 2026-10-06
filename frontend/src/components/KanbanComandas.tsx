@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { BentoItem } from './ui/cybernetic-bento-grid';
+import { NOME_MODELO, type NotaResumo } from './fiscal/fiscalApi';
+import './fiscal/fiscal.css';
 
 /**
  * Kanban de Controle de Comandas — 5 colunas por etapa do funil operacional.
@@ -48,7 +50,15 @@ interface Props {
   onImprimir: (c: ComandaLite) => void;
   getValor: (c: ComandaLite) => number;
   getStatusText: (status: string) => string;
+  /** Nota fiscal mais recente por id de entrega/pedido (opcional — sem módulo fiscal, some o selo). */
+  notasPorComanda?: Record<string, NotaResumo>;
+  /** Clique no selo (reimprimir/atualizar) ou em "Emitir nota" (sem nota ou após erro). */
+  onNotaFiscal?: (comandaId: string, nota?: NotaResumo) => void;
 }
+
+const ROTULO_STATUS_NOTA: Record<string, string> = {
+  AUTORIZADA: '', PROCESSANDO: ' · processando', REJEITADA: ' · rejeitada', ERRO: ' · erro', CANCELADA: ' · cancelada',
+};
 
 const STATUS_ROTA = ['DESPACHADO', 'EM_TRANSITO', 'NO_LOCAL', 'ALERTA_INCIDENTE', 'SLA_ALERTA', 'AGUARDANDO_RETORNO_CD'];
 const STATUS_FINAL = ['ENTREGUE', 'RECUSADO_INSUCESSO', 'PRODUTO_RETORNADO_ESTOQUE', 'CANCELADO'];
@@ -112,7 +122,7 @@ const COLUNAS: ColDef[] = [
 export default function KanbanComandas({
   deliveries, drivers, selectedForManifest, onToggleManifest,
   onPreparar, onFinalizar, onCancelar, onAbrirComanda, onDespachar, onImprimir,
-  getValor, getStatusText,
+  getValor, getStatusText, notasPorComanda, onNotaFiscal,
 }: Props) {
   const [colAtiva, setColAtiva] = useState<ColKey>('novos');
   const [dispatchOpen, setDispatchOpen] = useState(false);
@@ -195,6 +205,34 @@ export default function KanbanComandas({
               )}
               {temAlerta && <span className="kanban-card-alerta">⚠ alerta</span>}
             </div>
+            {onNotaFiscal && (() => {
+              const nota = notasPorComanda?.[d.id];
+              if (nota) {
+                return (
+                  <button
+                    type="button"
+                    className={`kanban-nota kanban-nota--${nota.status}`}
+                    onClick={e => { e.stopPropagation(); onNotaFiscal(d.id, nota); }}
+                    title={nota.mensagem || 'Reimprimir a nota fiscal'}
+                  >
+                    🧾 {NOME_MODELO[nota.modelo]}{nota.numero ? ` ${nota.numero}` : ''}{ROTULO_STATUS_NOTA[nota.status] ?? ''}
+                  </button>
+                );
+              }
+              // Sem nota: oferta de emissão só para entregas ainda em operação.
+              if (col === 'prontos' || col === 'rota') {
+                return (
+                  <button
+                    type="button"
+                    className="kanban-nota kanban-nota--emitir"
+                    onClick={e => { e.stopPropagation(); onNotaFiscal(d.id); }}
+                  >
+                    🧾 Emitir nota
+                  </button>
+                );
+              }
+              return null;
+            })()}
           </div>
         </div>
 

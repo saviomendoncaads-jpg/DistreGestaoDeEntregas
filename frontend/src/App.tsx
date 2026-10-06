@@ -1,9 +1,16 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
 import CentroOperacoes, { type BrokerEvento } from './components/CentroOperacoes';
 import KanbanComandas from './components/KanbanComandas';
 import GestaoVitrine from './components/GestaoVitrine';
+import EmissaoNotaModal from './components/fiscal/EmissaoNotaModal';
+import ConfigFiscalModal from './components/fiscal/ConfigFiscalModal';
+import {
+  FiscalApi, NOME_MODELO,
+  type DestinatarioNota, type EscolhaFiscal, type NotaCompleta, type NotaResumo, type StatusFiscal,
+} from './components/fiscal/fiscalApi';
+import { imprimirNota } from './components/fiscal/danfe';
 import './App.css';
 
 declare const L: any;
@@ -2583,21 +2590,138 @@ export default function App() {
     }
   };
 
+  // ===== Módulo Fiscal (NFC-e / NF-e) =====
+  // Ao concluir a separação a loja escolhe o documento da venda: NFC-e (cupom 80mm),
+  // NF-e (DANFE A4) ou nenhum. "Padrão" fica salvo por terminal (localStorage):
+  //  - 'perguntar': sempre abre o seletor;  - 'NFCE': emite NFC-e direto;
+  //  - 'NFE': abre o seletor já em NF-e (precisa do destinatário);  - 'NENHUMA': não emite.
+  type ModoNotaPadrao = 'perguntar' | 'NFCE' | 'NFE' | 'NENHUMA';
+  const [modoNotaPadrao, setModoNotaPadrao] = useState<ModoNotaPadrao>(() => {
+    try { return (localStorage.getItem('distre_nota_padrao') as ModoNotaPadrao) || 'perguntar'; }
+    catch { return 'perguntar'; }
+  });
+  const alterarModoNota = (m: ModoNotaPadrao) => {
+    setModoNotaPadrao(m);
+    try { localStorage.setItem('distre_nota_padrao', m); } catch { /* ignore */ }
+  };
+
+  const fiscalApi = useMemo(
+    () => (sessao?.token ? new FiscalApi(BACKEND_URL, sessao.token, sessao.tipo === 'admin' ? tenantLojaId : undefined) : null),
+    [sessao?.token, sessao?.tipo, tenantLojaId]
+  );
+  const [fiscalStatus, setFiscalStatus] = useState<StatusFiscal | null>(null);
+  const fiscalSimulado = !fiscalStatus || fiscalStatus.simulado;
+  const atualizarStatusFiscal = () => { fiscalApi?.status().then(setFiscalStatus).catch(() => { /* ignore */ }); };
+  const [notasFiscais, setNotasFiscais] = useState<NotaResumo[]>([]);
+  const [showConfigFiscal, setShowConfigFiscal] = useState(false);
+  const [emissaoFiscal, setEmissaoFiscal] = useState<{ modo: 'separacao' | 'emitir'; comandaId: string; escolhaInicial: EscolhaFiscal } | null>(null);
+
+  const carregarNotasFiscais = async () => {
+    if (!fiscalApi || !tenantLojaId) return;
+    try { setNotasFiscais(await fiscalApi.listarNotas(2)); }
+    catch (err) { console.warn('[Fiscal] Falha ao listar notas:', err); }
+  };
+
+  useEffect(() => {
+    if (!fiscalApi || !tenantLojaId) { setNotasFiscais([]); return; }
+    atualizarStatusFiscal();
+    carregarNotasFiscais();
+    // Outros caixas da mesma loja também emitem: ressincroniza os selos a cada minuto.
+    const t = setInterval(carregarNotasFiscais, 60_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fiscalApi, tenantLojaId]);
+
+  // Nota mais recente por entrega e por pedido de origem (a lista já vem do mais novo).
+  const notasPorComanda = useMemo(() => {
+    const m: Record<string, NotaResumo> = {};
+    for (const n of notasFiscais) {
+      for (const id of [n.entregaId, n.pedidoId]) if (id && !m[id]) m[id] = n;
+    }
+    return m;
+  }, [notasFiscais]);
+
+  const registrarNota = (n: NotaResumo) => setNotasFiscais(prev => [n, ...prev.filter(x => x.id !== n.id)]);
+
+  const avisarNotaPendente = (n: NotaResumo) => {
+    if (n.status === 'PROCESSANDO') {
+      alert(`${NOME_MODELO[n.modelo]} enviada e ainda em processamento na SEFAZ. Clique no selo da nota no card para atualizar e imprimir.`);
+    }
+  };
+
+  const executarFinalizacao = async (id: string, escolha: EscolhaFiscal, destinatario?: DestinatarioNota) => {
+    const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${id}/finalize-order`, {
+      method: 'POST',
+      body: JSON.stringify(escolha === 'NENHUMA' ? {} : { fiscal: { modelo: escolha, destinatario } })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const err = new Error(data.error || 'Erro ao finalizar comanda') as Error & { status?: number };
+      err.status = response.status;
+      throw err;
+    }
+    // Sem pop-up de sucesso: a comanda já avança no Kanban via socket — operação flui.
+    const nota: NotaCompleta | undefined = data.fiscal?.nota;
+    if (nota) {
+      registrarNota(nota);
+      if (nota.status === 'AUTORIZADA') imprimirNota(nota);
+      else avisarNotaPendente(nota);
+    }
+    if (data.fiscal?.erro) {
+      alert(`Separação concluída, mas a nota fiscal não foi autorizada:\n${data.fiscal.erro}\n\nUse "Emitir nota" no card para tentar de novo.`);
+    }
+  };
+
   const handleFinalizarPedido = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    try {
-      const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${id}/finalize-order`, {
-        method: 'POST'
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Erro ao finalizar comanda');
+    if (modoNotaPadrao === 'NENHUMA' || modoNotaPadrao === 'NFCE') {
+      try {
+        await executarFinalizacao(id, modoNotaPadrao);
+      } catch (err: any) {
+        alert(err.message);
+        if (err.status === 412) setShowConfigFiscal(true); // dados fiscais da loja não configurados
       }
-      // Sem pop-up de sucesso: a comanda já avança/some no Kanban via socket — operação flui.
+      return;
+    }
+    setEmissaoFiscal({ modo: 'separacao', comandaId: id, escolhaInicial: modoNotaPadrao === 'NFE' ? 'NFE' : 'NFCE' });
+  };
+
+  // Selo da nota no card: reimprime; NF-e em processamento é reconsultada; erro/rejeição/cancelada → reemite.
+  const handleNotaFiscalCard = async (comandaId: string, nota?: NotaResumo) => {
+    if (!fiscalApi) return;
+    if (!nota || nota.status === 'ERRO' || nota.status === 'REJEITADA' || nota.status === 'CANCELADA') {
+      setEmissaoFiscal({ modo: 'emitir', comandaId, escolhaInicial: nota?.modelo || (modoNotaPadrao === 'NFE' ? 'NFE' : 'NFCE') });
+      return;
+    }
+    try {
+      const completa = nota.status === 'PROCESSANDO' ? await fiscalApi.atualizar(nota.id) : await fiscalApi.obterNota(nota.id);
+      registrarNota(completa);
+      if (completa.status === 'AUTORIZADA') imprimirNota(completa);
+      else alert(`${NOME_MODELO[completa.modelo]}: ${completa.status.toLowerCase()}${completa.mensagem ? ` — ${completa.mensagem}` : ''}`);
     } catch (err: any) {
       alert(err.message);
     }
   };
+
+  const confirmarEmissaoFiscal = async (escolha: EscolhaFiscal, destinatario?: DestinatarioNota) => {
+    if (!emissaoFiscal) return;
+    if (emissaoFiscal.modo === 'separacao') {
+      await executarFinalizacao(emissaoFiscal.comandaId, escolha, destinatario);
+    } else if (fiscalApi && escolha !== 'NENHUMA') {
+      try {
+        const nota = await fiscalApi.emitir(emissaoFiscal.comandaId, escolha, destinatario);
+        registrarNota(nota);
+        if (nota.status === 'AUTORIZADA') imprimirNota(nota);
+        else avisarNotaPendente(nota);
+      } catch (err: any) {
+        if (err.nota) registrarNota(err.nota); // tentativa com erro fica registrada no card
+        throw err;
+      }
+    }
+    setEmissaoFiscal(null);
+  };
+
+  const comandaEmEmissao = emissaoFiscal ? deliveries.find(d => d.id === emissaoFiscal.comandaId) : undefined;
 
   // Gera o romaneio (manifesto) das comandas selecionadas + entregador escolhido.
   // Extraído do antigo botão "Gerar Romaneios" do header; acionado pelo Kanban (Coluna "Prontos").
@@ -4879,6 +5003,45 @@ export default function App() {
                 </select>
               </label>
             )}
+            {tenantLojaId && fiscalApi && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                <span aria-hidden="true">🧾</span>
+                Nota fiscal:
+                <select
+                  className="form-select"
+                  value={modoNotaPadrao}
+                  onChange={ev => alterarModoNota(ev.target.value as ModoNotaPadrao)}
+                  style={{ width: 'auto', minHeight: '30px', padding: '0 var(--space-2)', fontSize: '0.75rem' }}
+                  title="Documento fiscal emitido ao concluir a separação"
+                >
+                  <option value="perguntar">Perguntar (NFC-e ou NF-e)</option>
+                  <option value="NFCE">NFC-e automática</option>
+                  <option value="NFE">NF-e</option>
+                  <option value="NENHUMA">Não emitir</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowConfigFiscal(true)}
+                  style={{ minHeight: '30px', padding: '0 0.6rem', fontSize: '0.72rem' }}
+                  title="CNPJ, IE, endereço, séries e tributação padrão do emitente"
+                >
+                  Dados fiscais
+                </button>
+                {fiscalStatus && (
+                  <span
+                    title={fiscalStatus.podeEmitir ? 'Ambiente fiscal da loja' : 'Configuração fiscal incompleta — abra Dados fiscais'}
+                    style={{
+                      fontSize: '0.66rem', fontWeight: 700,
+                      color: !fiscalStatus.podeEmitir ? 'var(--color-rose)' : fiscalStatus.simulado ? 'var(--color-amber)'
+                        : fiscalStatus.ambiente === 'PRODUCAO' ? 'var(--color-emerald)' : 'var(--color-cyan)',
+                    }}
+                  >
+                    {!fiscalStatus.podeEmitir ? 'CONFIGURAR' : fiscalStatus.simulado ? 'SIMULADO' : fiscalStatus.ambiente === 'PRODUCAO' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}
+                  </span>
+                )}
+              </label>
+            )}
           </h2>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             {selectedRecebidas.length > 0 && tenantLojaId && (
@@ -5032,6 +5195,8 @@ export default function App() {
           onImprimir={(c) => imprimirComandaTicket(c as any, 'impressora')}
           getValor={getDeliveryValue as any}
           getStatusText={getStatusText}
+          notasPorComanda={notasPorComanda}
+          onNotaFiscal={tenantLojaId && fiscalApi ? handleNotaFiscalCard : undefined}
         />
         {/* (as 2 filas verticais antigas foram substituídas pelo Kanban acima) */}
       </section>
@@ -6227,6 +6392,36 @@ export default function App() {
           lojaId={sessao.lojaId}
           nomeLoja={sessao.nomeLoja || 'Minha Loja'}
           onClose={() => setShowVitrineModal(false)}
+        />
+      )}
+
+      {/* Módulo Fiscal: escolha NFC-e / NF-e ao concluir a separação (ou reemissão pelo card) */}
+      {emissaoFiscal && comandaEmEmissao && (
+        <EmissaoNotaModal
+          titulo={emissaoFiscal.modo === 'separacao' ? 'Concluir separação' : 'Emitir nota fiscal'}
+          comanda={{
+            id: comandaEmEmissao.id,
+            nomeCliente: comandaEmEmissao.nomeCliente,
+            clienteDocumento: comandaEmEmissao.clienteDocumento,
+            endereco: comandaEmEmissao.endereco,
+            bairro: comandaEmEmissao.bairro,
+            cidade: comandaEmEmissao.cidade,
+            valor: getDeliveryValue(comandaEmEmissao),
+          }}
+          escolhaInicial={emissaoFiscal.escolhaInicial}
+          permitirSemNota={emissaoFiscal.modo === 'separacao'}
+          simulado={fiscalSimulado || fiscalStatus?.ambiente !== 'PRODUCAO'}
+          onConfirmar={confirmarEmissaoFiscal}
+          onAbrirConfig={() => setShowConfigFiscal(true)}
+          onFechar={() => setEmissaoFiscal(null)}
+        />
+      )}
+      {showConfigFiscal && fiscalApi && tenantLojaId && (
+        <ConfigFiscalModal
+          api={fiscalApi}
+          nomeLoja={sessao?.nomeLoja || lojaVisualizada?.nome || 'Minha Loja'}
+          onSalvo={atualizarStatusFiscal}
+          onFechar={() => setShowConfigFiscal(false)}
         />
       )}
 

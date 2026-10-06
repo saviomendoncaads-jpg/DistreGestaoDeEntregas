@@ -14,6 +14,9 @@ import {
 } from './billing/planLimitsService';
 import fs from 'fs';
 import path from 'path';
+import { ErroFiscal, emitirNotaDaVenda, normalizarDestinatario, validarEmissao } from './fiscal/fiscalService';
+import { notaParaImpressao } from './fiscal/notaApresentacao';
+import { ModeloNota } from './fiscal/tipos';
 
 const VEHICLE_TYPES_FILE = path.join(__dirname, '..', 'vehicle_types.json');
 
@@ -1374,6 +1377,24 @@ router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response
       return;
     }
 
+    // Documento fiscal escolhido no painel ao concluir a separação (NFC-e, NF-e ou nenhum).
+    // Valida ANTES de mexer no status: dado fiscal faltando não pode deixar a comanda pela metade.
+    const modeloFiscal = req.body?.fiscal?.modelo as ModeloNota | undefined;
+    const destinatarioFiscal = normalizarDestinatario(req.body?.fiscal?.destinatario);
+    const emitirFiscal = modeloFiscal === 'NFCE' || modeloFiscal === 'NFE';
+    if (emitirFiscal) {
+      if (!order.lojaId) {
+        res.status(400).json({ error: 'Comanda sem loja vinculada — não é possível emitir nota fiscal.' });
+        return;
+      }
+      try {
+        await validarEmissao(order.lojaId, modeloFiscal!, destinatarioFiscal);
+      } catch (err: any) {
+        res.status(err instanceof ErroFiscal ? err.httpStatus : 500).json({ error: err.message, codigo: 'FISCAL_INVALIDO' });
+        return;
+      }
+    }
+
     // 1. Atualiza o status do pedido para finalizado (usamos status ENTREGUE/sucesso para controle interno)
     order.status = 'ENTREGUE';
     order.atualizadoEm = new Date().toISOString();
@@ -1411,7 +1432,25 @@ router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response
       y: 40 + Math.floor(Math.random() * 55)
     });
 
-    res.json({ success: true, message: 'Pedido finalizado e enviado para entrega.', order, delivery: newDelivery });
+    // 4. Emite a nota fiscal da venda. Falha de SEFAZ/provedor NÃO desfaz a separação:
+    //    a comanda segue para despacho e a nota pode ser reemitida pelo card do Kanban.
+    let fiscal: { nota?: unknown; erro?: string } | undefined;
+    if (emitirFiscal) {
+      try {
+        const nota = await emitirNotaDaVenda({
+          lojaId: order.lojaId!,
+          entrega: newDelivery,
+          vendaId: order.id,
+          modelo: modeloFiscal!,
+          destinatario: destinatarioFiscal,
+        });
+        fiscal = { nota: await notaParaImpressao(nota), erro: nota.status === 'ERRO' || nota.status === 'REJEITADA' ? nota.mensagem : undefined };
+      } catch (err: any) {
+        fiscal = { erro: err?.message || String(err) };
+      }
+    }
+
+    res.json({ success: true, message: 'Pedido finalizado e enviado para entrega.', order, delivery: newDelivery, fiscal });
   } catch (err: any) {
     console.error('[Gateway] Erro ao finalizar comanda de pedido:', err);
     res.status(500).json({ error: err.message });

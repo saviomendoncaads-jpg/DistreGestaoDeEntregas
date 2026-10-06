@@ -50,3 +50,6 @@ backend/src/*.json
 
 # Imagens enviadas pelo painel (produtos/logo da vitrine) - dados locais, fora do git
 backend/uploads/
+
+# Chave que cifra as credenciais fiscais (certificado A1, CSC, tokens) - NUNCA versionar
+backend/.chave-fiscal

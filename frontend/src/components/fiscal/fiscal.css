@@ -1,0 +1,85 @@
+/* Módulo Fiscal — modais (sobre o tema escuro do .kanban-modal) e selo da nota no card. */
+
+.fiscal-modal { max-width: 460px; max-height: calc(100vh - 2rem); overflow-y: auto; }
+.fiscal-modal--config { max-width: 560px; }
+
+.fiscal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.8rem; }
+.fiscal-sub { font-size: 0.72rem; color: var(--text-secondary); }
+.fiscal-secao {
+  font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-cyan);
+  margin: 1rem 0 0.45rem; padding-top: 0.6rem; border-top: 1px solid var(--border-thin);
+}
+.fiscal-secao:first-of-type { border-top: 0; padding-top: 0; margin-top: 0.2rem; }
+.fiscal-dica { font-size: 0.7rem; color: var(--text-secondary); margin: 0.45rem 0 0; line-height: 1.45; }
+
+.fiscal-aviso {
+  font-size: 0.7rem; line-height: 1.4; color: #fbbf24; background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 0.45rem 0.6rem; margin-bottom: 0.8rem;
+}
+
+.fiscal-opcoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.45rem; }
+.fiscal-opcao {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem; text-align: left; cursor: pointer;
+  padding: 0.6rem 0.65rem; border-radius: 10px; background: var(--bg-secondary, #0d131f);
+  border: 1px solid var(--border-thin); color: var(--text-primary); font: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.fiscal-opcao:hover { border-color: #2b3850; }
+.fiscal-opcao:focus-visible { outline: 2px solid var(--color-cyan); outline-offset: 2px; }
+.fiscal-opcao.ativa { border-color: var(--color-emerald); background: rgba(16, 185, 129, 0.1); }
+.fiscal-opcao-titulo { font-size: 0.85rem; font-weight: 700; }
+.fiscal-opcao-desc { font-size: 0.66rem; color: var(--text-secondary); line-height: 1.35; }
+
+.fiscal-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem 0.6rem; margin-top: 0.75rem; }
+.fiscal-campo { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.fiscal-campo--full { grid-column: 1 / -1; }
+.fiscal-campo > span { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+.fiscal-campo .form-input, .fiscal-campo .form-select { width: 100%; min-height: 34px; font-size: 0.8rem; color: var(--text-primary); }
+
+.fiscal-erro, .fiscal-ok {
+  margin-top: 0.8rem; font-size: 0.74rem; line-height: 1.4; border-radius: 8px; padding: 0.5rem 0.65rem;
+}
+.fiscal-erro { color: #fda4af; background: rgba(225, 29, 72, 0.1); border: 1px solid rgba(225, 29, 72, 0.35); }
+.fiscal-ok { color: #6ee7b7; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.35); }
+.fiscal-link {
+  display: inline-block; margin-left: 0.4rem; background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--color-cyan); font: inherit; font-weight: 700; text-decoration: underline;
+}
+
+.fiscal-abas { display: flex; gap: 0.3rem; margin: 0.4rem 0 0.2rem; border-bottom: 1px solid var(--border-thin); }
+.fiscal-aba {
+  background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); cursor: pointer;
+  font: inherit; font-size: 0.74rem; font-weight: 700; padding: 0.45rem 0.6rem; margin-bottom: -1px;
+}
+.fiscal-aba.ativa { color: var(--text-primary); border-bottom-color: var(--color-emerald); }
+.fiscal-checklist {
+  border: 1px solid rgba(245, 158, 11, 0.35); background: rgba(245, 158, 11, 0.06); border-radius: 10px;
+  padding: 0.55rem 0.7rem; margin-bottom: 0.6rem; font-size: 0.72rem; color: var(--text-primary);
+}
+.fiscal-checklist.pronto { border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.07); }
+.fiscal-checklist-titulo { font-weight: 700; margin-bottom: 0.3rem; }
+.fiscal-checklist ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.fiscal-checklist li.ok span { color: #34d399; }
+.fiscal-checklist li.falta span { color: #fb7185; }
+.fiscal-checklist li.opcional { color: var(--text-secondary); }
+.fiscal-checklist em { color: var(--text-secondary); font-style: normal; }
+.fiscal-acoes { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
+.fiscal-acoes .kanban-btn { flex: 1 1 140px; padding: 0.5rem; }
+.fiscal-campo input[type="file"] { padding: 0.3rem; font-size: 0.72rem; }
+
+@media (max-width: 480px) {
+  .fiscal-form { grid-template-columns: 1fr; }
+}
+
+/* Selo da nota no card do Kanban */
+.kanban-nota {
+  display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.62rem; font-weight: 700;
+  padding: 0.15rem 0.45rem; border-radius: 999px; border: 1px solid transparent; cursor: pointer;
+  background: rgba(16, 185, 129, 0.12); color: #34d399; border-color: rgba(16, 185, 129, 0.35);
+  font-family: inherit;
+}
+.kanban-nota:hover { filter: brightness(1.15); }
+.kanban-nota--PROCESSANDO { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.35); }
+.kanban-nota--ERRO, .kanban-nota--REJEITADA { background: rgba(225, 29, 72, 0.12); color: #fb7185; border-color: rgba(225, 29, 72, 0.35); }
+.kanban-nota--CANCELADA { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border-color: rgba(148, 163, 184, 0.3); text-decoration: line-through; }
+.kanban-nota--emitir { background: transparent; color: var(--color-cyan); border-color: rgba(14, 154, 174, 0.45); }

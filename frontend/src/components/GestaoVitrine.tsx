@@ -17,6 +17,12 @@ interface ProdutoGestao {
   ativo: boolean;
   categoria?: string;
   subcategoria?: string;
+  ncm?: string;
+  cest?: string;
+  cfop?: string;
+  icmsSituacao?: string;
+  unidade?: string;
+  codigoBarras?: string;
 }
 
 interface Props {
@@ -27,7 +33,12 @@ interface Props {
   onClose: () => void;
 }
 
-const FORM_VAZIO = { id: '', nome: '', preco: '', descricao: '', imagemUrl: '', categoria: '', subcategoria: '' };
+const FORM_VAZIO = {
+  id: '', nome: '', preco: '', descricao: '', imagemUrl: '', categoria: '', subcategoria: '',
+  // Dados fiscais (vazio = padrão da loja em "Dados fiscais")
+  ncm: '', cest: '', cfop: '', icmsSituacao: '', unidade: '', codigoBarras: ''
+};
+const CAMPOS_FISCAIS = ['ncm', 'cest', 'cfop', 'icmsSituacao', 'unidade', 'codigoBarras'] as const;
 const MAX_IMAGEM_BYTES = 3 * 1024 * 1024;
 
 const estiloInput: React.CSSProperties = {
@@ -222,7 +233,13 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
       descricao: p.descricao || '',
       imagemUrl: p.imagemUrl || '',
       categoria: p.categoria || '',
-      subcategoria: p.subcategoria || ''
+      subcategoria: p.subcategoria || '',
+      ncm: p.ncm || '',
+      cest: p.cest || '',
+      cfop: p.cfop || '',
+      icmsSituacao: p.icmsSituacao || '',
+      unidade: p.unidade || '',
+      codigoBarras: p.codigoBarras || ''
     });
     setFormAberto(true);
     setErro(null);
@@ -248,7 +265,8 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
         descricao: form.descricao,
         imagemUrl: form.imagemUrl,
         categoria: form.categoria,
-        subcategoria: form.subcategoria
+        subcategoria: form.subcategoria,
+        ...Object.fromEntries(CAMPOS_FISCAIS.map(k => [k, form[k]]))
       });
       const salvo: ProdutoGestao = form.id
         ? await gestaoFetch(`/api/gestao/produtos/${form.id}`, { method: 'PUT', body: corpo })
@@ -435,6 +453,31 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
                     <input ref={inputFotoRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={aoEscolherFotoProduto} />
                   </div>
                 </div>
+                <details open={CAMPOS_FISCAIS.some(k => form[k])} style={{ border: '1px solid var(--border-thin)', borderRadius: '8px', padding: '0.5rem 0.7rem' }}>
+                  <summary style={{ ...estiloLabel, marginBottom: 0, cursor: 'pointer' }}>Dados fiscais (NFC-e / NF-e) — vazio usa o padrão da loja</summary>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.6rem', marginTop: '0.6rem' }}>
+                    {([
+                      ['ncm', 'NCM (8 dígitos)', '30049099'],
+                      ['cest', 'CEST (se houver ST)', '1300100'],
+                      ['codigoBarras', 'Código de barras (EAN)', '7891234567895'],
+                      ['unidade', 'Unidade', 'UN'],
+                      ['cfop', 'CFOP', '5102'],
+                      ['icmsSituacao', 'CSOSN / CST', '102'],
+                    ] as [typeof CAMPOS_FISCAIS[number], string, string][]).map(([k, rotulo, ex]) => (
+                      <div key={k}>
+                        <label style={estiloLabel}>{rotulo}</label>
+                        <input
+                          style={estiloInput}
+                          value={form[k]}
+                          inputMode={k === 'unidade' ? 'text' : 'numeric'}
+                          maxLength={k === 'codigoBarras' ? 14 : k === 'ncm' ? 8 : k === 'cest' ? 7 : k === 'unidade' ? 6 : 4}
+                          onChange={e => setForm(f => ({ ...f, [k]: k === 'unidade' ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, '') }))}
+                          placeholder={ex}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </details>
                 <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
                   <button type="button" style={estiloBotaoSuave} onClick={() => { setFormAberto(false); setForm(FORM_VAZIO); }}>
                     Cancelar
