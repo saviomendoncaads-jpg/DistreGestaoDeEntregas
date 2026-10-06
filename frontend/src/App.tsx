@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
 import CentroOperacoes, { type BrokerEvento } from './components/CentroOperacoes';
-import KanbanComandas from './components/KanbanComandas';
+import OperationsWorkspace from './components/OperationsWorkspace';
 import GestaoVitrine from './components/GestaoVitrine';
 import EmissaoNotaModal from './components/fiscal/EmissaoNotaModal';
 import ConfigFiscalModal from './components/fiscal/ConfigFiscalModal';
@@ -1111,9 +1111,7 @@ export default function App() {
   const currentLoja = tenantLojaId
     ? Object.values(lojasDaEmpresa).flat().find(l => l.id === tenantLojaId)
     : null;
-  const isRecebePedidosEnabled = sessao?.tipo === 'loja'
-    ? (sessao.recebePedidos || currentLoja?.recebePedidos || false)
-    : (sessao?.tipo === 'admin' && lojaVisualizada ? (currentLoja?.recebePedidos || false) : false);
+
 
   // Estados de logs e webhooks removidos
   // Controle de interface do painel
@@ -1141,10 +1139,10 @@ export default function App() {
 
   // Estados para o FAB e Modal de Relatório
   const [fabOpen, setFabOpen] = useState(false);
-  const [whatsappOpen, setWhatsappOpen] = useState(false);
+  const [whatsappOpen] = useState(false);
   const [whatsappMessages, setWhatsappMessages] = useState<Array<{ sender: 'customer' | 'bot'; text: string; timestamp: string }>>([]);
   const [whatsappIsTyping, setWhatsappIsTyping] = useState(false);
-  const [whatsappPhone, setWhatsappPhone] = useState('+55 (81) 99999-8888');
+  const [whatsappPhone] = useState('+55 (81) 99999-8888');
   const whatsappPhoneRef = useRef(whatsappPhone);
 
   useEffect(() => {
@@ -2021,29 +2019,11 @@ export default function App() {
   }, [offlineMode]);
 
   // ---- Função helper para enviar mensagens ao bot WhatsApp via socket ----
-  const [whatsappInput, setWhatsappInput] = useState('');
   const whatsappMessagesEndRef = useRef<HTMLDivElement>(null);
 
-  const sendWhatsappMessage = (text: string) => {
-    const msg = text.trim() || whatsappInput.trim();
-    if (!msg || !socketRef.current) return;
 
-    const lojaId = sessao?.lojaId || sessao?.tipo === 'admin' ? 'admin' : '';
-    const phone = whatsappPhoneRef.current;
-    const timestamp = new Date().toISOString();
 
-    // Adiciona a mensagem do usuário otimisticamente na UI
-    setWhatsappMessages(prev => [...prev, { sender: 'customer', text: msg, timestamp }]);
-    setWhatsappInput('');
 
-    // Envia para o backend via socket
-    socketRef.current.emit('whatsapp_send_msg', { phone, text: msg, lojaId });
-  };
-
-  const clearWhatsappHistory = () => {
-    setWhatsappMessages([]);
-    setWhatsappIsTyping(false);
-  };
 
   // Auto-scroll para o final do chat quando novas mensagens chegam
   useEffect(() => {
@@ -2749,40 +2729,7 @@ export default function App() {
     setSelectedForManifest([]);
   };
 
-  const handleManualDispatch = async () => {
-    if (!selectedDriverForDispatch) {
-      alert('Por favor, selecione um entregador.');
-      return;
-    }
 
-    const recebidas = deliveries
-      .filter(d => selectedForManifest.includes(d.id) && d.status === 'RECEBIDO')
-      .map(d => d.id);
-
-    if (recebidas.length === 0) {
-      alert('Selecione pelo menos uma comanda no status Recebido.');
-      return;
-    }
-
-    try {
-      const response = await apiFetch(`${BACKEND_URL}/api/deliveries/dispatch-batch`, {
-        method: 'POST',
-        body: JSON.stringify({
-          deliveryIds: recebidas,
-          driverId: selectedDriverForDispatch
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Erro ao despachar entregas');
-      }
-      alert(data.message || 'Comandas liberadas com sucesso!');
-      setSelectedForManifest([]);
-      setSelectedDriverForDispatch('');
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
 
   const handleSyncExternalOrders = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -3147,24 +3094,9 @@ export default function App() {
     }
   };
 
-  const getPriorityText = (priority: string) => {
-    switch (priority) {
-      case 'baixa': return 'Baixa';
-      case 'media': return 'Média';
-      case 'alta': return 'Alta';
-      case 'critica': return 'Crítica';
-      default: return priority;
-    }
-  };
 
-  const getCargoTypeText = (type: string) => {
-    switch (type) {
-      case 'normal': return 'Entrega Normal';
-      case 'expressa': return 'Entrega Expressa';
-      case 'agendado': return 'Entrega Agendada';
-      default: return type;
-    }
-  };
+
+
 
   const selectedDelivery = deliveries.find(d => d.id === selectedDeliveryId);
   const activeDeliveries = deliveries.filter(d => d.status !== 'ENTREGUE' && d.status !== 'RECUSADO_INSUCESSO' && d.status !== 'PRODUTO_RETORNADO_ESTOQUE');
@@ -4857,7 +4789,7 @@ export default function App() {
 
   // Dashboard da Loja
   return (
-    <div className="app-container">
+    <div className="app-container distre-operations">
       {lojaVisualizada && (
         <div className="viewing-tenant-banner">
           <span className="viewing-tenant-text">
@@ -4972,12 +4904,15 @@ export default function App() {
       )}
 
       {/* Centro de Operações — painel operacional ao vivo (KPIs + SLA + eventos) */}
+      <details className="ops-analytics">
+      <summary>Indicadores de entrega e eventos da operação</summary>
       <CentroOperacoes
         deliveries={deliveries}
         drivers={drivers}
         liveEvents={liveEvents}
         zona={sessao?.nomeLoja || currentLoja?.nome || undefined}
       />
+      </details>
 
       {/* 3. Seção de Entregas Cadastradas (Comandas) */}
       <section className="glass-panel deliveries-top-panel glow-cyan">
@@ -5182,7 +5117,7 @@ export default function App() {
         )}
 
         {/* Kanban de Controle de Comandas — substitui as 2 filas verticais antigas */}
-        <KanbanComandas
+        <OperationsWorkspace
           deliveries={deliveries}
           drivers={drivers}
           selectedForManifest={selectedForManifest}
