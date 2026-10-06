@@ -19,11 +19,44 @@ export interface LojaVitrine {
   uf?: string;
   logoUrl?: string;
   aceitandoPedidos: boolean;
+  telefone?: string;     // só dígitos (WhatsApp / ligação)
+  nomeEmpresa?: string;
+}
+
+export interface OutraLoja {
+  id: string;
+  nome: string;
+  bairro?: string;
+  cidade?: string;
 }
 
 export interface CardapioResposta {
   loja: LojaVitrine;
   produtos: ProdutoVitrine[];
+  outrasLojas?: OutraLoja[];
+  maisVendidos?: string[]; // ids de produto, do mais vendido para o menos
+}
+
+/** Identificação leve do cliente ("Entrar"), guardada no navegador e usada no checkout. */
+export interface ClienteIdentificado {
+  nome: string;
+  telefone: string;
+}
+
+const CHAVE_CLIENTE = 'distre.vitrine.cliente';
+export function lerClienteIdentificado(): ClienteIdentificado | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(CHAVE_CLIENTE) || 'null');
+    return v && typeof v.nome === 'string' ? { nome: v.nome, telefone: String(v.telefone || '') } : null;
+  } catch {
+    return null;
+  }
+}
+export function salvarClienteIdentificado(c: ClienteIdentificado | null) {
+  try {
+    if (c) localStorage.setItem(CHAVE_CLIENTE, JSON.stringify(c));
+    else localStorage.removeItem(CHAVE_CLIENTE);
+  } catch { /* modo privado: segue sem lembrar */ }
 }
 
 export interface ItemCarrinho {
