@@ -1,0 +1,28 @@
+.stock-overlay { position: fixed; inset: 0; z-index: 1500; background: #071323a6; display: grid; place-items: center; padding: 24px; font-family: Inter, system-ui, sans-serif; color: #17263d; }
+.stock-panel { width: min(1100px, 100%); max-height: 92dvh; overflow-y: auto; border-radius: 16px; background: #f8fafc; padding: 28px; box-shadow: 0 24px 100px #0005; }
+.stock-header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+.stock-header span { font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #2563eb; }
+.stock-header h2 { font-size: 30px; margin: 6px 0; }
+.stock-header p, .stock-receipt p { color: #64748b; font-size: 13px; line-height: 1.6; }
+.stock-panel h3 { font-size: 16px; margin: 0 0 12px; }
+.stock-panel button { border: 1px solid #cbd5e1; border-radius: 7px; padding: 10px 14px; background: white; color: #334155; font: 500 13px Inter, system-ui, sans-serif; cursor: pointer; }
+.stock-panel button:hover { background: #eff6ff; }
+.stock-panel button:disabled { opacity: .55; cursor: not-allowed; }
+.stock-panel .stock-close { font-size: 26px; height: 44px; padding: 0 14px; }
+.stock-panel input, .stock-panel select { width: 100%; min-height: 42px; border: 1px solid #cbd5e1; border-radius: 7px; padding: 8px 10px; background: white; color: #17263d; font: 13px Inter, system-ui, sans-serif; }
+.stock-panel button:focus-visible, .stock-panel input:focus-visible, .stock-panel select:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.stock-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 22px; }
+.stock-metrics > div { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; }
+.stock-metrics span { display: block; font-size: 12px; color: #64748b; }.stock-metrics strong { font-size: 28px; }
+.stock-receipt { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+.stock-fields { display: grid; grid-template-columns: 2fr .8fr 1.7fr auto; align-items: end; gap: 12px; margin-top: 14px; }
+.stock-fields label { font-size: 12px; font-weight: 600; display: grid; gap: 7px; }
+.stock-panel .stock-primary { background: #2563eb; color: white; border-color: #2563eb; min-height: 42px; }.stock-panel .stock-primary:hover { background: #1d4ed8; }
+.stock-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }.stock-toolbar h3 { margin: 0 auto 0 0; }.stock-toolbar input { width: 220px; }
+.stock-table-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 9px; background: white; }
+.stock-panel table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }.stock-panel th { background: #f1f5f9; font-weight: 600; }.stock-panel th, .stock-panel td { padding: 12px 14px; border-bottom: 1px solid #e2e8f0; }.stock-panel tr:last-child td { border-bottom: 0; }
+.stock-tag { background: #eff6ff; color: #1d4ed8; border-radius: 6px; padding: 4px 8px; white-space: nowrap; font-size: 11px; }.stock-tag--empty { background: #fef2f2; color: #b91c1c; }
+.stock-history { margin-top: 24px; }.stock-empty { text-align: center; padding: 22px; color: #64748b; font-size: 13px; }
+.stock-error, .stock-success { border-radius: 8px; padding: 12px; font-size: 13px; margin-bottom: 16px; }.stock-error { background: #fef2f2; color: #b91c1c; }.stock-success { background: #ecfdf5; color: #15803d; }
+@media (max-width: 800px) { .stock-fields { grid-template-columns: 1fr 1fr; } .stock-overlay { padding: 12px; } .stock-panel { padding: 18px; } }
+@media (max-width: 480px) { .stock-fields { grid-template-columns: 1fr; } .stock-metrics { gap: 8px; }.stock-metrics > div { padding: 10px; }.stock-metrics span { font-size: 10px; }.stock-metrics strong { font-size: 23px; }.stock-toolbar input { width: 100%; } }

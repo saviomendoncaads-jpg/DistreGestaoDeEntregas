@@ -350,6 +350,7 @@ O backend **cria e migra as tabelas sozinho ao subir** (`IF NOT EXISTS` + `ALTER
 
 - `backend/src/database.ts` → `inicializarBanco()`: ENTREGAS, LOGS_EVENTOS, ADMINISTRADORES, MOTORISTAS, EMPRESAS, LOJAS, TIPOS_VEICULOS, PRODUTOS, PLANOS, ASSINATURAS_EMPRESAS, FATURAS, HISTORICO_PAGAMENTOS, CONFIGURACOES_COBRANCA, WEBHOOK_EVENTS, LEDGER_FINANCEIRO (+ trigger), SESSOES.
 - `backend/src/fiscal/fiscalRepo.ts` → `garantirTabelasFiscais()` (no primeiro uso do módulo fiscal): CONFIG_FISCAL_LOJA, CREDENCIAIS_FISCAIS, NOTAS_FISCAIS.
+- `backend/src/estoque.ts` → `inicializarEstoque()` (a cada subida, sob trava de migração): ESTOQUE_SALDOS, ESTOQUE_MOVIMENTOS e, de `backend/src/conferencia.ts`, PEDIDO_CONFERENCIA_ITENS (+ coluna `PRECO`), PEDIDO_CONFERENCIA_LEITURAS e PEDIDO_CONFERENCIA_FALTAS.
 
 Ou seja: **para recuperar só a estrutura basta criar um banco vazio e subir o backend.** Como cópia em texto independente do código existe também **`backend/docs/schema-completo.sql`** (gerado do banco real), que recria tudo com `sqlcmd`.
 
@@ -396,13 +397,19 @@ node backend/scripts/gerar-doc-banco.cjs DISTRE_PROD
 - **Nova tabela `NOTAS_FISCAIS`** + índices `IX_NOTAS_FISCAIS_LOJA (LOJA_ID, CRIADO_EM)` e `IX_NOTAS_FISCAIS_PEDIDO (PEDIDO_ID)`. Regra de negócio: no máximo **uma nota ativa (AUTORIZADA/PROCESSANDO) por venda** (`PEDIDO_ID`).
 - **`PRODUTOS`** ganhou dados fiscais por produto: `NCM`, `CEST`, `CFOP`, `ICMS_SITUACAO`, `UNIDADE`, `CODIGO_BARRAS` (vazios = padrão da loja).
 
+**Outubro/2026 — Estoque, conferência por EAN e produto em falta**
+- **Novas tabelas `ESTOQUE_SALDOS` e `ESTOQUE_MOVIMENTOS`**: saldo por loja/produto (nunca negativo) e extrato auditável. Tipos de movimento: `ENTRADA`, `VENDA` (baixa ao criar o pedido na vitrine), `ESTORNO` (cancelamento ou item em falta) e `AJUSTE` (saldo zerado por falta). A baixa e a gravação da comanda acontecem na **mesma transação**.
+- **Novas tabelas `PEDIDO_CONFERENCIA_ITENS` e `PEDIDO_CONFERENCIA_LEITURAS`**: conferência da separação lendo o EAN de cada unidade; leitura idempotente por chave.
+- **`PEDIDO_CONFERENCIA_ITENS.PRECO`** (nova coluna) guarda o preço cobrado na venda; permite recalcular o total quando um item sai do pedido. Pedidos antigos sem preço só o recebem se a soma do cadastro fechar com o total da comanda.
+- **Nova tabela `PEDIDO_CONFERENCIA_FALTAS`** (+ `UQ_CONFERENCIA_FALTA (PEDIDO_ID, CHAVE)`): auditoria da tela **Em falta**. Desfecho `ITEM_REMOVIDO` (o pedido segue sem as unidades que faltaram, itens e `ENTREGAS.VALOR` são recalculados e as unidades são estornadas ao saldo) ou `PEDIDO_CANCELADO` (comanda cancelada e estoque devolvido sem duplicar estornos). Opcionalmente o saldo do produto é zerado com um movimento `AJUSTE`.
+
 **Outubro/2026 — Dados**
 - 14 produtos com foto cadastrados na loja **BRASIL FARMA - LOJA 10** em `DISTRE_PROD` (categorias Medicamentos, Higiene e Uso Pessoal, Saúde e Bem-estar e Primeiros Socorros). Fotos em `backend/uploads/`, créditos em `backend/docs/creditos-imagens-catalogo.json`. **Preços são estimativas — revisar no painel.**
 
 ### Tabelas e colunas
 
 <!-- BANCO:INICIO -->
-> Gerado a partir do banco `DISTRE_PROD` em 2026-10-06 por `backend/scripts/gerar-doc-banco.cjs`.
+> Gerado a partir do banco `DISTRE_PROD` em 2026-10-10 por `backend/scripts/gerar-doc-banco.cjs`.
 > Para recriar a estrutura vazia: `sqlcmd -S localhost\SQLEXPRESS -E -i backend\docs\schema-completo.sql`.
 
 | Tabela | Para que serve |
@@ -415,6 +422,8 @@ node backend/scripts/gerar-doc-banco.cjs DISTRE_PROD
 | [`CONFIGURACOES_COBRANCA`](#tabela-configuracoes_cobranca) | Parâmetros globais da régua de cobrança (dunning): carência, multa, juros, avisos. |
 | [`CREDENCIAIS_FISCAIS`](#tabela-credenciais_fiscais) | Segredos fiscais por loja — certificado A1, senha, CSC e tokens da Focus NFe — TODOS CIFRADOS (AES-256-GCM). |
 | [`ENTREGAS`](#tabela-entregas) | Comandas: pedidos (tipo "pedido") e entregas (tipo "entrega") com todo o ciclo de vida, rota, telemetria e comprovante (POD). |
+| [`ESTOQUE_MOVIMENTOS`](#tabela-estoque_movimentos) | Extrato do estoque: toda entrada, venda, estorno e ajuste. A chave de idempotência impede lançar o mesmo evento duas vezes. |
+| [`ESTOQUE_SALDOS`](#tabela-estoque_saldos) | Saldo físico de cada produto por loja. Só existe linha para produtos com controle de estoque (após o 1º recebimento); sem linha = "Sem controle". SALDO nunca fica negativo (CHECK). |
 | [`FATURAS`](#tabela-faturas) | Faturas mensais da assinatura (Pix/boleto/cartão via gateway de pagamento). |
 | [`HISTORICO_PAGAMENTOS`](#tabela-historico_pagamentos) | Transações de pagamento registradas para cada fatura. |
 | [`LEDGER_FINANCEIRO`](#tabela-ledger_financeiro) | Razão financeiro imutável (append-only, encadeado por hash). Trigger bloqueia UPDATE/DELETE. |
@@ -422,6 +431,9 @@ node backend/scripts/gerar-doc-banco.cjs DISTRE_PROD
 | [`LOJAS`](#tabela-lojas) | Lojas (filiais) de cada empresa. Cada loja tem login próprio no painel e cardápio/vitrine própria. |
 | [`MOTORISTAS`](#tabela-motoristas) | Entregadores (motoboys) vinculados a uma loja e ao app do entregador. |
 | [`NOTAS_FISCAIS`](#tabela-notas_fiscais) | NFC-e (modelo 65) e NF-e (modelo 55) emitidas, com chave, protocolo, status e o snapshot completo do documento. |
+| [`PEDIDO_CONFERENCIA_FALTAS`](#tabela-pedido_conferencia_faltas) | Produtos que faltaram na separação: o que saiu do pedido (ou o motivo do cancelamento), quantas unidades, por quê e o desfecho. Auditoria da tela "Em falta". |
+| [`PEDIDO_CONFERENCIA_ITENS`](#tabela-pedido_conferencia_itens) | Itens de cada pedido a conferir na separação (por produto), com a quantidade pedida e quantas unidades já foram lidas pelo EAN. |
+| [`PEDIDO_CONFERENCIA_LEITURAS`](#tabela-pedido_conferencia_leituras) | Leituras de código de barras da conferência. A chave torna a leitura idempotente: o mesmo envio repetido não conta duas vezes. |
 | [`PRODUTOS`](#tabela-produtos) | Produtos do cardápio/vitrine de cada loja, com dados fiscais opcionais por produto. |
 | [`SESSOES`](#tabela-sessoes) | Sessões de login persistidas (sobrevivem a reinício do servidor). |
 | [`TIPOS_VEICULOS`](#tabela-tipos_veiculos) | Catálogo de tipos de veículo da frota. |
@@ -629,6 +641,38 @@ Comandas: pedidos (tipo "pedido") e entregas (tipo "entrega") com todo o ciclo d
 
 - **Chave primária**: ID
 
+<a id="tabela-estoque_movimentos"></a>
+### Tabela: `ESTOQUE_MOVIMENTOS`
+
+Extrato do estoque: toda entrada, venda, estorno e ajuste. A chave de idempotência impede lançar o mesmo evento duas vezes.
+
+| Coluna | Tipo | Nulo | Padrão | Descrição |
+|---|---|---|---|---|
+| `ID` | BIGINT | não | auto-incremento | Sequência auto-incremento do extrato. |
+| `LOJA_ID` | VARCHAR(100) | não |  | Loja do movimento. |
+| `PRODUTO_ID` | VARCHAR(100) | não |  | Produto movimentado. |
+| `TIPO` | VARCHAR(20) | não |  | ENTRADA (recebimento, soma) \| VENDA (baixa na vitrine) \| ESTORNO (devolve ao saldo: cancelamento ou item em falta) \| AJUSTE (correção de inventário, ex.: saldo zerado por falta). |
+| `QUANTIDADE` | INT | não |  | Unidades do movimento (sempre positivo; o sentido vem do TIPO). |
+| `REFERENCIA` | NVARCHAR(200) | sim |  | Documento/pedido de origem (ex.: COMANDA-0012, NF de entrada). Os estornos de um pedido usam o id do pedido aqui. |
+| `CHAVE` | VARCHAR(120) | não |  | Chave de idempotência: id do pedido (VENDA/ESTORNO) ou chave do recebimento. Única por loja + produto + tipo. |
+| `CRIADO_EM` | DATETIME2 | não | `sysutcdatetime(` | Momento do lançamento (UTC). |
+
+- **Chave primária**: ID
+- **Único**: LOJA_ID, PRODUTO_ID, TIPO, CHAVE
+
+<a id="tabela-estoque_saldos"></a>
+### Tabela: `ESTOQUE_SALDOS`
+
+Saldo físico de cada produto por loja. Só existe linha para produtos com controle de estoque (após o 1º recebimento); sem linha = "Sem controle". SALDO nunca fica negativo (CHECK).
+
+| Coluna | Tipo | Nulo | Padrão | Descrição |
+|---|---|---|---|---|
+| `LOJA_ID` | VARCHAR(100) | não |  | Loja dona do saldo. |
+| `PRODUTO_ID` | VARCHAR(100) | não |  | Produto (→ PRODUTOS.ID). |
+| `SALDO` | INT | não |  | Unidades disponíveis para venda (>= 0). |
+
+- **Chave primária**: LOJA_ID, PRODUTO_ID
+
 <a id="tabela-faturas"></a>
 ### Tabela: `FATURAS`
 
@@ -743,8 +787,8 @@ Lojas (filiais) de cada empresa. Cada loja tem login próprio no painel e cardá
 | `RECEBE_PEDIDOS` | BIT | não | `0` | 1 = pedidos da vitrine entram como "pedido" (Novos → Separação); 0 = entram direto como entrega. |
 | `LATITUDE` | FLOAT | sim |  | Latitude da loja (geocodificada pelo endereço/CEP ou GPS). |
 | `LONGITUDE` | FLOAT | sim |  | Longitude da loja. |
-| `STATUS_FINANCEIRO` | VARCHAR(50) | não | `'REGULAR'` | Situação da cobrança desta loja (REGULAR/INADIMPLENTE/SUSPENSO/CANCELADO). |
 | `LOGO_URL` | NVARCHAR(600) | sim |  | Logomarca exibida na vitrine (/uploads/...). |
+| `STATUS_FINANCEIRO` | VARCHAR(50) | não | `'REGULAR'` | Situação da cobrança desta loja (REGULAR/INADIMPLENTE/SUSPENSO/CANCELADO). |
 
 - **Chave primária**: ID
 - **Único**: CHAVE_ACESSO
@@ -807,6 +851,58 @@ NFC-e (modelo 65) e NF-e (modelo 55) emitidas, com chave, protocolo, status e o 
 - **Chave primária**: ID
 - **Índice** `IX_NOTAS_FISCAIS_LOJA`: LOJA_ID, CRIADO_EM
 - **Índice** `IX_NOTAS_FISCAIS_PEDIDO`: PEDIDO_ID
+
+<a id="tabela-pedido_conferencia_faltas"></a>
+### Tabela: `PEDIDO_CONFERENCIA_FALTAS`
+
+Produtos que faltaram na separação: o que saiu do pedido (ou o motivo do cancelamento), quantas unidades, por quê e o desfecho. Auditoria da tela "Em falta".
+
+| Coluna | Tipo | Nulo | Padrão | Descrição |
+|---|---|---|---|---|
+| `ID` | BIGINT | não | auto-incremento | Sequência auto-incremento. |
+| `PEDIDO_ID` | VARCHAR(100) | não |  | Pedido onde faltou produto. |
+| `PRODUTO_ID` | VARCHAR(100) | não |  | Produto que faltou. |
+| `NOME` | NVARCHAR(255) | não |  | Nome do produto. |
+| `QUANTIDADE` | INT | não |  | Unidades que faltaram. |
+| `PRECO` | DECIMAL(10, 2) | sim |  | Preço unitário no momento (para saber o quanto o total diminuiu). |
+| `MOTIVO` | NVARCHAR(200) | não |  | Motivo informado pelo operador (+ observação opcional). |
+| `DESFECHO` | VARCHAR(20) | não |  | ITEM_REMOVIDO (pedido segue sem o item) \| PEDIDO_CANCELADO (pedido inteiro cancelado). |
+| `CHAVE` | VARCHAR(100) | não |  | Chave de idempotência da operação (única por pedido): repetir o envio não aplica duas vezes. |
+| `CRIADO_EM` | DATETIME2 | não | `sysutcdatetime(` | Momento do registro (UTC). |
+
+- **Chave primária**: ID
+- **Único**: PEDIDO_ID, CHAVE
+
+<a id="tabela-pedido_conferencia_itens"></a>
+### Tabela: `PEDIDO_CONFERENCIA_ITENS`
+
+Itens de cada pedido a conferir na separação (por produto), com a quantidade pedida e quantas unidades já foram lidas pelo EAN.
+
+| Coluna | Tipo | Nulo | Padrão | Descrição |
+|---|---|---|---|---|
+| `PEDIDO_ID` | VARCHAR(100) | não |  | Pedido (→ ENTREGAS.ID). |
+| `PRODUTO_ID` | VARCHAR(100) | não |  | Produto do item. |
+| `NOME` | NVARCHAR(255) | não |  | Nome do produto no momento da venda. |
+| `EAN` | VARCHAR(14) | sim |  | Código de barras esperado na leitura. |
+| `QUANTIDADE` | INT | não |  | Unidades que o pedido ainda tem deste produto (diminui quando faltam unidades). |
+| `CONFERIDA` | INT | não | `0` | Unidades já lidas pelo EAN (nunca passa de QUANTIDADE). |
+| `PRECO` | DECIMAL(10, 2) | sim |  | Preço unitário cobrado na venda; base para recalcular o total quando um item falta. Vazio em pedidos antigos. |
+
+- **Chave primária**: PEDIDO_ID, PRODUTO_ID
+
+<a id="tabela-pedido_conferencia_leituras"></a>
+### Tabela: `PEDIDO_CONFERENCIA_LEITURAS`
+
+Leituras de código de barras da conferência. A chave torna a leitura idempotente: o mesmo envio repetido não conta duas vezes.
+
+| Coluna | Tipo | Nulo | Padrão | Descrição |
+|---|---|---|---|---|
+| `PEDIDO_ID` | VARCHAR(100) | não |  | Pedido conferido. |
+| `CHAVE` | VARCHAR(100) | não |  | Chave de idempotência da leitura (única por pedido). |
+| `EAN` | VARCHAR(14) | não |  | Código lido. |
+| `CRIADO_EM` | DATETIME2 | não | `sysutcdatetime(` | Momento da leitura (UTC). |
+
+- **Chave primária**: PEDIDO_ID, CHAVE
 
 <a id="tabela-produtos"></a>
 ### Tabela: `PRODUTOS`

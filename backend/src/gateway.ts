@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { broker } from './broker';
+import { salvarCancelamentoComEstoque } from './estoque';
+import { iniciarConferencia, registrarLeitura, exigirConferenciaCompleta, ErroConferencia } from './conferencia';
+import { registrarFalta, validarEntradaFalta } from './faltas';
 import { Entrega, Motorista, StatusEntrega, Prioridade, TipoCarga, FormaPagamento, LogWebhook, Incidente, TipoVeiculo } from './types';
 import { salvarEntrega, obterEntregas, obterMotoristas, salvarMotorista, deletarMotorista, obterTiposVeiculos, salvarTipoVeiculo, obterProdutos } from './database';
 import { obterSessaoDoRequest, exigirLojaAdimplente } from './auth';
@@ -1329,8 +1332,10 @@ router.post('/deliveries/:id/prepare', async (req: Request, res: Response) => {
 
 router.post('/deliveries/:id/cancel', async (req: Request, res: Response) => {
   try {
+    const sessao = obterSessaoDoRequest(req);
+    if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
     const order = deliveries.get(req.params.id as string);
-    if (!order) {
+    if (!order || (sessao.tipo === 'loja' && order.lojaId !== sessao.lojaId)) {
       res.status(404).json({ error: 'Pedido não encontrado.' });
       return;
     }
@@ -1342,13 +1347,13 @@ router.post('/deliveries/:id/cancel', async (req: Request, res: Response) => {
     }
 
     const { motivo } = req.body || {};
-    order.status = 'CANCELADO';
-    order.atualizadoEm = new Date().toISOString();
-    order.dataHoraConclusao = order.atualizadoEm;
+    const cancelado = { ...order, status: 'CANCELADO' as StatusEntrega, atualizadoEm: new Date().toISOString() };
+    cancelado.dataHoraConclusao = cancelado.atualizadoEm;
     if (motivo && typeof motivo === 'string' && motivo.trim()) {
-      order.referencia = [order.referencia, `Cancelamento: ${motivo.trim()}`].filter(Boolean).join(' | ');
+      cancelado.referencia = [order.referencia, `Cancelamento: ${motivo.trim()}`].filter(Boolean).join(' | ');
     }
-    await salvarEntrega(order);
+    await salvarCancelamentoComEstoque(cancelado);
+    Object.assign(order, cancelado);
 
     broker.publish('entrega.monitorada', order.id, {
       deliveryId: order.id,
@@ -1365,10 +1370,44 @@ router.post('/deliveries/:id/cancel', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/deliveries/:id/conferencia/:acao', async (req: Request, res: Response) => {
+  const sessao = obterSessaoDoRequest(req);
+  if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
+  const order = deliveries.get(String(req.params.id));
+  if (!order || !order.lojaId || (sessao.tipo === 'loja' && sessao.lojaId !== order.lojaId)) {
+    res.status(404).json({ error: 'Pedido não encontrado.' }); return;
+  }
+  // Dados do pedido que a tela de conferência exibe (total atual e contato para avisar o cliente).
+  const contexto = () => ({
+    valor: order.valor ?? null,
+    cliente: order.nomeCliente,
+    telefone: (order.referencia || '').match(/Tel:\s*([^|]+)/)?.[1]?.trim() || null,
+    status: order.status,
+  });
+  try {
+    if (req.params.acao === 'iniciar') res.json({ ...(await iniciarConferencia(order)), pedido: contexto() });
+    else if (req.params.acao === 'ler') res.json({ ...(await registrarLeitura(order.id, order.lojaId, String(req.body?.ean || '').trim(), String(req.body?.chave || ''))), pedido: contexto() });
+    else if (req.params.acao === 'falta') {
+      const r = await registrarFalta(order, validarEntradaFalta(req.body || {}));
+      if (r.pedido) {
+        Object.assign(order, r.pedido);
+        broker.publish('entrega.monitorada', order.id, {
+          deliveryId: order.id, status: order.status, telemetria: order.telemetria, incidents: order.incidentes,
+          motivo: r.cancelado ? 'Produto em falta na separação' : undefined,
+        });
+      }
+      res.json({ itens: r.itens, faltas: r.faltas, cancelado: r.cancelado, repetido: r.repetido, pedido: contexto() });
+    }
+    else res.status(404).json({ error: 'Ação não encontrada.' });
+  } catch (e) { res.status(e instanceof ErroConferencia ? e.status : 500).json({ error: e instanceof Error ? e.message : 'Erro na conferência.' }); }
+});
+
 router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response) => {
   try {
+    const sessao = obterSessaoDoRequest(req);
+    if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
     const order = deliveries.get(req.params.id as string);
-    if (!order) {
+    if (!order || (sessao.tipo === 'loja' && sessao.lojaId !== order.lojaId)) {
       res.status(404).json({ error: 'Pedido não encontrado.' });
       return;
     }
@@ -1376,6 +1415,8 @@ router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response
       res.status(400).json({ error: 'Esta comanda não é do tipo pedido.' });
       return;
     }
+    if (order.status !== 'EM_PREPARO') { res.status(409).json({ error: 'O pedido precisa estar em separação.' }); return; }
+    await exigirConferenciaCompleta(order.id);
 
     // Documento fiscal escolhido no painel ao concluir a separação (NFC-e, NF-e ou nenhum).
     // Valida ANTES de mexer no status: dado fiscal faltando não pode deixar a comanda pela metade.
@@ -1453,7 +1494,7 @@ router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response
     res.json({ success: true, message: 'Pedido finalizado e enviado para entrega.', order, delivery: newDelivery, fiscal });
   } catch (err: any) {
     console.error('[Gateway] Erro ao finalizar comanda de pedido:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err instanceof ErroConferencia ? err.status : 500).json({ error: err.message });
   }
 });
 

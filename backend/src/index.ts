@@ -23,6 +23,7 @@ import integracaoPedidosRouter from './integracaoPedidos';
 import integracaoEntregasRouter from './integracaoEntregas';
 import vitrineRouter from './vitrine';
 import gestaoVitrineRouter, { uploadsDir } from './gestaoVitrine';
+import { inicializarEstoque } from './estoque';
 import fiscalRouter from './fiscal/fiscalRoutes';
 import webhookRouter from './billing/webhookRoutes';
 import { iniciarWorkerWebhooks } from './billing/webhookProcessor';
@@ -477,6 +478,7 @@ setInterval(() => {
 async function startServer() {
   // Conecta ao SQL Server
   await conectarBanco();
+  await inicializarEstoque();
 
   // Carrega os tenants (empresas/lojas) do banco de dados / realiza migração se necessário
   await carregarTenantsDoBanco();
