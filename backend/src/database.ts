@@ -1,4 +1,4 @@
-import mssql, { ConnectionPool } from './db';
+import mssql, { ConnectionPool, Transaction } from './db';
 import { Entrega, Motorista, Empresa, Loja, TipoVeiculo, Produto, Sessao } from './types';
 import { hashPassword, verifyPassword } from './security/password';
 
@@ -674,9 +674,9 @@ export async function obterEntregas(): Promise<Entrega[]> {
   }
 }
 
-export async function salvarEntrega(e: Entrega) {
+export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
   try {
-    if (!pool) return;
+    if (!pool) { if (transaction) throw new Error('Banco de dados indisponível.'); return; }
     const query = `
       MERGE INTO ENTREGAS AS target
       USING (SELECT @id AS ID) AS source
@@ -723,7 +723,7 @@ export async function salvarEntrega(e: Entrega) {
         VALUES (@id, @nomeCliente, @endereco, @itens, @prioridade, @tipoCarga, @status, @motorista, @rota, @telemetria, @incidentes, @urlWebhook, @logsWebhook, @criadoEm, @atualizadoEm, @recebedorNome, @recebedorCPF, @comprovanteFotoUrl, @assinaturaBase64, @justificativaDesvioCoordenada, @dataHoraConclusao, @sequenciaEsperada, @sequenciaRealizada, @valor, @lojaId, @nomeLoja, @nomeEmpresa, @clienteDocumento, @romaneioId, @bairro, @cidade, @formaPagamento, @despachadoEm, @tipoComanda, @referencia, @destinoLat, @destinoLng);
     `;
     
-    await pool.request()
+    await (transaction ? new mssql.Request(transaction) : pool.request())
       .input('id', mssql.VarChar, e.id)
       .input('nomeCliente', mssql.NVarChar, e.nomeCliente)
       .input('endereco', mssql.NVarChar, e.endereco)
@@ -764,6 +764,7 @@ export async function salvarEntrega(e: Entrega) {
       .query(query);
   } catch (err) {
     console.error(`[Banco de Dados] Erro ao salvar entrega ${e.id}:`, err);
+    if (transaction) throw err;
   }
 }
 
@@ -1232,7 +1233,8 @@ export async function deletarProduto(id: string, lojaId: string): Promise<boolea
   const result = await pool.request()
     .input('id', mssql.VarChar, id)
     .input('lojaId', mssql.VarChar, lojaId)
-    .query('DELETE FROM PRODUTOS WHERE ID = @id AND LOJA_ID = @lojaId');
+    .query(`DELETE FROM PRODUTOS WHERE ID = @id AND LOJA_ID = @lojaId
+      AND NOT EXISTS (SELECT 1 FROM ESTOQUE_SALDOS WITH (UPDLOCK, HOLDLOCK) WHERE PRODUTO_ID = @id AND LOJA_ID = @lojaId)`);
   return (result.rowsAffected?.[0] || 0) > 0;
 }
 

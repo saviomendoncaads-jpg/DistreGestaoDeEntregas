@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { broker } from './broker';
-import { salvarEntrega, obterProdutos } from './database';
+import { obterProdutos } from './database';
+import { saldosPublicos, salvarVendaComEstoque, ErroEstoque } from './estoque';
 import { Entrega, FormaPagamento, Produto } from './types';
 import { lojas, empresas } from './tenants';
 import { deliveries, gerarIdComanda } from './gateway';
@@ -107,6 +108,7 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
 
     const suspensa = loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO';
     const produtos = suspensa ? [] : await obterProdutos(loja.id);
+    const saldos = suspensa ? new Map<string, number>() : await saldosPublicos(loja.id);
     const empresa = empresas.find(e => e.id === loja.empresaId);
 
     res.json({
@@ -130,6 +132,7 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
       maisVendidos: rankingMaisVendidos(loja.id, produtos),
       produtos: produtos.map(p => ({
         id: p.id,
+        estoqueDisponivel: saldos.get(p.id),
         nome: p.nome,
         descricao: p.descricao || undefined,
         preco: p.preco,
@@ -292,8 +295,9 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
       destinoLongitude: destinoCoord?.longitude
     };
 
+    await salvarVendaComEstoque(novaComanda, itensValidados.map(it => ({ produtoId: it.produto.id, quantidade: it.quantidade })),
+      itensValidados.map(it => ({ produtoId: it.produto.id, quantidade: it.quantidade, nome: it.produto.nome, ean: it.produto.codigoBarras, preco: it.produto.preco })));
     deliveries.set(id, novaComanda);
-    await salvarEntrega(novaComanda);
 
     if (!recebePedidos) {
       broker.publish('entrega.recebida', id, {
@@ -321,7 +325,7 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
     });
   } catch (err: any) {
     console.error('[Vitrine] Erro ao receber pedido:', err);
-    res.status(500).json({ error: 'Erro interno ao processar o pedido.' });
+    res.status(err instanceof ErroEstoque ? err.status : 500).json({ error: err instanceof ErroEstoque ? err.message : 'Erro interno ao processar o pedido.' });
   }
 });
 

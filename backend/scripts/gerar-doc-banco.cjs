@@ -51,6 +51,12 @@ const tipoSql = c => {
   const triggers = await q(`SELECT OBJECT_NAME(parent_id) AS TABELA, name AS NOME, OBJECT_DEFINITION(object_id) AS DEF FROM sys.triggers WHERE parent_class = 1`);
   await pool.close();
 
+  // Aviso: tabela/coluna nova sem descrição em descricoes-banco.cjs sai em branco no README.
+  const semDesc = [
+    ...new Set(cols.map(c => c.TABELA)).values()].filter(t => !DESC_TAB[t]).map(t => `tabela ${t}`)
+    .concat(cols.filter(c => !DESC_COL[`${c.TABELA}.${c.COLUNA}`]).map(c => `${c.TABELA}.${c.COLUNA}`));
+  if (semDesc.length) console.warn(`ATENÇÃO: ${semDesc.length} item(ns) sem descrição em scripts/descricoes-banco.cjs:\n  - ${semDesc.join('\n  - ')}`);
+
   // Ordem: tabelas referenciadas por FK primeiro.
   const nomes = [...new Set(cols.map(c => c.TABELA))].sort();
   const pais = new Set(fks.map(f => f.REF_TABELA));

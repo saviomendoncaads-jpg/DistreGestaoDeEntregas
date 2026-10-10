@@ -4,6 +4,7 @@ import { io, Socket } from 'socket.io-client';
 import CentroOperacoes, { type BrokerEvento } from './components/CentroOperacoes';
 import OperationsWorkspace from './components/OperationsWorkspace';
 import GestaoVitrine from './components/GestaoVitrine';
+import ConferenciaSeparacao from './components/ConferenciaSeparacao';
 import EmissaoNotaModal from './components/fiscal/EmissaoNotaModal';
 import ConfigFiscalModal from './components/fiscal/ConfigFiscalModal';
 import {
@@ -2478,6 +2479,7 @@ export default function App() {
   const atualizarStatusFiscal = () => { fiscalApi?.status().then(setFiscalStatus).catch(() => { /* ignore */ }); };
   const [notasFiscais, setNotasFiscais] = useState<NotaResumo[]>([]);
   const [showConfigFiscal, setShowConfigFiscal] = useState(false);
+  const [pedidoEmConferencia, setPedidoEmConferencia] = useState<string | null>(null);
   const [emissaoFiscal, setEmissaoFiscal] = useState<{ modo: 'separacao' | 'emitir'; comandaId: string; escolhaInicial: EscolhaFiscal } | null>(null);
 
   const carregarNotasFiscais = async () => {
@@ -2536,7 +2538,9 @@ export default function App() {
     }
   };
 
-  const handleFinalizarPedido = async (id: string, e: React.MouseEvent) => {
+  const handleFinalizarPedido = (id: string, e: React.MouseEvent) => { e.stopPropagation(); setPedidoEmConferencia(id); };
+
+  const finalizarPedidoConferido = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (modoNotaPadrao === 'NENHUMA' || modoNotaPadrao === 'NFCE') {
       try {
@@ -5713,6 +5717,11 @@ export default function App() {
         </div>
       , document.body)}
 
+      {pedidoEmConferencia && sessao && (
+        <ConferenciaSeparacao pedidoId={pedidoEmConferencia} backendUrl={BACKEND_URL} token={sessao.token}
+          onClose={() => setPedidoEmConferencia(null)}
+          onComplete={e => { const id = pedidoEmConferencia; setPedidoEmConferencia(null); void finalizarPedidoConferido(id, e); }} />
+      )}
       {/* Botão Flutuante de Ação (FAB) */}
       <div className="fab-container">
         {fabOpen && (
