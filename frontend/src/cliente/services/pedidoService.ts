@@ -16,6 +16,7 @@ export function buscarCardapio(lojaId: string): Promise<CardapioResposta> {
 interface DadosCheckout {
   nome: string;
   telefone: string;
+  cpf: string;
   endereco: EnderecoEntrega;
   formaPagamento: FormaPagamentoVitrine;
   troco?: number;
@@ -29,7 +30,8 @@ export function montarPayload(itens: ItemCarrinho[], dados: DadosCheckout): Pedi
   return {
     cliente: {
       nome: dados.nome.trim(),
-      telefone: dados.telefone.trim() || undefined
+      telefone: dados.telefone.trim() || undefined,
+      cpf: dados.cpf.replace(/\D/g, '')
     },
     itens: itens.map(item => ({
       produtoId: item.produto.id,

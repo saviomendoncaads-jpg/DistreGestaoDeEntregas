@@ -152,7 +152,7 @@ export async function carregarMotoristasDoBanco() {
           status: 'ocioso',
           lojaId: '41869dbf-4b09-4933-8bd2-11e60ccc092d',
           codigoVinculo: '433492',
-          dispositivoConectado: false
+          dispositivoConectado: true
         },
         {
           id: 'drv-ezt6',
@@ -161,7 +161,7 @@ export async function carregarMotoristasDoBanco() {
           status: 'ocioso',
           lojaId: '41869dbf-4b09-4933-8bd2-11e60ccc092d',
           codigoVinculo: '226822',
-          dispositivoConectado: false
+          dispositivoConectado: true
         },
         {
           id: 'drv-5xgz',
@@ -170,7 +170,7 @@ export async function carregarMotoristasDoBanco() {
           status: 'ocioso',
           lojaId: '41869dbf-4b09-4933-8bd2-11e60ccc092d',
           codigoVinculo: '222007',
-          dispositivoConectado: false
+          dispositivoConectado: true
         }
       ];
 
@@ -590,7 +590,7 @@ router.post('/drivers', async (req: Request, res: Response) => {
     status: 'ocioso',
     lojaId,
     codigoVinculo,
-    dispositivoConectado: false
+    dispositivoConectado: true
   };
 
   drivers.push(newDriver);

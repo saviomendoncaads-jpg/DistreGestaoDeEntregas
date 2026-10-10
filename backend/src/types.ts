@@ -32,7 +32,7 @@ export interface Motorista {
   status: 'ocioso' | 'ocupado';
   lojaId?: string; // Isolamento multi-tenant
   codigoVinculo: string; // Código de pareamento (ex: 123456)
-  dispositivoConectado?: boolean; // Status online do app móvel
+  dispositivoConectado?: boolean; // Online operacional: sempre true, independente do celular.
   localizacaoAtual?: Localizacao; // Posição GPS em tempo real
   ultimaAtualizacao?: string; // Timestamp do último ping do GPS
 }
@@ -197,6 +197,21 @@ export interface TipoVeiculo {
 
 export interface Produto {
   id: string;
+  codigoInterno?: string;
+  situacao?: 'rascunho' | 'ativo' | 'arquivado';
+  publicado?: boolean;
+  marca?: string;
+  fabricante?: string;
+  custo?: number;
+  precoPromocional?: number;
+  imagens?: string[];
+  estoqueMinimo?: number;
+  peso?: number;
+  altura?: number;
+  largura?: number;
+  comprimento?: number;
+  seoTitulo?: string;
+  seoDescricao?: string;
   nome: string;
   preco: number;
   lojaId?: string;

@@ -26,6 +26,7 @@ module.exports = {
     PEDIDO_CONFERENCIA_ITENS: 'Itens de cada pedido a conferir na separação (por produto), com a quantidade pedida e quantas unidades já foram lidas pelo EAN.',
     PEDIDO_CONFERENCIA_LEITURAS: 'Leituras de código de barras da conferência. A chave torna a leitura idempotente: o mesmo envio repetido não conta duas vezes.',
     PEDIDO_CONFERENCIA_FALTAS: 'Produtos que faltaram na separação: o que saiu do pedido (ou o motivo do cancelamento), quantas unidades, por quê e o desfecho. Auditoria da tela "Em falta".',
+    PRODUTOS_HISTORICO: 'Histórico de alterações do cadastro de produtos (quem mudou, quando e o retrato dos dados naquele momento).',
   },
   colunas: {
     // ESTOQUE
@@ -63,6 +64,17 @@ module.exports = {
     'PEDIDO_CONFERENCIA_FALTAS.CHAVE': 'Chave de idempotência da operação (única por pedido): repetir o envio não aplica duas vezes.',
     'PEDIDO_CONFERENCIA_FALTAS.CRIADO_EM': 'Momento do registro (UTC).',
     // PRODUTOS (cadastro ampliado)
+    'PRODUTOS.CODIGO_INTERNO': 'Código/SKU interno da loja (gerado como SKU-XXXXXXXX quando não informado; único por loja, sem diferenciar maiúsculas).',
+    'PRODUTOS.PUBLICADO': '1 = visível na vitrine; 0 = rascunho/oculto. Independe de ATIVO.',
+    'PRODUTOS.SITUACAO': 'Situação do cadastro: rascunho | ativo | inativo...',
+    'PRODUTOS.DADOS_CATALOGO': 'JSON com campos extras do cadastro: marca, fabricante, custo, preço promocional, imagens, estoque mínimo, peso/dimensões e SEO.',
+    'PRODUTOS_HISTORICO.ID': 'Sequência auto-incremento.',
+    'PRODUTOS_HISTORICO.PRODUTO_ID': 'Produto alterado.',
+    'PRODUTOS_HISTORICO.LOJA_ID': 'Loja dona do produto.',
+    'PRODUTOS_HISTORICO.ACAO': 'O que foi feito (criação, edição, publicação...).',
+    'PRODUTOS_HISTORICO.AUTOR': 'Quem fez (usuário da loja ou admin).',
+    'PRODUTOS_HISTORICO.DADOS': 'Retrato (JSON) do cadastro no momento da alteração.',
+    'PRODUTOS_HISTORICO.CRIADO_EM': 'Momento da alteração (UTC).',
     // EMPRESAS
     'EMPRESAS.ID': 'Identificador da empresa (UUID).',
     'EMPRESAS.NOME': 'Nome/razão da empresa.',

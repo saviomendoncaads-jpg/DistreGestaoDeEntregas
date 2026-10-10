@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 // ============================================================================
-// VITRINE & PRODUTOS — modal do painel da loja (aberto pelo menu flutuante).
-// Permite montar o cardápio público sem SQL: cadastrar/editar produtos com
-// foto, preço e descrição, definir a logomarca e copiar o link da vitrine.
+// CONFIGURAÇÃO DA VITRINE — modal do painel da loja (aberto pelo menu lateral).
+// Configura logomarca, link público e visibilidade dos produtos.
+// O cadastro e os dados fiscais ficam na área Produtos.
 // Consome as rotas autenticadas /api/gestao/* (gestaoVitrine.ts no backend).
 // ============================================================================
 
@@ -15,6 +15,8 @@ interface ProdutoGestao {
   descricao?: string;
   imagemUrl?: string;
   ativo: boolean;
+  publicado?: boolean;
+  situacao?: 'rascunho' | 'ativo' | 'arquivado';
   categoria?: string;
   subcategoria?: string;
   ncm?: string;
@@ -33,12 +35,6 @@ interface Props {
   onClose: () => void;
 }
 
-const FORM_VAZIO = {
-  id: '', nome: '', preco: '', descricao: '', imagemUrl: '', categoria: '', subcategoria: '',
-  // Dados fiscais (vazio = padrão da loja em "Dados fiscais")
-  ncm: '', cest: '', cfop: '', icmsSituacao: '', unidade: '', codigoBarras: ''
-};
-const CAMPOS_FISCAIS = ['ncm', 'cest', 'cfop', 'icmsSituacao', 'unidade', 'codigoBarras'] as const;
 const MAX_IMAGEM_BYTES = 3 * 1024 * 1024;
 
 const estiloInput: React.CSSProperties = {
@@ -87,24 +83,12 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
-  const [salvando, setSalvando] = useState(false);
   const [enviandoImagem, setEnviandoImagem] = useState(false);
-  const [formAberto, setFormAberto] = useState(false);
-  const [form, setForm] = useState(FORM_VAZIO);
-  const inputFotoRef = useRef<HTMLInputElement>(null);
+  const [busca, setBusca] = useState('');
+  const [alterandoProduto, setAlterandoProduto] = useState<string | null>(null);
   const inputLogoRef = useRef<HTMLInputElement>(null);
 
   const linkVitrine = `${window.location.origin}/loja/${lojaId}`;
-
-  // Sugestões para os datalists: categorias/subcategorias já usadas no catálogo,
-  // para a loja reaproveitar a grafia em vez de criar variações duplicadas.
-  const categoriasExistentes = [...new Set(produtos.map(p => p.categoria).filter((c): c is string => !!c))].sort();
-  const subcategoriasExistentes = [...new Set(
-    produtos
-      .filter(p => !form.categoria.trim() || p.categoria === form.categoria.trim())
-      .map(p => p.subcategoria)
-      .filter((s): s is string => !!s)
-  )].sort();
 
   async function gestaoFetch(caminho: string, options: RequestInit = {}): Promise<any> {
     const res = await fetch(`${backendUrl}${caminho}`, {
@@ -186,14 +170,6 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
     }
   }
 
-  async function aoEscolherFotoProduto(e: React.ChangeEvent<HTMLInputElement>) {
-    const arquivo = e.target.files?.[0];
-    e.target.value = '';
-    if (!arquivo) return;
-    const url = await enviarImagem(arquivo);
-    if (url) setForm(f => ({ ...f, imagemUrl: url }));
-  }
-
   async function aoEscolherLogo(e: React.ChangeEvent<HTMLInputElement>) {
     const arquivo = e.target.files?.[0];
     e.target.value = '';
@@ -219,93 +195,20 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
     }
   }
 
-  function abrirNovoProduto() {
-    setForm(FORM_VAZIO);
-    setFormAberto(true);
+  async function alternarPublicacao(p: ProdutoGestao) {
     setErro(null);
-  }
-
-  function abrirEdicao(p: ProdutoGestao) {
-    setForm({
-      id: p.id,
-      nome: p.nome,
-      preco: p.preco.toFixed(2).replace('.', ','),
-      descricao: p.descricao || '',
-      imagemUrl: p.imagemUrl || '',
-      categoria: p.categoria || '',
-      subcategoria: p.subcategoria || '',
-      ncm: p.ncm || '',
-      cest: p.cest || '',
-      cfop: p.cfop || '',
-      icmsSituacao: p.icmsSituacao || '',
-      unidade: p.unidade || '',
-      codigoBarras: p.codigoBarras || ''
-    });
-    setFormAberto(true);
-    setErro(null);
-  }
-
-  async function salvarProduto(e: React.FormEvent) {
-    e.preventDefault();
-    const preco = Number(form.preco.replace(/\./g, '').replace(',', '.'));
-    if (!form.nome.trim()) {
-      setErro('Informe o nome do produto.');
-      return;
-    }
-    if (!Number.isFinite(preco) || preco <= 0) {
-      setErro('Informe um preço válido (ex.: 19,90).');
-      return;
-    }
-    setSalvando(true);
-    setErro(null);
-    try {
-      const corpo = JSON.stringify({
-        nome: form.nome,
-        preco,
-        descricao: form.descricao,
-        imagemUrl: form.imagemUrl,
-        categoria: form.categoria,
-        subcategoria: form.subcategoria,
-        ...Object.fromEntries(CAMPOS_FISCAIS.map(k => [k, form[k]]))
-      });
-      const salvo: ProdutoGestao = form.id
-        ? await gestaoFetch(`/api/gestao/produtos/${form.id}`, { method: 'PUT', body: corpo })
-        : await gestaoFetch('/api/gestao/produtos', { method: 'POST', body: corpo });
-      setProdutos(lista => {
-        const existe = lista.some(p => p.id === salvo.id);
-        const nova = existe ? lista.map(p => (p.id === salvo.id ? salvo : p)) : [...lista, salvo];
-        return nova.sort((a, b) => a.nome.localeCompare(b.nome));
-      });
-      setFormAberto(false);
-      setForm(FORM_VAZIO);
-      mostrarAviso(form.id ? 'Produto atualizado!' : 'Produto adicionado ao cardápio!');
-    } catch (e: any) {
-      setErro(e.message);
-    } finally {
-      setSalvando(false);
-    }
-  }
-
-  async function alternarAtivo(p: ProdutoGestao) {
+    setAlterandoProduto(p.id);
     try {
       const salvo: ProdutoGestao = await gestaoFetch(`/api/gestao/produtos/${p.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ ativo: !p.ativo })
+        body: JSON.stringify({ publicado: !(p.publicado ?? p.ativo) })
       });
       setProdutos(lista => lista.map(item => (item.id === salvo.id ? salvo : item)));
+      mostrarAviso(salvo.publicado ? 'Produto exibido na vitrine.' : 'Produto oculto da vitrine.');
     } catch (e: any) {
       setErro(e.message);
-    }
-  }
-
-  async function excluirProduto(p: ProdutoGestao) {
-    if (!window.confirm(`Excluir "${p.nome}" definitivamente do cardápio?`)) return;
-    try {
-      await gestaoFetch(`/api/gestao/produtos/${p.id}`, { method: 'DELETE' });
-      setProdutos(lista => lista.filter(item => item.id !== p.id));
-      mostrarAviso('Produto excluído.');
-    } catch (e: any) {
-      setErro(e.message);
+    } finally {
+      setAlterandoProduto(null);
     }
   }
 
@@ -349,7 +252,7 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
 
   return createPortal(
     <div className="report-modal-overlay" onClick={onClose}>
-      <div className="report-modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px' }}>
+      <div className="report-modal-content" role="dialog" aria-modal="true" aria-labelledby="GestaoVitrine-titulo" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px' }}>
         <div className="report-modal-header">
           <h2>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--color-amber)', marginRight: '0.5rem' }}>
@@ -357,9 +260,9 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
               <path d="M4.5 9 V19.5 H19.5 V9" />
               <path d="M9.5 19.5 V14 H14.5 V19.5" />
             </svg>
-            Vitrine &amp; Produtos — {nomeLoja}
+            Configuração da vitrine — {nomeLoja}
           </h2>
-          <button className="report-modal-close-btn" onClick={onClose}>
+          <button className="report-modal-close-btn" aria-label="Fechar" onClick={onClose}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
@@ -397,128 +300,17 @@ export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onC
             </div>
           </section>
 
-          {/* Produtos */}
           <section>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
-              <label style={{ ...estiloLabel, marginBottom: 0 }}>Produtos do cardápio ({produtos.length})</label>
-              {!formAberto && (
-                <button style={estiloBotaoPrimario} onClick={abrirNovoProduto}>+ Novo produto</button>
-              )}
-            </div>
-
-            {formAberto && (
-              <form onSubmit={salvarProduto} style={{ border: '1px solid var(--border-thin)', borderRadius: '10px', padding: '0.9rem', marginBottom: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.7rem', background: 'var(--bg-secondary)' }}>
-                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 220px' }}>
-                    <label style={estiloLabel}>Nome *</label>
-                    <input style={estiloInput} value={form.nome} maxLength={255} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex.: Dipirona 500mg (20 comp.)" />
-                  </div>
-                  <div style={{ flex: '0 1 130px' }}>
-                    <label style={estiloLabel}>Preço (R$) *</label>
-                    <input style={estiloInput} inputMode="decimal" value={form.preco} onChange={e => setForm(f => ({ ...f, preco: e.target.value.replace(/[^\d.,]/g, '') }))} placeholder="19,90" />
-                  </div>
-                </div>
-                <div>
-                  <label style={estiloLabel}>Descrição (aparece no card do produto)</label>
-                  <input style={estiloInput} value={form.descricao} maxLength={500} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} placeholder="Ex.: Analgésico e antitérmico. Caixa com 20 comprimidos." />
-                </div>
-                <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 180px' }}>
-                    <label style={estiloLabel}>Categoria (menu lateral da vitrine)</label>
-                    <input style={estiloInput} list="gv-categorias" value={form.categoria} maxLength={120} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))} placeholder="Ex.: Medicamentos" />
-                    <datalist id="gv-categorias">
-                      {categoriasExistentes.map(c => <option key={c} value={c} />)}
-                    </datalist>
-                  </div>
-                  <div style={{ flex: '1 1 180px' }}>
-                    <label style={estiloLabel}>Subcategoria (opcional)</label>
-                    <input style={estiloInput} list="gv-subcategorias" value={form.subcategoria} maxLength={120} disabled={!form.categoria.trim()} onChange={e => setForm(f => ({ ...f, subcategoria: e.target.value }))} placeholder="Ex.: Genéricos" />
-                    <datalist id="gv-subcategorias">
-                      {subcategoriasExistentes.map(s => <option key={s} value={s} />)}
-                    </datalist>
-                  </div>
-                </div>
-                <div>
-                  <label style={estiloLabel}>Foto do produto</label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                    <Miniatura url={form.imagemUrl} nome={form.nome || '?'} tamanho={44} />
-                    <button type="button" style={estiloBotaoSuave} onClick={() => inputFotoRef.current?.click()} disabled={enviandoImagem}>
-                      {enviandoImagem ? 'Enviando…' : form.imagemUrl ? 'Trocar foto' : 'Enviar foto'}
-                    </button>
-                    {form.imagemUrl && (
-                      <button type="button" style={{ ...estiloBotaoSuave, color: 'var(--color-rose)' }} onClick={() => setForm(f => ({ ...f, imagemUrl: '' }))}>
-                        Remover
-                      </button>
-                    )}
-                    <input ref={inputFotoRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={aoEscolherFotoProduto} />
-                  </div>
-                </div>
-                <details open={CAMPOS_FISCAIS.some(k => form[k])} style={{ border: '1px solid var(--border-thin)', borderRadius: '8px', padding: '0.5rem 0.7rem' }}>
-                  <summary style={{ ...estiloLabel, marginBottom: 0, cursor: 'pointer' }}>Dados fiscais (NFC-e / NF-e) — vazio usa o padrão da loja</summary>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.6rem', marginTop: '0.6rem' }}>
-                    {([
-                      ['ncm', 'NCM (8 dígitos)', '30049099'],
-                      ['cest', 'CEST (se houver ST)', '1300100'],
-                      ['codigoBarras', 'Código de barras (EAN)', '7891234567895'],
-                      ['unidade', 'Unidade', 'UN'],
-                      ['cfop', 'CFOP', '5102'],
-                      ['icmsSituacao', 'CSOSN / CST', '102'],
-                    ] as [typeof CAMPOS_FISCAIS[number], string, string][]).map(([k, rotulo, ex]) => (
-                      <div key={k}>
-                        <label style={estiloLabel}>{rotulo}</label>
-                        <input
-                          style={estiloInput}
-                          value={form[k]}
-                          inputMode={k === 'unidade' ? 'text' : 'numeric'}
-                          maxLength={k === 'codigoBarras' ? 14 : k === 'ncm' ? 8 : k === 'cest' ? 7 : k === 'unidade' ? 6 : 4}
-                          onChange={e => setForm(f => ({ ...f, [k]: k === 'unidade' ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, '') }))}
-                          placeholder={ex}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </details>
-                <div style={{ display: 'flex', gap: '0.6rem', justifyContent: 'flex-end' }}>
-                  <button type="button" style={estiloBotaoSuave} onClick={() => { setFormAberto(false); setForm(FORM_VAZIO); }}>
-                    Cancelar
-                  </button>
-                  <button type="submit" style={estiloBotaoPrimario} disabled={salvando || enviandoImagem}>
-                    {salvando ? 'Salvando…' : form.id ? 'Salvar alterações' : 'Adicionar produto'}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {carregando ? (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Carregando catálogo…</p>
-            ) : produtos.length === 0 && !formAberto ? (
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                Nenhum produto cadastrado ainda — clique em <strong>+ Novo produto</strong> para montar seu cardápio.
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', border: '1px solid var(--border-thin)', borderRadius: '10px', overflow: 'hidden' }}>
-                {produtos.map((p, i) => (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem 0.8rem', borderTop: i === 0 ? 'none' : '1px solid var(--border-thin)', opacity: p.ativo ? 1 : 0.55 }}>
+            <label style={estiloLabel} htmlFor="vitrine-busca">Produtos exibidos na vitrine</label>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Cadastre e edite os dados dos produtos na área Produtos. Aqui você escolhe quais produtos ativos aparecem no catálogo público. Rascunhos e arquivados devem ser ativados em Produtos.</p>
+            <input id="vitrine-busca" type="search" style={estiloInput} value={busca} onChange={e => setBusca(e.target.value)} placeholder="Pesquisar pelo nome" />
+            {carregando ? <p>Carregando produtos…</p> : produtos.filter(p => p.nome.toLocaleLowerCase('pt-BR').includes(busca.toLocaleLowerCase('pt-BR'))).length === 0 ? <p>Nenhum produto encontrado.</p> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
+                {produtos.filter(p => p.nome.toLocaleLowerCase('pt-BR').includes(busca.toLocaleLowerCase('pt-BR'))).map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem', border: '1px solid var(--border-thin)', borderRadius: '8px' }}>
                     <Miniatura url={p.imagemUrl} nome={p.nome} tamanho={40} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--color-amber)', fontWeight: 700 }}>
-                        {p.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                        {p.categoria && (
-                          <span style={{ color: 'var(--text-secondary)', marginLeft: '0.5rem', fontWeight: 500 }}>
-                            {p.categoria}{p.subcategoria ? ` › ${p.subcategoria}` : ''}
-                          </span>
-                        )}
-                        {!p.ativo && <span style={{ color: 'var(--text-muted)', marginLeft: '0.5rem', fontWeight: 500 }}>oculto da vitrine</span>}
-                      </div>
-                    </div>
-                    <button style={{ ...estiloBotaoSuave, padding: '0.35rem 0.6rem', fontSize: '0.72rem' }} onClick={() => abrirEdicao(p)}>Editar</button>
-                    <button style={{ ...estiloBotaoSuave, padding: '0.35rem 0.6rem', fontSize: '0.72rem' }} onClick={() => alternarAtivo(p)}>
-                      {p.ativo ? 'Ocultar' : 'Exibir'}
-                    </button>
-                    <button style={{ ...estiloBotaoSuave, padding: '0.35rem 0.6rem', fontSize: '0.72rem', color: 'var(--color-rose)' }} onClick={() => excluirProduto(p)}>
-                      Excluir
-                    </button>
+                    <div style={{ flex: 1 }}><strong>{p.nome}</strong><div style={estiloLabel}>{(p.publicado ?? p.ativo) ? 'Visível na vitrine' : 'Oculto da vitrine'}</div></div>
+                    <button style={estiloBotaoSuave} disabled={alterandoProduto !== null || p.situacao === 'rascunho' || p.situacao === 'arquivado'} onClick={() => alternarPublicacao(p)}>{alterandoProduto === p.id ? 'Salvando…' : (p.publicado ?? p.ativo) ? 'Ocultar' : 'Exibir'}</button>
                   </div>
                 ))}
               </div>

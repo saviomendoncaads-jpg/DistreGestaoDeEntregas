@@ -402,6 +402,7 @@ node backend/scripts/gerar-doc-banco.cjs DISTRE_PROD
 - **Novas tabelas `PEDIDO_CONFERENCIA_ITENS` e `PEDIDO_CONFERENCIA_LEITURAS`**: conferência da separação lendo o EAN de cada unidade; leitura idempotente por chave.
 - **`PEDIDO_CONFERENCIA_ITENS.PRECO`** (nova coluna) guarda o preço cobrado na venda; permite recalcular o total quando um item sai do pedido. Pedidos antigos sem preço só o recebem se a soma do cadastro fechar com o total da comanda.
 - **Nova tabela `PEDIDO_CONFERENCIA_FALTAS`** (+ `UQ_CONFERENCIA_FALTA (PEDIDO_ID, CHAVE)`): auditoria da tela **Em falta**. Desfecho `ITEM_REMOVIDO` (o pedido segue sem as unidades que faltaram, itens e `ENTREGAS.VALOR` são recalculados e as unidades são estornadas ao saldo) ou `PEDIDO_CANCELADO` (comanda cancelada e estoque devolvido sem duplicar estornos). Opcionalmente o saldo do produto é zerado com um movimento `AJUSTE`.
+- **`PRODUTOS`** ganhou `CODIGO_INTERNO`, `PUBLICADO`, `SITUACAO` e `DADOS_CATALOGO` (JSON com marca, custo, preço promocional, dimensões, SEO...), e a nova tabela **`PRODUTOS_HISTORICO`** registra cada alteração do cadastro.
 
 **Outubro/2026 — Dados**
 - 14 produtos com foto cadastrados na loja **BRASIL FARMA - LOJA 10** em `DISTRE_PROD` (categorias Medicamentos, Higiene e Uso Pessoal, Saúde e Bem-estar e Primeiros Socorros). Fotos em `backend/uploads/`, créditos em `backend/docs/creditos-imagens-catalogo.json`. **Preços são estimativas — revisar no painel.**
@@ -435,6 +436,7 @@ node backend/scripts/gerar-doc-banco.cjs DISTRE_PROD
 | [`PEDIDO_CONFERENCIA_ITENS`](#tabela-pedido_conferencia_itens) | Itens de cada pedido a conferir na separação (por produto), com a quantidade pedida e quantas unidades já foram lidas pelo EAN. |
 | [`PEDIDO_CONFERENCIA_LEITURAS`](#tabela-pedido_conferencia_leituras) | Leituras de código de barras da conferência. A chave torna a leitura idempotente: o mesmo envio repetido não conta duas vezes. |
 | [`PRODUTOS`](#tabela-produtos) | Produtos do cardápio/vitrine de cada loja, com dados fiscais opcionais por produto. |
+| [`PRODUTOS_HISTORICO`](#tabela-produtos_historico) | Histórico de alterações do cadastro de produtos (quem mudou, quando e o retrato dos dados naquele momento). |
 | [`SESSOES`](#tabela-sessoes) | Sessões de login persistidas (sobrevivem a reinício do servidor). |
 | [`TIPOS_VEICULOS`](#tabela-tipos_veiculos) | Catálogo de tipos de veículo da frota. |
 | [`WEBHOOK_EVENTS`](#tabela-webhook_events) | Webhooks recebidos do gateway de pagamento (ingestão idempotente + fila de reprocessamento). |
@@ -787,8 +789,8 @@ Lojas (filiais) de cada empresa. Cada loja tem login próprio no painel e cardá
 | `RECEBE_PEDIDOS` | BIT | não | `0` | 1 = pedidos da vitrine entram como "pedido" (Novos → Separação); 0 = entram direto como entrega. |
 | `LATITUDE` | FLOAT | sim |  | Latitude da loja (geocodificada pelo endereço/CEP ou GPS). |
 | `LONGITUDE` | FLOAT | sim |  | Longitude da loja. |
-| `LOGO_URL` | NVARCHAR(600) | sim |  | Logomarca exibida na vitrine (/uploads/...). |
 | `STATUS_FINANCEIRO` | VARCHAR(50) | não | `'REGULAR'` | Situação da cobrança desta loja (REGULAR/INADIMPLENTE/SUSPENSO/CANCELADO). |
+| `LOGO_URL` | NVARCHAR(600) | sim |  | Logomarca exibida na vitrine (/uploads/...). |
 
 - **Chave primária**: ID
 - **Único**: CHAVE_ACESSO
@@ -926,6 +928,27 @@ Produtos do cardápio/vitrine de cada loja, com dados fiscais opcionais por prod
 | `ICMS_SITUACAO` | VARCHAR(4) | sim |  | Fiscal: CSOSN (Simples) ou CST (Regime Normal). Vazio = padrão da loja. |
 | `UNIDADE` | VARCHAR(6) | sim |  | Fiscal: unidade comercial (UN, CX, KG...). Vazio = UN. |
 | `CODIGO_BARRAS` | VARCHAR(14) | sim |  | Fiscal: GTIN/EAN. Vazio = "SEM GTIN" na nota. |
+| `CODIGO_INTERNO` | NVARCHAR(60) | sim |  | Código/SKU interno da loja (gerado como SKU-XXXXXXXX quando não informado; único por loja, sem diferenciar maiúsculas). |
+| `PUBLICADO` | BIT | não | `0` | 1 = visível na vitrine; 0 = rascunho/oculto. Independe de ATIVO. |
+| `SITUACAO` | VARCHAR(12) | não | `'ativo'` | Situação do cadastro: rascunho \| ativo \| inativo... |
+| `DADOS_CATALOGO` | NVARCHAR(MAX) | sim |  | JSON com campos extras do cadastro: marca, fabricante, custo, preço promocional, imagens, estoque mínimo, peso/dimensões e SEO. |
+
+- **Chave primária**: ID
+
+<a id="tabela-produtos_historico"></a>
+### Tabela: `PRODUTOS_HISTORICO`
+
+Histórico de alterações do cadastro de produtos (quem mudou, quando e o retrato dos dados naquele momento).
+
+| Coluna | Tipo | Nulo | Padrão | Descrição |
+|---|---|---|---|---|
+| `ID` | BIGINT | não | auto-incremento | Sequência auto-incremento. |
+| `PRODUTO_ID` | VARCHAR(100) | não |  | Produto alterado. |
+| `LOJA_ID` | VARCHAR(100) | não |  | Loja dona do produto. |
+| `ACAO` | NVARCHAR(200) | não |  | O que foi feito (criação, edição, publicação...). |
+| `AUTOR` | NVARCHAR(200) | não |  | Quem fez (usuário da loja ou admin). |
+| `DADOS` | NVARCHAR(MAX) | não |  | Retrato (JSON) do cadastro no momento da alteração. |
+| `CRIADO_EM` | DATETIME2 | não | `sysutcdatetime(` | Momento da alteração (UTC). |
 
 - **Chave primária**: ID
 

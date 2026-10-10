@@ -1,9 +1,17 @@
-import { useMemo, useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import KanbanComandas from './KanbanComandas';
 import { NOME_MODELO, type NotaResumo } from './fiscal/fiscalApi';
 import './operations-workspace.css';
+import DispatchWorkspace from './DispatchWorkspace';
 
-type Props = ComponentProps<typeof KanbanComandas>;
+type Props = ComponentProps<typeof KanbanComandas> & {
+  workspace?: ReactNode;
+  activeMenuKey?: string;
+  onWorkspaceExit?: () => boolean;
+  onDispatchViewChange?: (active: boolean) => void;
+  onDespacharProntos: (ids: string[], driverId: string) => Promise<void>;
+  menuActions?: { key: string; label: string; icon: 'products' | 'stock' | 'reports' | 'drivers' | 'vehicles' | 'settings'; onClick: () => void }[];
+};
 type Order = Props['deliveries'][number];
 type Stage = 'todos' | 'novos' | 'separacao' | 'prontos' | 'rota' | 'atrasados' | 'fiscal';
 
@@ -28,7 +36,7 @@ const stages: { key: Stage; label: string; icon: ReactNode }[] = [
   { key: 'prontos', label: 'Despacho', icon: <IcoTruck size={18} /> },
   { key: 'rota', label: 'Entregas', icon: <IcoPin size={18} /> },
   { key: 'atrasados', label: 'Atrasados', icon: <IcoAlert size={18} /> },
-  { key: 'fiscal', label: 'Fiscal', icon: <IcoDoc size={18} /> },
+  { key: 'fiscal', label: 'Notas fiscais', icon: <IcoDoc size={18} /> },
 ];
 const onRoute = new Set(['DESPACHADO', 'EM_TRANSITO', 'NO_LOCAL', 'ALERTA_INCIDENTE', 'SLA_ALERTA', 'AGUARDANDO_RETORNO_CD']);
 const fiscalIssues = new Set(['REJEITADA', 'ERRO']);
@@ -107,6 +115,10 @@ export default function OperationsWorkspace(props: Props) {
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'lista' | 'quadro'>('lista');
   const [focused, setFocused] = useState<string | null>(null);
+  useEffect(() => {
+    props.onDispatchViewChange?.(stage === 'prontos' && !props.activeMenuKey);
+    return () => props.onDispatchViewChange?.(false);
+  }, [stage, props.onDispatchViewChange, props.activeMenuKey]);
   const nota = (o: Order) => props.notasPorComanda?.[o.id];
   const sitOf = (o: Order) => situacaoOf(o, nota(o));
 
@@ -130,7 +142,7 @@ export default function OperationsWorkspace(props: Props) {
     return ok && normalize(`${o.id} ${o.nomeCliente} ${o.endereco}`).includes(normalize(query.trim()));
   }).sort((a, b) => (ORDEM[sitOf(a)] - ORDEM[sitOf(b)]) || (tempo(b) - tempo(a)));
 
-  const changeStage = (next: Stage) => { setStage(next); setFocused(null); setView('lista'); };
+  const changeStage = (next: Stage) => { if (props.onWorkspaceExit?.() === false) return; setStage(next); setFocused(null); setView('lista'); };
   const title = stage === 'todos' ? 'Pedidos' : stages.find(s => s.key === stage)?.label ?? 'Pedidos';
   const focusExists = props.deliveries.some(o => o.id === focused);
   const boardOrders = focused ? props.deliveries.filter(o => o.id === focused) : filtered;
@@ -144,10 +156,10 @@ export default function OperationsWorkspace(props: Props) {
     const n = nota(o);
     if (n && fiscalIssues.has(n.status) && props.onNotaFiscal) return { rotulo: 'Corrigir', tom: 'alerta', fazer: () => props.onNotaFiscal!(o.id, n) };
     if (sit === 'novo') return { rotulo: 'Separar', fazer: e => props.onPreparar(o.id, e) };
-    if (sit === 'separacao') return { rotulo: 'Concluir', fazer: e => props.onFinalizar(o.id, e) };
+    if (sit === 'separacao') return { rotulo: 'Iniciar separação', fazer: e => props.onFinalizar(o.id, e) };
     if (sit === 'pronto' && props.onNotaFiscal) return { rotulo: 'Emitir nota', fazer: () => props.onNotaFiscal!(o.id, n) };
     if (sit === 'pronto' || sit === 'faturado') {
-      return { rotulo: 'Despachar', fazer: () => { if (!props.selectedForManifest.includes(o.id)) props.onToggleManifest(o.id, true); abrirNoQuadro(o.id); } };
+      return { rotulo: 'Despachar', fazer: () => { if (!props.selectedForManifest.includes(o.id)) props.onToggleManifest(o.id, true); changeStage('prontos'); } };
     }
     if (sit === 'rota') return { rotulo: 'Acompanhar', fazer: () => props.onAbrirComanda(o.id) };
     return null;
@@ -164,17 +176,26 @@ export default function OperationsWorkspace(props: Props) {
     <div className="ops-workspace">
       <a className="ops-skip" href="#ops-orders">Ir para os pedidos</a>
       <aside className="ops-sidebar" aria-label="Navegação da operação">
-        <a className="ops-brand" href="#ops-orders">DISTRE</a>
+        <a className="ops-brand" href="#ops-orders" aria-label="DISTRE — Central de pedidos">
+          <svg className="ops-brand-mark" viewBox="0 0 40 32" fill="currentColor" aria-hidden="true"><path d="m1 3 12 13L1 29h9l12-13L10 3Zm16 0 12 13-12 13h9l12-13L26 3Z" /></svg>
+          <span>DISTRE</span>
+        </a>
         <nav>{stages.map(item => (
-          <button key={item.key} type="button" className={`ops-nav-item ${stage === item.key ? 'is-active' : ''}`} aria-current={stage === item.key ? 'page' : undefined} onClick={() => changeStage(item.key)}>
+          <button key={item.key} type="button" className={`ops-nav-item ${!props.workspace && stage === item.key ? 'is-active' : ''}`} aria-current={!props.workspace && stage === item.key ? 'page' : undefined} onClick={() => changeStage(item.key)}>
             <span className="ops-nav-icon">{item.icon}</span><span>{item.label}</span>
             {item.key !== 'todos' && counts[item.key] > 0 && <span className={`ops-nav-count ${item.key === 'atrasados' || item.key === 'fiscal' ? 'is-alerta' : ''}`}>{counts[item.key]}</span>}
           </button>
-        ))}</nav>
+        ))}
+          {props.menuActions?.map((item, index) => <button key={item.key} type="button" className={`ops-nav-item ${index === 0 ? 'ops-nav-group-start' : ''} ${props.activeMenuKey === item.key ? 'is-active' : ''}`} onClick={item.onClick}>
+            <span className="ops-nav-icon">{item.icon === 'settings' ? <Ico size={18}><circle cx="12" cy="12" r="3" /><path d="m9 3-.6 2.2-2 .9-2.1-.6-2 3.5 1.6 1.6v2.4L2.3 15l2 3.5 2.1-.6 2 .9L9 21h6l.6-2.2 2-.9 2.1.6 2-3.5-1.6-1.6V11l1.6-1.6-2-3.5-2.1.6-2-.9L15 3Z" /></Ico> : item.icon === 'reports' ? <Ico size={18}><path d="M4 20V10M10 20V4M16 20v-8M3 21h18" /></Ico> : item.icon === 'drivers' ? <Ico size={18}><circle cx="9" cy="7" r="4" /><path d="M2 21v-3a7 7 0 0 1 14 0v3M19 8v6M16 11h6" /></Ico> : item.icon === 'vehicles' ? <IcoTruck size={18} /> : <IcoBox size={18} />}</span>
+            <span>{item.label}</span>
+          </button>)}
+        </nav>
         <div className="ops-sidebar-foot"><div>Da entrada à entrega<small>{counts.todos} pedidos registrados</small></div></div>
       </aside>
 
       <section id="ops-orders" className="ops-content" aria-label="Central de pedidos">
+        {props.workspace ? props.workspace : stage === 'prontos' ? <DispatchWorkspace {...props} /> : <>
         <div className="ops-heading">
           <h2>{title}</h2>
           <label className="ops-search"><Ico size={18}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></Ico>
@@ -222,6 +243,7 @@ export default function OperationsWorkspace(props: Props) {
           {hiddenSelections.length > 0 && <div className="ops-selection-warning" role="alert">Há {hiddenSelections.length} pedido(s) selecionado(s) fora desta visualização. Remova essas seleções antes de despachar. <button type="button" onClick={() => hiddenSelections.forEach(id => props.onToggleManifest(id, false))}>Remover seleções ocultas</button></div>}
           {focused && !focusExists ? <p className="ops-empty">Este pedido não está mais disponível. Volte à lista para atualizar a seleção.</p> : <KanbanComandas {...props} deliveries={boardOrders} onDespachar={driverId => { if (hiddenSelections.length === 0) props.onDespachar(driverId); }} />}
         </div>}
+        </>}
       </section>
     </div>
   );

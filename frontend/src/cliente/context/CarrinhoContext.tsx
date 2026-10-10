@@ -24,6 +24,7 @@ type AcaoCarrinho =
 function reducerCarrinho(estado: EstadoCarrinho, acao: AcaoCarrinho): EstadoCarrinho {
   switch (acao.tipo) {
     case 'adicionar': {
+      if (acao.produto.estoqueDisponivel === 0) return estado;
       const existente = estado.itens.find(i => i.produto.id === acao.produto.id);
       if (existente) {
         return reducerCarrinho(estado, { tipo: 'incrementar', produtoId: acao.produto.id });
@@ -34,7 +35,7 @@ function reducerCarrinho(estado: EstadoCarrinho, acao: AcaoCarrinho): EstadoCarr
       return {
         itens: estado.itens.map(i =>
           i.produto.id === acao.produtoId
-            ? { ...i, quantidade: Math.min(QTD_MAXIMA, i.quantidade + 1) }
+            ? { ...i, quantidade: Math.min(QTD_MAXIMA, i.produto.estoqueDisponivel ?? QTD_MAXIMA, i.quantidade + 1) }
             : i
         )
       };

@@ -400,8 +400,8 @@ export default function KanbanComandas({
             <select className="form-select" value={driverEscolhido} onChange={e => setDriverEscolhido(e.target.value)}>
               <option value="">Auto (primeiro disponível)</option>
               {drivers.map(d => (
-                <option key={d.id} value={d.id} disabled={!d.dispositivoConectado}>
-                  {d.name} ({!d.dispositivoConectado ? 'Offline' : d.status === 'ocioso' ? 'Disponível' : 'Em Rota'})
+                <option key={d.id} value={d.id}>
+                  {d.name} ({d.status === 'ocioso' ? 'Disponível' : 'Em Rota'})
                 </option>
               ))}
             </select>

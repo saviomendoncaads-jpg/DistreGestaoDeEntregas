@@ -11,7 +11,7 @@ import type { CardapioResposta, PedidoConfirmacao } from './types';
 import {
   BannerVitrine, CabecalhoVitrine, CategoriasDestaque, GradeProdutos, ProdutosDestaque, SidebarVitrine,
 } from './vitrine/VitrineLoja';
-import { IcoSeta, ordenarCategorias } from './vitrine/icones';
+import { IcoCarrinho, IcoSeta, ordenarCategorias } from './vitrine/icones';
 import './cliente.css';
 
 // ============================================================================
@@ -32,14 +32,16 @@ function normalizarTexto(texto: string): string {
   return texto.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
-// Barra flutuante "Ver sacola" — no celular, com itens no carrinho.
+// Confirmação persistente do carrinho, inclusive quando o cabeçalho sai da tela.
 function BarraSacola({ onAbrir }: { onAbrir: () => void }) {
   const { totalItens, subtotal } = useCarrinho();
   if (totalItens === 0) return null;
   return (
-    <button type="button" className="v-barra-sacola vt-barra-mobile" onClick={onAbrir}>
+    <button type="button" className="v-barra-sacola vt-barra-carrinho" onClick={onAbrir}
+      aria-label={`Ver cestinha: ${totalItens} ${totalItens === 1 ? 'produto' : 'produtos'}, total ${formatarPreco(subtotal)}`}>
+      <IcoCarrinho size={22} />
       <span className="v-barra-sacola-badge">{totalItens}</span>
-      <span>Ver carrinho</span>
+      <span className="vt-barra-carrinho-texto">Ver cestinha<small>{totalItens} {totalItens === 1 ? 'produto adicionado' : 'produtos adicionados'}</small></span>
       <span className="v-barra-sacola-total">{formatarPreco(subtotal)}</span>
     </button>
   );
@@ -49,6 +51,7 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
   const [tela, setTela] = useState<Tela>('catalogo');
   const [sacolaAberta, setSacolaAberta] = useState(false);
   const [confirmacao, setConfirmacao] = useState<PedidoConfirmacao | null>(null);
+  const { totalItens } = useCarrinho();
   const { loja, produtos, outrasLojas = [], maisVendidos = [] } = cardapio;
 
   // Categorias derivadas dos produtos (definidas pela loja no painel).
@@ -63,7 +66,7 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
   const resultado = useMemo(() => {
     if (termoBusca) {
       return produtos.filter(p =>
-        normalizarTexto(`${p.nome} ${p.descricao || ''} ${p.categoria || ''} ${p.subcategoria || ''}`).includes(termoBusca));
+        normalizarTexto(`${p.nome} ${p.marca || ''} ${p.descricao || ''} ${p.categoria || ''} ${p.subcategoria || ''}`).includes(termoBusca));
     }
     return filtrarPorCategoria(produtos, filtro);
   }, [produtos, filtro, termoBusca]);
@@ -79,7 +82,7 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
   }, [loja.nome]);
 
   return (
-    <div className="vt-pagina">
+    <div className={`vt-pagina ${tela === 'catalogo' && totalItens > 0 ? 'vt-pagina--tem-carrinho' : ''}`}>
       <div className="vt-container">
         <CabecalhoVitrine
           loja={loja}
@@ -179,7 +182,7 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
         </footer>
       </div>
 
-      {tela === 'catalogo' && loja.aceitandoPedidos && <BarraSacola onAbrir={() => setSacolaAberta(true)} />}
+      {tela === 'catalogo' && loja.aceitandoPedidos && !sacolaAberta && <BarraSacola onAbrir={() => setSacolaAberta(true)} />}
 
       <CarrinhoDrawer
         aberto={sacolaAberta}

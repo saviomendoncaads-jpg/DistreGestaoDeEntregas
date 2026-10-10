@@ -4,6 +4,9 @@ import { io, Socket } from 'socket.io-client';
 import CentroOperacoes, { type BrokerEvento } from './components/CentroOperacoes';
 import OperationsWorkspace from './components/OperationsWorkspace';
 import GestaoVitrine from './components/GestaoVitrine';
+import GestaoProdutos from './components/GestaoProdutos';
+import GestaoEstoque from './components/GestaoEstoque';
+import OperationSettingsModal from './components/OperationSettingsModal';
 import ConferenciaSeparacao from './components/ConferenciaSeparacao';
 import EmissaoNotaModal from './components/fiscal/EmissaoNotaModal';
 import ConfigFiscalModal from './components/fiscal/ConfigFiscalModal';
@@ -322,6 +325,7 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginTab, setLoginTab] = useState<'loja' | 'admin'>('loja');
   const [selectedDriverForDispatch, setSelectedDriverForDispatch] = useState('');
+  const [dispatchViewActive, setDispatchViewActive] = useState(false);
 
   // Gerenciamento de Empresas no Painel Master
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
@@ -1107,7 +1111,7 @@ export default function App() {
   const [mapRoutesTrigger, setMapRoutesTrigger] = useState(0);
 
   // Estados para o FAB e Modal de Relatório
-  const [fabOpen, setFabOpen] = useState(false);
+  const [showEstoqueModal, setShowEstoqueModal] = useState(false);
   const [whatsappOpen] = useState(false);
   const [whatsappMessages, setWhatsappMessages] = useState<Array<{ sender: 'customer' | 'bot'; text: string; timestamp: string }>>([]);
   const [whatsappIsTyping, setWhatsappIsTyping] = useState(false);
@@ -1130,6 +1134,9 @@ export default function App() {
   ]);
   const [showDriverModal, setShowDriverModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [catalogoAlterado, setCatalogoAlterado] = useState(false);
+  const [catalogoRefresh, setCatalogoRefresh] = useState(0);
+  const [showProdutosModal, setShowProdutosModal] = useState(false);
   const [showVitrineModal, setShowVitrineModal] = useState(false);
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverVehicleType, setNewDriverVehicleType] = useState('motorcycle');
@@ -1662,7 +1669,7 @@ export default function App() {
 
   // Romaneio e Impressão Térmica
   const [selectedForManifest, setSelectedForManifest] = useState<string[]>([]);
-  const [activeManifest, setActiveManifest] = useState<{ id: string; deliveryIds: string[]; driverName: string; driverId: string; totalValue: number } | null>(null);
+  const [activeManifest, setActiveManifest] = useState<{ id: string; deliveryIds: string[]; driverName: string; driverId: string; totalValue: number; despachado?: boolean } | null>(null);
   const [showThermalReceipt, setShowThermalReceipt] = useState(false);
 
   const getDeliveryValue = (d: Entrega) => {
@@ -2479,6 +2486,7 @@ export default function App() {
   const atualizarStatusFiscal = () => { fiscalApi?.status().then(setFiscalStatus).catch(() => { /* ignore */ }); };
   const [notasFiscais, setNotasFiscais] = useState<NotaResumo[]>([]);
   const [showConfigFiscal, setShowConfigFiscal] = useState(false);
+  const [showOperationSettings, setShowOperationSettings] = useState(false);
   const [pedidoEmConferencia, setPedidoEmConferencia] = useState<string | null>(null);
   const [emissaoFiscal, setEmissaoFiscal] = useState<{ modo: 'separacao' | 'emitir'; comandaId: string; escolhaInicial: EscolhaFiscal } | null>(null);
 
@@ -2619,6 +2627,24 @@ export default function App() {
 
 
 
+
+  const despacharPedidosProntos = async (ids: string[], driverId: string) => {
+    const driver = drivers.find(d => d.id === driverId);
+    if (!driver) throw new Error('O entregador não está mais cadastrado.');
+    const pedidos = ids.map(id => deliveries.find(d => d.id === id));
+    if (!ids.length || pedidos.some(d => !d || d.status !== 'RECEBIDO' || d.tipoComanda === 'pedido')) {
+      throw new Error('A seleção mudou. Selecione apenas pedidos prontos para despacho.');
+    }
+    const romId = `ROM-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomUUID().slice(0, 8)}`;
+    const response = await apiFetch(`${BACKEND_URL}/api/deliveries/dispatch-batch`, {
+      method: 'POST', body: JSON.stringify({ deliveryIds: ids, driverId, romaneioId: romId })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Erro ao despachar pedidos.');
+    setActiveManifest({ id: romId, deliveryIds: [...ids], driverId, driverName: driver.name,
+      totalValue: pedidos.reduce((sum, d) => sum + (d ? getDeliveryValue(d) : 0), 0), despachado: true });
+    setSelectedForManifest(prev => prev.filter(id => !ids.includes(id)));
+  };
 
   const handleInjectIncident = async () => {
     if (!selectedDeliveryId) return;
@@ -3013,10 +3039,9 @@ export default function App() {
         <div className="login-card">
           <div className="login-logo">
             <div className="login-brand">
-              <svg className="login-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-                <rect x="1" y="1" width="30" height="30" rx="8" fill="#070d1c" stroke="#1e293b" />
-                <path d="M7 22 L16 6 L25 22" stroke="#2563EB" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
-                <path d="M11 22 L16 13 L21 22" stroke="#60A5FA" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+              <svg className="login-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <rect width="48" height="48" rx="10" fill="#070f1d" />
+                <path d="m5 11 12 13L5 37h9l12-13L14 11Zm16 0 12 13-12 13h9l12-13L30 11Z" fill="#2878ff" />
               </svg>
               <span className="login-word">DISTRE</span>
             </div>
@@ -4666,10 +4691,9 @@ export default function App() {
         <div className="logo-section">
           <div className="logo-icon" style={{ background: 'transparent', boxShadow: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             {/* Logo oficial Distre — mesmo mark da landing (site/index.html) e da tela de login */}
-            <svg width="40" height="40" viewBox="0 0 32 32" fill="none" aria-hidden="true" style={{ display: 'block' }}>
-              <rect x="1" y="1" width="30" height="30" rx="8" fill="#070d1c" stroke="#1e293b" />
-              <path d="M7 22 L16 6 L25 22" stroke="#2563EB" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
-              <path d="M11 22 L16 13 L21 22" stroke="#60A5FA" strokeWidth="2.4" strokeLinejoin="round" strokeLinecap="round" />
+            <svg width="40" height="40" viewBox="0 0 48 48" fill="none" aria-hidden="true" style={{ display: 'block' }}>
+              <rect width="48" height="48" rx="10" fill="#070f1d" />
+              <path d="m5 11 12 13L5 37h9l12-13L14 11Zm16 0 12 13-12 13h9l12-13L30 11Z" fill="#2878ff" />
             </svg>
           </div>
           <div>
@@ -4772,67 +4796,9 @@ export default function App() {
 
       {/* 3. Seção de Entregas Cadastradas (Comandas) */}
       <section className="glass-panel deliveries-top-panel glow-cyan">
-        <div className="panel-header">
+        {!dispatchViewActive && !showProdutosModal && <div className="panel-header">
           <h2 style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             Controle de Comandas
-            {tenantLojaId && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" />
-                </svg>
-                Impressão de comanda:
-                <select
-                  className="form-select"
-                  value={comandaPrintMode}
-                  onChange={ev => alterarModoImpressao(ev.target.value as ModoImpressaoComanda)}
-                  style={{ width: 'auto', minHeight: '30px', padding: '0 var(--space-2)', fontSize: '0.75rem' }}
-                  title="Como a comanda é gerada quando um pedido novo entra na fila"
-                >
-                  <option value="impressora">Impressora 80mm (auto)</option>
-                  <option value="pdf">Abrir PDF</option>
-                  <option value="off">Desligada</option>
-                </select>
-              </label>
-            )}
-            {tenantLojaId && fiscalApi && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                <span aria-hidden="true">🧾</span>
-                Nota fiscal:
-                <select
-                  className="form-select"
-                  value={modoNotaPadrao}
-                  onChange={ev => alterarModoNota(ev.target.value as ModoNotaPadrao)}
-                  style={{ width: 'auto', minHeight: '30px', padding: '0 var(--space-2)', fontSize: '0.75rem' }}
-                  title="Documento fiscal emitido ao concluir a separação"
-                >
-                  <option value="perguntar">Perguntar (NFC-e ou NF-e)</option>
-                  <option value="NFCE">NFC-e automática</option>
-                  <option value="NFE">NF-e</option>
-                  <option value="NENHUMA">Não emitir</option>
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => setShowConfigFiscal(true)}
-                  style={{ minHeight: '30px', padding: '0 0.6rem', fontSize: '0.72rem' }}
-                  title="CNPJ, IE, endereço, séries e tributação padrão do emitente"
-                >
-                  Dados fiscais
-                </button>
-                {fiscalStatus && (
-                  <span
-                    title={fiscalStatus.podeEmitir ? 'Ambiente fiscal da loja' : 'Configuração fiscal incompleta — abra Dados fiscais'}
-                    style={{
-                      fontSize: '0.66rem', fontWeight: 700,
-                      color: !fiscalStatus.podeEmitir ? 'var(--color-rose)' : fiscalStatus.simulado ? 'var(--color-amber)'
-                        : fiscalStatus.ambiente === 'PRODUCAO' ? 'var(--color-emerald)' : 'var(--color-cyan)',
-                    }}
-                  >
-                    {!fiscalStatus.podeEmitir ? 'CONFIGURAR' : fiscalStatus.simulado ? 'SIMULADO' : fiscalStatus.ambiente === 'PRODUCAO' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}
-                  </span>
-                )}
-              </label>
-            )}
           </h2>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             {selectedRecebidas.length > 0 && tenantLojaId && (
@@ -4845,8 +4811,8 @@ export default function App() {
                 >
                   <option value="">Selecione o Entregador</option>
                   {drivers.map(d => (
-                    <option key={d.id} value={d.id} disabled={!d.dispositivoConectado}>
-                      {d.name} ({!d.dispositivoConectado ? 'Offline' : d.status === 'ocioso' ? 'Disponível' : 'Em Rota'})
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.status === 'ocioso' ? 'Disponível' : 'Em Rota'})
                     </option>
                   ))}
                 </select>
@@ -4857,11 +4823,10 @@ export default function App() {
               Total: {deliveries.length} comandas
             </span>
           </div>
-        </div>
-
+        </div>}
         {/* Romaneio Ativo */}
         {activeManifest && (
-          <div style={{ 
+          <div className="ops-manifest" style={{
             background: '#0d131f', 
             border: '1px solid #1f293d', 
             borderRadius: '8px', 
@@ -4876,12 +4841,13 @@ export default function App() {
               <button 
                 style={{ background: 'transparent', border: 'none', color: 'var(--color-rose)', cursor: 'pointer', fontSize: '0.75rem' }}
                 onClick={() => {
+                  if (activeManifest.despachado) { setActiveManifest(null); return; }
                   setSelectedForManifest(activeManifest.deliveryIds);
                   setSelectedDriverForDispatch(activeManifest.driverId);
                   setActiveManifest(null);
                 }}
               >
-                Desfazer
+                {activeManifest.despachado ? 'Fechar romaneio' : 'Desfazer'}
               </button>
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
@@ -4903,7 +4869,7 @@ export default function App() {
                 color: 'var(--color-cyan)',
                 fontWeight: 600
               }}>
-                Valor Total a Cobrar em Maquininha: R$ {activeManifest.totalValue.toFixed(2)}
+                Total dos pedidos: R$ {activeManifest.totalValue.toFixed(2)}
               </div>
             </div>
 
@@ -4933,7 +4899,7 @@ export default function App() {
                 Imprimir Guia do Motoboy (80mm)
               </button>
 
-              <button
+              {!activeManifest.despachado && <button
                 type="button"
                 className="btn btn-primary btn-small"
                 style={{ 
@@ -4967,17 +4933,33 @@ export default function App() {
                 }}
               >
                 Liberar Entrega
-              </button>
+              </button>}
             </div>
           </div>
         )}
 
         {/* Kanban de Controle de Comandas — substitui as 2 filas verticais antigas */}
         <OperationsWorkspace
+          activeMenuKey={showProdutosModal ? 'produtos' : undefined}
+          onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não salvas do produto?')) return false; setShowProdutosModal(false); setCatalogoAlterado(false); return true; }}
+          workspace={showProdutosModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoProdutos backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onClose={() => setShowProdutosModal(false)} onEstoque={() => setShowEstoqueModal(true)} onVitrine={() => setShowVitrineModal(true)} onDirtyChange={setCatalogoAlterado} refreshKey={catalogoRefresh} /> : undefined}
+          onDispatchViewChange={setDispatchViewActive}
+          onDespacharProntos={despacharPedidosProntos}
+          menuActions={[
+            ...(tenantLojaId ? [{ key: 'configuracoes', label: 'Configurações', icon: 'settings' as const, onClick: () => setShowOperationSettings(true) }] : []),
+            ...(sessao?.tipo === 'loja' && sessao.lojaId ? [
+              { key: 'produtos', label: 'Produtos', icon: 'products' as const, onClick: () => setShowProdutosModal(true) },
+              { key: 'vitrine', label: 'Configuração da vitrine', icon: 'products' as const, onClick: () => setShowVitrineModal(true) },
+              { key: 'estoque', label: 'Estoque', icon: 'stock' as const, onClick: () => setShowEstoqueModal(true) },
+            ] : []),
+            { key: 'relatorios', label: 'Relatórios', icon: 'reports', onClick: () => { setReportPhase('filters'); setReportModalOpen(true); } },
+            { key: 'motoristas', label: 'Cadastrar Motoboy', icon: 'drivers', onClick: () => setShowDriverModal(true) },
+            { key: 'veiculos', label: 'Tipos de veículo', icon: 'vehicles', onClick: () => setShowVehicleModal(true) },
+          ]}
           deliveries={deliveries}
           drivers={drivers}
           selectedForManifest={selectedForManifest}
-          onToggleManifest={(id, checked) => setSelectedForManifest(prev => (checked ? [...prev, id] : prev.filter(x => x !== id)))}
+          onToggleManifest={(id, checked) => setSelectedForManifest(prev => (checked ? [...new Set([...prev, id])] : prev.filter(x => x !== id)))}
           onPreparar={handlePrepararPedido}
           onFinalizar={handleFinalizarPedido}
           onCancelar={handleCancelarPedido}
@@ -5545,7 +5527,7 @@ export default function App() {
         )}
 
         {/* Right Side: Frota de Motoristas */}
-        <section className="glass-panel">
+        {!dispatchViewActive && !showProdutosModal && <section className="glass-panel">
           <div className="panel-header">
             <h2>Frota de Motoristas</h2>
           </div>
@@ -5563,11 +5545,11 @@ export default function App() {
                           width: '8px', 
                           height: '8px', 
                           borderRadius: '50%', 
-                          background: d.dispositivoConectado ? 'var(--color-emerald)' : '#4b5563', 
-                          boxShadow: d.dispositivoConectado ? '0 0 8px var(--color-emerald)' : 'none',
+                          background: 'var(--color-emerald)',
+                          boxShadow: '0 0 8px var(--color-emerald)',
                           display: 'inline-block' 
                         }}
-                        title={d.dispositivoConectado ? 'Celular conectado' : 'Dispositivo offline'}
+                        title={'Online para despacho'}
                       />
                       {getVehicleIcon(d.vehicleType)} 
                       {d.name}
@@ -5577,8 +5559,8 @@ export default function App() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span className={`card-badge ${!d.dispositivoConectado ? 'offline' : d.status === 'ocioso' ? 'completed' : 'failed'}`} style={{ textTransform: 'capitalize', fontSize: '0.7rem' }}>
-                      {!d.dispositivoConectado ? 'Offline' : d.status === 'ocioso' ? 'Disponível' : 'Em Rota'}
+                    <span className={`card-badge ${d.status === 'ocioso' ? 'completed' : 'failed'}`} style={{ textTransform: 'capitalize', fontSize: '0.7rem' }}>
+                      {d.status === 'ocioso' ? 'Disponível' : 'Em Rota'}
                     </span>
                     <button 
                       className="icon-btn danger" 
@@ -5596,7 +5578,7 @@ export default function App() {
               );
             })}
           </div>
-        </section>
+        </section>}
 
       </div>
       {showThermalReceipt && activeManifest && createPortal(
@@ -5722,101 +5704,82 @@ export default function App() {
           onClose={() => setPedidoEmConferencia(null)}
           onComplete={e => { const id = pedidoEmConferencia; setPedidoEmConferencia(null); void finalizarPedidoConferido(id, e); }} />
       )}
-      {/* Botão Flutuante de Ação (FAB) */}
-      <div className="fab-container">
-        {fabOpen && (
-          <div className="fab-menu">
-            {sessao?.tipo === 'loja' && sessao.lojaId && (
-              <button
-                className="fab-menu-item"
-                onClick={() => {
-                  setFabOpen(false);
-                  setShowVitrineModal(true);
-                }}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 9 L4.4 4.5 H19.6 L21 9" />
-                  <path d="M4.5 9 V19.5 H19.5 V9" />
-                  <path d="M9.5 19.5 V14 H14.5 V19.5" />
+      {showOperationSettings && (
+        <OperationSettingsModal onClose={() => setShowOperationSettings(false)}>
+            {tenantLojaId && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" />
                 </svg>
-                Vitrine & Produtos
-              </button>
+                Impressão de comanda:
+                <select
+                  className="form-select"
+                  aria-label="Impressão de comanda" value={comandaPrintMode}
+                  onChange={ev => alterarModoImpressao(ev.target.value as ModoImpressaoComanda)}
+                  style={{ width: 'auto', minHeight: '30px', padding: '0 var(--space-2)', fontSize: '0.75rem' }}
+                  title="Como a comanda é gerada quando um pedido novo entra na fila"
+                >
+                  <option value="impressora">Impressora 80mm (auto)</option>
+                  <option value="pdf">Abrir PDF</option>
+                  <option value="off">Desligada</option>
+                </select>
+              </label>
             )}
-            <button
-              className="fab-menu-item"
-              onClick={() => {
-                setFabOpen(false);
-                setReportPhase('filters');
-                setReportModalOpen(true);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="20" x2="18" y2="10" />
-                <line x1="12" y1="20" x2="12" y2="4" />
-                <line x1="6" y1="20" x2="6" y2="14" />
-              </svg>
-              Gerar Relatório de Desempenho
-            </button>
-            <button 
-              className="fab-menu-item" 
-              onClick={() => {
-                setFabOpen(false);
-                setShowDriverModal(true);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="8.5" cy="7" r="4" />
-                <line x1="20" y1="8" x2="20" y2="14" />
-                <line x1="23" y1="11" x2="17" y2="11" />
-              </svg>
-              Cadastrar Motoboy
-            </button>
-            <button 
-              className="fab-menu-item" 
-              onClick={() => {
-                setFabOpen(false);
-                setShowVehicleModal(true);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="1" y="3" width="15" height="13" />
-                <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
-                <circle cx="5.5" cy="18.5" r="2.5" />
-                <circle cx="18.5" cy="18.5" r="2.5" />
-              </svg>
-              Cadastrar Tipo de Veículo
-            </button>
-          </div>
-        )}
-        <button 
-          className={`fab-button ${fabOpen ? 'active' : ''}`}
-          onClick={() => setFabOpen(prev => !prev)}
-          title="Menu de Ações"
-        >
-          {fabOpen ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          ) : (
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="12" x2="21" y2="12" />
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
-          )}
-        </button>
-      </div>
+            {tenantLojaId && fiscalApi && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                <span aria-hidden="true">🧾</span>
+                Nota fiscal:
+                <select
+                  className="form-select"
+                  aria-label="Nota fiscal padrão" value={modoNotaPadrao}
+                  onChange={ev => alterarModoNota(ev.target.value as ModoNotaPadrao)}
+                  style={{ width: 'auto', minHeight: '30px', padding: '0 var(--space-2)', fontSize: '0.75rem' }}
+                  title="Documento fiscal emitido ao concluir a separação"
+                >
+                  <option value="perguntar">Perguntar (NFC-e ou NF-e)</option>
+                  <option value="NFCE">NFC-e automática</option>
+                  <option value="NFE">NF-e</option>
+                  <option value="NENHUMA">Não emitir</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => { setShowOperationSettings(false); setShowConfigFiscal(true); }}
+                  style={{ minHeight: '30px', padding: '0 0.6rem', fontSize: '0.72rem' }}
+                  title="CNPJ, IE, endereço, séries e tributação padrão do emitente"
+                >
+                  Dados fiscais
+                </button>
+                {fiscalStatus && (
+                  <span
+                    title={fiscalStatus.podeEmitir ? 'Ambiente fiscal da loja' : 'Configuração fiscal incompleta — abra Dados fiscais'}
+                    style={{
+                      fontSize: '0.66rem', fontWeight: 700,
+                      color: !fiscalStatus.podeEmitir ? 'var(--color-rose)' : fiscalStatus.simulado ? 'var(--color-amber)'
+                        : fiscalStatus.ambiente === 'PRODUCAO' ? 'var(--color-emerald)' : 'var(--color-cyan)',
+                    }}
+                  >
+                    {!fiscalStatus.podeEmitir ? 'CONFIGURAR' : fiscalStatus.simulado ? 'SIMULADO' : fiscalStatus.ambiente === 'PRODUCAO' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}
+                  </span>
+                )}
+              </label>
+            )}
+        </OperationSettingsModal>
+      )}
 
-      {/* Modal Vitrine & Produtos (cardápio público da loja) */}
+      {showEstoqueModal && sessao?.tipo === 'loja' && sessao.lojaId && (
+        <GestaoEstoque backendUrl={BACKEND_URL} token={sessao.token}
+          onClose={() => { setShowEstoqueModal(false); setCatalogoRefresh(v => v + 1); }}
+          onProdutos={() => { setShowEstoqueModal(false); setShowProdutosModal(true); }} />
+      )}
+      {/* Configuração da vitrine pública */}
       {showVitrineModal && sessao?.tipo === 'loja' && sessao.lojaId && (
         <GestaoVitrine
           backendUrl={BACKEND_URL}
           token={sessao.token}
           lojaId={sessao.lojaId}
           nomeLoja={sessao.nomeLoja || 'Minha Loja'}
-          onClose={() => setShowVitrineModal(false)}
+          onClose={() => { setShowVitrineModal(false); setCatalogoRefresh(v => v + 1); }}
         />
       )}
 
@@ -6445,11 +6408,11 @@ export default function App() {
                         padding: '0.1rem 0.3rem', 
                         borderRadius: '4px',
                         marginLeft: '0.25rem',
-                        background: !d.dispositivoConectado ? 'rgba(156, 163, 175, 0.08)' : d.status === 'ocioso' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)',
-                        color: !d.dispositivoConectado ? '#9ca3af' : d.status === 'ocioso' ? 'var(--color-emerald)' : 'var(--color-rose)',
+                        background: d.status === 'ocioso' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)',
+                        color: d.status === 'ocioso' ? 'var(--color-emerald)' : 'var(--color-rose)',
                         textTransform: 'capitalize'
                       }}>
-                        {!d.dispositivoConectado ? 'offline' : d.status === 'ocioso' ? 'disponível' : 'em rota'}
+                        {d.status === 'ocioso' ? 'disponível' : 'em rota'}
                       </span>
                     </span>
                     <button 
