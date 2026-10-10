@@ -1,0 +1,132 @@
+// Tipos do Painel do Cliente (vitrine pública).
+// Espelham os contratos do backend em backend/src/vitrine.ts.
+
+export interface ProdutoVitrine {
+  precoOriginal?: number;
+  marca?: string;
+  imagens?: string[];
+  estoqueDisponivel?: number;
+  id: string;
+  nome: string;
+  descricao?: string;
+  preco: number;
+  imagemUrl?: string;
+  categoria?: string;
+  subcategoria?: string;
+}
+
+export interface LojaVitrine {
+  id: string;
+  nome: string;
+  bairro?: string;
+  cidade?: string;
+  uf?: string;
+  logoUrl?: string;
+  aceitandoPedidos: boolean;
+  telefone?: string;     // só dígitos (WhatsApp / ligação)
+  nomeEmpresa?: string;
+}
+
+export interface OutraLoja {
+  id: string;
+  nome: string;
+  bairro?: string;
+  cidade?: string;
+}
+
+export interface CardapioResposta {
+  loja: LojaVitrine;
+  produtos: ProdutoVitrine[];
+  outrasLojas?: OutraLoja[];
+  maisVendidos?: string[]; // ids de produto, do mais vendido para o menos
+}
+
+/** Identificação leve do cliente ("Entrar"), guardada no navegador e usada no checkout. */
+export interface ClienteIdentificado {
+  nome: string;
+  telefone: string;
+}
+
+const CHAVE_CLIENTE = 'distre.vitrine.cliente';
+export function lerClienteIdentificado(): ClienteIdentificado | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(CHAVE_CLIENTE) || 'null');
+    return v && typeof v.nome === 'string' ? { nome: v.nome, telefone: String(v.telefone || '') } : null;
+  } catch {
+    return null;
+  }
+}
+export function salvarClienteIdentificado(c: ClienteIdentificado | null) {
+  try {
+    if (c) localStorage.setItem(CHAVE_CLIENTE, JSON.stringify(c));
+    else localStorage.removeItem(CHAVE_CLIENTE);
+  } catch { /* modo privado: segue sem lembrar */ }
+}
+
+export interface ItemCarrinho {
+  produto: ProdutoVitrine;
+  quantidade: number;
+  observacao?: string;
+}
+
+export type FormaPagamentoVitrine = 'pix' | 'cartao' | 'dinheiro';
+
+export interface EnderecoEntrega {
+  cep: string;
+  logradouro: string;
+  numero: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  complemento: string;
+  referencia: string;
+}
+
+// Payload aceito por POST /api/vitrine/:lojaId/pedidos — os preços NÃO viajam
+// no payload: o backend recalcula tudo a partir dos produtoId.
+export interface PedidoPayload {
+  cliente: {
+    nome: string;
+    telefone?: string;
+    cpf: string;
+  };
+  itens: {
+    produtoId: string;
+    quantidade: number;
+    observacao?: string;
+  }[];
+  endereco: {
+    cep?: string;
+    logradouro: string;
+    numero?: string;
+    bairro?: string;
+    cidade?: string;
+    uf?: string;
+    complemento?: string;
+    referencia?: string;
+  };
+  pagamento: {
+    forma: FormaPagamentoVitrine;
+    troco?: number;
+  };
+  observacao?: string;
+}
+
+export interface PedidoConfirmacao {
+  success: boolean;
+  pedidoId: string;
+  status: string;
+  total: number;
+  subtotal: number;
+  taxaEntrega: number;
+  itens: {
+    produtoId: string;
+    nome: string;
+    quantidade: number;
+    precoUnitario: number;
+  }[];
+}
+
+export function formatarPreco(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}

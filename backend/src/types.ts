@@ -1,15 +1,16 @@
-export type StatusEntrega = 
-  | 'RECEBIDO' 
+export type StatusEntrega =
+  | 'RECEBIDO'
   | 'EM_PREPARO'
-  | 'DESPACHADO' 
-  | 'EM_TRANSITO' 
-  | 'NO_LOCAL' 
-  | 'ENTREGUE' 
-  | 'RECUSADO_INSUCESSO' 
+  | 'DESPACHADO'
+  | 'EM_TRANSITO'
+  | 'NO_LOCAL'
+  | 'ENTREGUE'
+  | 'RECUSADO_INSUCESSO'
   | 'ALERTA_INCIDENTE'
   | 'AGUARDANDO_RETORNO_CD'
   | 'PRODUTO_RETORNADO_ESTOQUE'
-  | 'SLA_ALERTA';
+  | 'SLA_ALERTA'
+  | 'CANCELADO';
 
 export type Prioridade = 'baixa' | 'media' | 'alta' | 'critica';
 export type TipoCarga = 'normal' | 'expressa' | 'agendado';
@@ -31,7 +32,7 @@ export interface Motorista {
   status: 'ocioso' | 'ocupado';
   lojaId?: string; // Isolamento multi-tenant
   codigoVinculo: string; // Código de pareamento (ex: 123456)
-  dispositivoConectado?: boolean; // Status online do app móvel
+  dispositivoConectado?: boolean; // Online operacional: sempre true, independente do celular.
   localizacaoAtual?: Localizacao; // Posição GPS em tempo real
   ultimaAtualizacao?: string; // Timestamp do último ping do GPS
 }
@@ -102,6 +103,11 @@ export interface Entrega {
   // Clusterização (Destino antes da rota)
   destino?: Localizacao;
 
+  // Coordenadas geográficas REAIS do destino (resolvidas via geocoder a partir do endereço do cliente).
+  // Independem do grid sintético; usadas pelo frontend para plotar o pino no lugar exato no mapa.
+  destinoLatitude?: number;
+  destinoLongitude?: number;
+
   // Multi-tenant
   lojaId?: string;
   nomeLoja?: string;
@@ -145,6 +151,7 @@ export interface Empresa {
   telefone?: string;
   email?: string;
   ativo: boolean;
+  statusFinanceiro?: string;  // 'REGULAR' | 'INADIMPLENTE' | 'SUSPENSO' | 'CANCELADO'
   criadoEm: string;
 }
 
@@ -154,14 +161,21 @@ export interface Loja {
   nome: string;
   cnpj?: string;
   endereco?: string;
+  numero?: string;
   bairro?: string;
   cidade?: string;
+  uf?: string;
+  cep?: string;
   usuario: string;
   senhaHash: string;    // SHA-256, nunca exposto via API
   chaveAcesso: string;  // Código de referência DISTRE-XXXX-YYYY-ZZZZ
   ativo: boolean;
   criadoEm: string;
   recebePedidos?: boolean;
+  statusFinanceiro?: string;  // 'REGULAR' | 'INADIMPLENTE' | 'SUSPENSO' | 'CANCELADO' — billing por loja
+  latitude?: number;   // coordenada geográfica resolvida a partir do endereço (Nominatim)
+  longitude?: number;
+  logoUrl?: string;    // logomarca exibida no cabeçalho da vitrine pública
 }
 
 export interface Sessao {
@@ -172,6 +186,8 @@ export interface Sessao {
   token: string;
   criadoEm: string;
   recebePedidos?: boolean;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface TipoVeiculo {
@@ -181,9 +197,36 @@ export interface TipoVeiculo {
 
 export interface Produto {
   id: string;
+  codigoInterno?: string;
+  situacao?: 'rascunho' | 'ativo' | 'arquivado';
+  publicado?: boolean;
+  marca?: string;
+  fabricante?: string;
+  custo?: number;
+  precoPromocional?: number;
+  imagens?: string[];
+  estoqueMinimo?: number;
+  peso?: number;
+  altura?: number;
+  largura?: number;
+  comprimento?: number;
+  seoTitulo?: string;
+  seoDescricao?: string;
   nome: string;
   preco: number;
   lojaId?: string;
   ativo: boolean;
   imagemUrl?: string;
+  descricao?: string;
+  // Categoria/subcategoria definidas pela loja no painel (texto livre).
+  // A sidebar de navegação da vitrine deriva a árvore destes campos.
+  categoria?: string;
+  subcategoria?: string;
+  // Dados fiscais (NFC-e/NF-e). Vazios = padrão da configuração fiscal da loja.
+  ncm?: string;          // 8 dígitos
+  cest?: string;         // 7 dígitos (produtos com substituição tributária)
+  cfop?: string;         // 4 dígitos
+  icmsSituacao?: string; // CSOSN (Simples) ou CST (Regime Normal)
+  unidade?: string;      // UN, CX, KG...
+  codigoBarras?: string; // GTIN/EAN (8, 12, 13 ou 14 dígitos)
 }

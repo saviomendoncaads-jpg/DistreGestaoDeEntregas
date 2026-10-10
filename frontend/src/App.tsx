@@ -1,6 +1,20 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
+import CentroOperacoes, { type BrokerEvento } from './components/CentroOperacoes';
+import OperationsWorkspace from './components/OperationsWorkspace';
+import GestaoVitrine from './components/GestaoVitrine';
+import GestaoProdutos from './components/GestaoProdutos';
+import GestaoEstoque from './components/GestaoEstoque';
+import OperationSettingsModal from './components/OperationSettingsModal';
+import ConferenciaSeparacao from './components/ConferenciaSeparacao';
+import EmissaoNotaModal from './components/fiscal/EmissaoNotaModal';
+import ConfigFiscalModal from './components/fiscal/ConfigFiscalModal';
+import {
+  FiscalApi, NOME_MODELO,
+  type DestinatarioNota, type EscolhaFiscal, type NotaCompleta, type NotaResumo, type StatusFiscal,
+} from './components/fiscal/fiscalApi';
+import { imprimirNota } from './components/fiscal/danfe';
 import './App.css';
 
 declare const L: any;
@@ -20,23 +34,24 @@ function gridToLatLng(x: number, y: number): [number, number] {
   return [lat, lng];
 }
 
-// Converte latitude e longitude reais de volta para coordenadas da grade (0-100)
-function latLngToGrid(lat: number, lng: number): { x: number; y: number } {
-  // Clampa nos limites da cidade
-  const clLat = Math.min(CITY_BOUNDS.maxLat, Math.max(CITY_BOUNDS.minLat, lat));
-  const clLng = Math.min(CITY_BOUNDS.maxLng, Math.max(CITY_BOUNDS.minLng, lng));
-  
-  const x = ((clLng - CITY_BOUNDS.minLng) / (CITY_BOUNDS.maxLng - CITY_BOUNDS.minLng)) * 100;
-  const y = ((CITY_BOUNDS.maxLat - clLat) / (CITY_BOUNDS.maxLat - CITY_BOUNDS.minLat)) * 100;
-  
-  return {
-    x: Math.round(x),
-    y: Math.round(y)
-  };
-}
 
 // Cache global de rotas OSRM para evitar requisições redundantes e rate limits
 const osrmRoutesCache = new Map<string, [number, number][]>();
+
+// Paleta para diferenciar múltiplas entregas no mapa. Com 1 entrega, a rota é azul;
+// com mais, cada uma recebe a próxima cor (verde, amarelo, vermelho, preto, roxo...).
+const ROUTE_COLORS = ['#1a73e8', '#16a34a', '#f4b400', '#ea4335', '#111827', '#7c3aed'];
+
+// Marcador da loja (hub) no mapa — estilo Waze: badge branco com ícone de loja
+// e o NOME da loja exibido logo acima do indicador (via CSS ::after / --hub-name).
+function hubIconHtml(name: string): string {
+  return `<div class="map-city-hub" style="--hub-name: '${name}'; position: absolute; transform: translate(-50%, -50%); left: 0; top: 0;">`
+    + `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">`
+    + `<path d="M3 9 L4.4 4.5 H19.6 L21 9" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
+    + `<path d="M4.5 9 V19.5 H19.5 V9" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>`
+    + `<path d="M9.5 19.5 V14 H14.5 V19.5" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>`
+    + `</svg></div>`;
+}
 
 function getVehicleIconHtmlString(type?: string): string {
   switch (type) {
@@ -158,7 +173,7 @@ interface Entrega {
   itens: string[];
   prioridade: 'baixa' | 'media' | 'alta' | 'critica';
   tipoCarga: 'normal' | 'expressa' | 'agendado';
-  status: 'RECEBIDO' | 'DESPACHADO' | 'EM_TRANSITO' | 'NO_LOCAL' | 'ENTREGUE' | 'RECUSADO_INSUCESSO' | 'ALERTA_INCIDENTE' | 'AGUARDANDO_RETORNO_CD' | 'PRODUTO_RETORNADO_ESTOQUE' | 'SLA_ALERTA';
+  status: 'RECEBIDO' | 'EM_PREPARO' | 'DESPACHADO' | 'EM_TRANSITO' | 'NO_LOCAL' | 'ENTREGUE' | 'RECUSADO_INSUCESSO' | 'ALERTA_INCIDENTE' | 'AGUARDANDO_RETORNO_CD' | 'PRODUTO_RETORNADO_ESTOQUE' | 'SLA_ALERTA' | 'CANCELADO';
   valor?: number;
   motorista?: Motorista;
   rota?: Rota;
@@ -191,6 +206,8 @@ interface Entrega {
   nomeLoja?: string;
   nomeEmpresa?: string;
   tipoComanda?: 'pedido' | 'entrega';
+  destinoLatitude?: number;
+  destinoLongitude?: number;
 }
 
 
@@ -209,7 +226,12 @@ interface AcaoFilaSincronia {
   justificativaDesvioCoordenada?: string;
 }
 
-const BACKEND_URL = 'http://localhost:5000';
+// URL do backend (API + WebSocket). Configurável no build via VITE_BACKEND_URL:
+//  - não definido  → dev local (http://localhost:5000)
+//  - definido vazio → MESMA ORIGEM (o backend serve o frontend; ideal p/ 1 túnel só)
+//  - definido c/ URL → usa a URL (ex.: https://api.seudominio.com.br)
+const _viteBackend = (import.meta as any).env?.VITE_BACKEND_URL;
+const BACKEND_URL = _viteBackend === undefined ? 'http://localhost:5000' : _viteBackend;
 
 interface DadoPerformanceHistorico {
   id: string;
@@ -251,13 +273,18 @@ interface Loja {
   nome: string;
   cnpj?: string;
   endereco?: string;
+  numero?: string;
   bairro?: string;
   cidade?: string;
+  uf?: string;
+  cep?: string;
   usuario: string;
   chaveAcesso: string;
   ativo: boolean;
   criadoEm: string;
   recebePedidos?: boolean;
+  latitude?: number;
+  longitude?: number;
 }
 
 interface Sessao {
@@ -268,6 +295,8 @@ interface Sessao {
   token: string;
   criadoEm?: string;
   recebePedidos?: boolean;
+  latitude?: number;
+  longitude?: number;
 }
 
 export default function App() {
@@ -296,7 +325,7 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginTab, setLoginTab] = useState<'loja' | 'admin'>('loja');
   const [selectedDriverForDispatch, setSelectedDriverForDispatch] = useState('');
-  const [autoDispatch, setAutoDispatch] = useState(true);
+  const [dispatchViewActive, setDispatchViewActive] = useState(false);
 
   // Gerenciamento de Empresas no Painel Master
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
@@ -316,9 +345,13 @@ export default function App() {
   const [novaLojaUsuario, setNovaLojaUsuario] = useState('');
   const [novaLojaSenha, setNovaLojaSenha] = useState('');
   const [novaLojaEndereco, setNovaLojaEndereco] = useState('');
+  const [novaLojaNumero, setNovaLojaNumero] = useState('');
   const [novaLojaBairro, setNovaLojaBairro] = useState('');
   const [novaLojaCidade, setNovaLojaCidade] = useState('');
+  const [novaLojaUf, setNovaLojaUf] = useState('');
+  const [novaLojaCep, setNovaLojaCep] = useState('');
   const [novaLojaRecebePedidos, setNovaLojaRecebePedidos] = useState(false);
+  const [novaLojaPlanoId, setNovaLojaPlanoId] = useState('');
 
   const [editingLoja, setEditingLoja] = useState<Loja | null>(null);
   const [editLojaNome, setEditLojaNome] = useState('');
@@ -326,12 +359,75 @@ export default function App() {
   const [editLojaUsuario, setEditLojaUsuario] = useState('');
   const [editLojaSenha, setEditLojaSenha] = useState('');
   const [editLojaEndereco, setEditLojaEndereco] = useState('');
+  const [editLojaNumero, setEditLojaNumero] = useState('');
   const [editLojaBairro, setEditLojaBairro] = useState('');
   const [editLojaCidade, setEditLojaCidade] = useState('');
+  const [editLojaUf, setEditLojaUf] = useState('');
+  const [editLojaCep, setEditLojaCep] = useState('');
   const [editLojaRecebePedidos, setEditLojaRecebePedidos] = useState(false);
 
   // Loja sendo visualizada pelo Admin Master
   const [lojaVisualizada, setLojaVisualizada] = useState<{ id: string; nome: string; nomeEmpresa: string } | null>(null);
+
+  // --- ESTADOS DO MÓDULO FINANCEIRO ---
+  const [adminSubView, setAdminSubView] = useState<'operacional' | 'financeiro'>('operacional');
+  const [finSubTab, setFinSubTab] = useState<'faturas' | 'relatorios' | 'planos_config'>('faturas');
+  
+  const [finDashboard, setFinDashboard] = useState<{
+    mrrAtual: number;
+    mrrProjetado: number;
+    totalFaturasEmAberto: number;
+    valorEmAberto: number;
+    taxaInadimplencia: number;
+    lojasAtivas: number;
+    lojasInadimplentes: number;
+    totalLojas: number;
+    faturamentoBrutoMes: number;
+    faturamentoLiquidoMes: number;
+  } | null>(null);
+
+  const [finFaturas, setFinFaturas] = useState<any[]>([]);
+  const [finPaginaAtual, setFinPaginaAtual] = useState(1);
+  const [finTotalPaginas, setFinTotalPaginas] = useState(1);
+  const [finFaturasFiltros, setFinFaturasFiltros] = useState({
+    status: '',
+    empresaId: '',
+    dataInicio: '',
+    dataFim: '',
+    limit: 10
+  });
+
+  const [finRelFaturamento, setFinRelFaturamento] = useState<any[]>([]);
+  const [finRelInadimplencia, setFinRelInadimplencia] = useState<any[]>([]);
+  const [finRelChurn, setFinRelChurn] = useState<any[]>([]);
+  const [finRelPrevisibilidade, setFinRelPrevisibilidade] = useState<any[]>([]);
+  const [finConfiguracoes, setFinConfiguracoes] = useState<any>(null);
+  const [finAssinaturas, setFinAssinaturas] = useState<any[]>([]);
+  const [finPlanos, setFinPlanos] = useState<any[]>([]);
+
+  // Modais e formulários
+  const [showCobrarManualForm, setShowCobrarManualForm] = useState(false);
+  const [manualCobrarEmpresaId, setManualCobrarEmpresaId] = useState('');
+  const [manualCobrarValor, setManualCobrarValor] = useState('');
+  const [manualCobrarDescricao, setManualCobrarDescricao] = useState('');
+  const [manualCobrarVencimento, setManualCobrarVencimento] = useState('');
+  const [manualCobrarError, setManualCobrarError] = useState<string | null>(null);
+
+  const [showBaixaManualForm, setShowBaixaManualForm] = useState<string | null>(null); // faturaId
+  const [baixaManualComprovante, setBaixaManualComprovante] = useState('');
+  const [baixaManualObservacoes, setBaixaManualObservacoes] = useState('');
+
+  const [showContestarForm, setShowContestarForm] = useState<string | null>(null); // faturaId
+  const [contestarMotivo, setContestarMotivo] = useState('');
+
+  const [showPlanoForm, setShowPlanoForm] = useState<any>(null); // null ou plano
+  const [planoNome, setPlanoNome] = useState('');
+  const [planoDescricao, setPlanoDescricao] = useState('');
+  const [planoValorMensal, setPlanoValorMensal] = useState('');
+  const [planoLimiteEntregas, setPlanoLimiteEntregas] = useState('');
+  const [planoLimiteLojas, setPlanoLimiteLojas] = useState('');
+  const [planoLimiteMotoristas, setPlanoLimiteMotoristas] = useState('');
+  const [planoError, setPlanoError] = useState<string | null>(null);
 
   // Helper para requisições com Token
   const apiFetch = async (url: string, options: RequestInit = {}) => {
@@ -388,22 +484,6 @@ export default function App() {
     }
   };
 
-  const handleToggleAutoDispatch = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.checked;
-    setAutoDispatch(val);
-    try {
-      const response = await apiFetch(`${BACKEND_URL}/api/config`, {
-        method: 'POST',
-        body: JSON.stringify({ autoDispatch: val })
-      });
-      if (!response.ok) {
-        throw new Error('Erro ao atualizar configuração de despacho');
-      }
-    } catch (err) {
-      console.error('[API] Erro ao salvar configuração:', err);
-    }
-  };
-
   const handleLogout = async () => {
     try {
       if (sessao?.token) {
@@ -451,6 +531,289 @@ export default function App() {
     }
   };
 
+  // --- FUNÇÕES E EFEITOS DO MÓDULO FINANCEIRO ---
+
+  const carregarFinanceiroDashboard = async () => {
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/dashboard`);
+      if (res.ok) {
+        const data = await res.json();
+        setFinDashboard(data);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar dashboard financeiro:', err);
+    }
+  };
+
+  const carregarFinanceiroFaturas = async () => {
+    try {
+      const queryParams = new URLSearchParams({
+        status: finFaturasFiltros.status,
+        empresaId: finFaturasFiltros.empresaId,
+        dataInicio: finFaturasFiltros.dataInicio,
+        dataFim: finFaturasFiltros.dataFim,
+        page: finPaginaAtual.toString(),
+        limit: finFaturasFiltros.limit.toString()
+      });
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/faturas?${queryParams.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFinFaturas(data.faturas || []);
+        setFinTotalPaginas(data.paginacao?.paginas || 1);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar faturas:', err);
+    }
+  };
+
+  const carregarFinanceiroRelatorios = async () => {
+    try {
+      const [resFat, resInad, resChurn, resPrev] = await Promise.all([
+        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/faturamento`),
+        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/inadimplencia`),
+        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/churn`),
+        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/previsibilidade`)
+      ]);
+      if (resFat.ok) setFinRelFaturamento(await resFat.json());
+      if (resInad.ok) setFinRelInadimplencia(await resInad.json());
+      if (resChurn.ok) setFinRelChurn(await resChurn.json());
+      if (resPrev.ok) setFinRelPrevisibilidade(await resPrev.json());
+    } catch (err) {
+      console.error('Erro ao carregar relatórios financeiros:', err);
+    }
+  };
+
+  const carregarFinanceiroConfig = async () => {
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/configuracoes`);
+      if (res.ok) {
+        const data = await res.json();
+        setFinConfiguracoes(data);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar configurações de cobrança:', err);
+    }
+  };
+
+  const carregarFinanceiroAssinaturas = async () => {
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/assinaturas`);
+      if (res.ok) {
+        const data = await res.json();
+        setFinAssinaturas(data);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar assinaturas:', err);
+    }
+  };
+
+  const carregarFinanceiroPlanos = async () => {
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/planos`);
+      if (res.ok) {
+        const data = await res.json();
+        setFinPlanos(data);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar planos:', err);
+    }
+  };
+
+  const carregarTodosDadosFinanceiros = () => {
+    carregarFinanceiroDashboard();
+    carregarFinanceiroFaturas();
+    carregarFinanceiroRelatorios();
+    carregarFinanceiroConfig();
+    carregarFinanceiroAssinaturas();
+    carregarFinanceiroPlanos();
+  };
+
+  const handleCobrarManual = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setManualCobrarError(null);
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/cobrar-manual`, {
+        method: 'POST',
+        body: JSON.stringify({
+          empresaId: manualCobrarEmpresaId,
+          valor: parseFloat(manualCobrarValor),
+          descricao: manualCobrarDescricao,
+          vencimento: manualCobrarVencimento
+        })
+      });
+      if (res.ok) {
+        setShowCobrarManualForm(false);
+        setManualCobrarEmpresaId('');
+        setManualCobrarValor('');
+        setManualCobrarDescricao('');
+        setManualCobrarVencimento('');
+        carregarTodosDadosFinanceiros();
+      } else {
+        const data = await res.json();
+        setManualCobrarError(data.error || 'Erro ao gerar cobrança manual');
+      }
+    } catch (err: any) {
+      setManualCobrarError(err.message);
+    }
+  };
+
+  const handleBaixaManual = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showBaixaManualForm) return;
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/faturas/${showBaixaManualForm}/baixa-manual`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          dataPagamento: new Date().toISOString(),
+          comprovanteReferencia: baixaManualComprovante,
+          observacoes: baixaManualObservacoes
+        })
+      });
+      if (res.ok) {
+        setShowBaixaManualForm(null);
+        setBaixaManualComprovante('');
+        setBaixaManualObservacoes('');
+        carregarTodosDadosFinanceiros();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Erro ao registrar baixa');
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleContestarFatura = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!showContestarForm) return;
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/faturas/${showContestarForm}/contestar`, {
+        method: 'PUT',
+        body: JSON.stringify({ motivo: contestarMotivo })
+      });
+      if (res.ok) {
+        setShowContestarForm(null);
+        setContestarMotivo('');
+        carregarTodosDadosFinanceiros();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Erro ao contestar fatura');
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleCancelarFatura = async (faturaId: string) => {
+    if (!confirm('Deseja realmente cancelar esta fatura?')) return;
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/faturas/${faturaId}/cancelar`, {
+        method: 'PUT'
+      });
+      if (res.ok) {
+        carregarTodosDadosFinanceiros();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Erro ao cancelar fatura');
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleSalvarConfigCobranca = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!finConfiguracoes) return;
+    try {
+      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/configuracoes`, {
+        method: 'PUT',
+        body: JSON.stringify(finConfiguracoes)
+      });
+      if (res.ok) {
+        alert('Configurações salvas com sucesso!');
+        carregarFinanceiroConfig();
+        carregarFinanceiroDashboard();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Erro ao salvar configurações');
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleSalvarPlano = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPlanoError(null);
+    const isEdit = !!showPlanoForm?.id;
+    const url = isEdit
+      ? `${BACKEND_URL}/api/admin/financeiro/planos/${showPlanoForm.id}`
+      : `${BACKEND_URL}/api/admin/financeiro/planos`;
+    const method = isEdit ? 'PUT' : 'POST';
+
+    try {
+      const res = await apiFetch(url, {
+        method,
+        body: JSON.stringify({
+          nome: planoNome,
+          descricao: planoDescricao,
+          valorMensal: parseFloat(planoValorMensal),
+          limiteEntregasMes: planoLimiteEntregas ? parseInt(planoLimiteEntregas) : null,
+          limiteLojas: planoLimiteLojas ? parseInt(planoLimiteLojas) : null,
+          limiteMotoristas: planoLimiteMotoristas ? parseInt(planoLimiteMotoristas) : null,
+          ativo: showPlanoForm?.ativo !== false
+        })
+      });
+      if (res.ok) {
+        setShowPlanoForm(null);
+        setPlanoNome('');
+        setPlanoDescricao('');
+        setPlanoValorMensal('');
+        setPlanoLimiteEntregas('');
+        setPlanoLimiteLojas('');
+        setPlanoLimiteMotoristas('');
+        carregarTodosDadosFinanceiros();
+      } else {
+        const data = await res.json();
+        setPlanoError(data.error || 'Erro ao salvar plano');
+      }
+    } catch (err: any) {
+      setPlanoError(err.message);
+    }
+  };
+
+  const startEditPlano = (plano: any) => {
+    setShowPlanoForm(plano);
+    setPlanoNome(plano.nome);
+    setPlanoDescricao(plano.descricao);
+    setPlanoValorMensal(plano.valorMensal.toString());
+    setPlanoLimiteEntregas(plano.limiteEntregasMes?.toString() || '');
+    setPlanoLimiteLojas(plano.limiteLojas?.toString() || '');
+    setPlanoLimiteMotoristas(plano.limiteMotoristas?.toString() || '');
+  };
+
+  const startNovoPlano = () => {
+    setShowPlanoForm({ id: '' });
+    setPlanoNome('');
+    setPlanoDescricao('');
+    setPlanoValorMensal('');
+    setPlanoLimiteEntregas('');
+    setPlanoLimiteLojas('');
+    setPlanoLimiteMotoristas('');
+  };
+
+  useEffect(() => {
+    if (sessao?.tipo === 'admin' && !lojaVisualizada && adminSubView === 'financeiro') {
+      carregarTodosDadosFinanceiros();
+    }
+  }, [sessao, lojaVisualizada, adminSubView]);
+
+  useEffect(() => {
+    if (sessao?.tipo === 'admin' && !lojaVisualizada && adminSubView === 'financeiro') {
+      carregarFinanceiroFaturas();
+    }
+  }, [finPaginaAtual, finFaturasFiltros]);
+
   const toggleEmpresaExpandida = (empresaId: string) => {
     if (expandedEmpresas.includes(empresaId)) {
       setExpandedEmpresas(prev => prev.filter(id => id !== empresaId));
@@ -497,6 +860,10 @@ export default function App() {
       alert('Nome, CNPJ, usuário e senha são obrigatórios');
       return;
     }
+    if (!novaLojaPlanoId) {
+      alert('Selecione o plano de assinatura da loja');
+      return;
+    }
     try {
       const res = await apiFetch(`${BACKEND_URL}/api/empresas/${empresaId}/lojas`, {
         method: 'POST',
@@ -506,9 +873,13 @@ export default function App() {
           usuario: novaLojaUsuario,
           senha: novaLojaSenha,
           endereco: novaLojaEndereco,
+          numero: novaLojaNumero,
           bairro: novaLojaBairro,
           cidade: novaLojaCidade,
-          recebePedidos: novaLojaRecebePedidos
+          uf: novaLojaUf,
+          cep: novaLojaCep,
+          recebePedidos: novaLojaRecebePedidos,
+          planoId: novaLojaPlanoId
         })
       });
       if (!res.ok) {
@@ -520,9 +891,13 @@ export default function App() {
       setNovaLojaUsuario('');
       setNovaLojaSenha('');
       setNovaLojaEndereco('');
+      setNovaLojaNumero('');
       setNovaLojaBairro('');
       setNovaLojaCidade('');
+      setNovaLojaUf('');
+      setNovaLojaCep('');
       setNovaLojaRecebePedidos(false);
+      setNovaLojaPlanoId('');
       setShowNovaLojaForm(null);
       carregarLojas(empresaId);
       carregarEmpresas();
@@ -589,8 +964,11 @@ export default function App() {
     setEditLojaUsuario(loja.usuario);
     setEditLojaSenha('');
     setEditLojaEndereco(loja.endereco || '');
+    setEditLojaNumero(loja.numero || '');
     setEditLojaBairro(loja.bairro || '');
     setEditLojaCidade(loja.cidade || '');
+    setEditLojaUf(loja.uf || '');
+    setEditLojaCep(loja.cep || '');
     setEditLojaRecebePedidos(loja.recebePedidos || false);
   };
 
@@ -608,8 +986,11 @@ export default function App() {
         cnpj: editLojaCnpj,
         usuario: editLojaUsuario,
         endereco: editLojaEndereco || undefined,
+        numero: editLojaNumero || undefined,
         bairro: editLojaBairro || undefined,
         cidade: editLojaCidade || undefined,
+        uf: editLojaUf || undefined,
+        cep: editLojaCep || undefined,
         recebePedidos: editLojaRecebePedidos
       };
       if (editLojaSenha.trim()) {
@@ -700,6 +1081,10 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [allDeliveries, setAllDeliveries] = useState<Entrega[]>([]);
   const [allDrivers, setAllDrivers] = useState<Motorista[]>([]);
+  // Feed de eventos do broker para o Centro de Operações (buffer rolante, filtrado/deduplicado).
+  const [liveEvents, setLiveEvents] = useState<BrokerEvento[]>([]);
+  // Coordenadas geográficas da loja recebidas em tempo real via system_status (independem da sessão em cache)
+  const [lojaCoordsLive, setLojaCoordsLive] = useState<{ lat: number; lng: number } | null>(null);
 
   // Filtro de segurança (Multi-tenant) no frontend
   const tenantLojaId = sessao?.tipo === 'loja' 
@@ -717,40 +1102,20 @@ export default function App() {
   const currentLoja = tenantLojaId
     ? Object.values(lojasDaEmpresa).flat().find(l => l.id === tenantLojaId)
     : null;
-  const isRecebePedidosEnabled = sessao?.tipo === 'loja'
-    ? (sessao.recebePedidos || currentLoja?.recebePedidos || false)
-    : (sessao?.tipo === 'admin' && lojaVisualizada ? (currentLoja?.recebePedidos || false) : false);
+
 
   // Estados de logs e webhooks removidos
   // Controle de interface do painel
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
   
-  // Controle de formulários
-  const [clientName, setClientName] = useState('');
-  const [clienteDocumento, setClienteDocumento] = useState('');
-  const [address, setAddress] = useState('');
-  const [addressNumber, setAddressNumber] = useState('');
-  const [bairro, setBairro] = useState('');
-  const [cidade, setCidade] = useState('');
-  const [referencia, setReferencia] = useState('');
-  const [items, setItems] = useState('');
-  const [priority, setPriority] = useState<'baixa' | 'media' | 'alta' | 'critica'>('media');
-  const [cargoType, setCargoType] = useState<'normal' | 'expressa' | 'agendado'>('normal');
-  const [formaPagamento, setFormaPagamento] = useState<'maquininha' | 'pix' | 'dinheiro'>('maquininha');
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [valor, setValor] = useState('');
-  const [driverId, setDriverId] = useState('');
-  const [externalApiUrl, setExternalApiUrl] = useState('http://localhost:5000/api/simulator/external-orders-api');
-  const [isSyncing, setIsSyncing] = useState(false);
   const [mapRoutesTrigger, setMapRoutesTrigger] = useState(0);
-  const [isGeocoding, setIsGeocoding] = useState(false);
 
   // Estados para o FAB e Modal de Relatório
-  const [fabOpen, setFabOpen] = useState(false);
-  const [whatsappOpen, setWhatsappOpen] = useState(false);
+  const [showEstoqueModal, setShowEstoqueModal] = useState(false);
+  const [whatsappOpen] = useState(false);
   const [whatsappMessages, setWhatsappMessages] = useState<Array<{ sender: 'customer' | 'bot'; text: string; timestamp: string }>>([]);
   const [whatsappIsTyping, setWhatsappIsTyping] = useState(false);
-  const [whatsappPhone, setWhatsappPhone] = useState('+55 (81) 99999-8888');
+  const [whatsappPhone] = useState('+55 (81) 99999-8888');
   const whatsappPhoneRef = useRef(whatsappPhone);
 
   useEffect(() => {
@@ -769,6 +1134,10 @@ export default function App() {
   ]);
   const [showDriverModal, setShowDriverModal] = useState(false);
   const [showVehicleModal, setShowVehicleModal] = useState(false);
+  const [catalogoAlterado, setCatalogoAlterado] = useState(false);
+  const [catalogoRefresh, setCatalogoRefresh] = useState(0);
+  const [showProdutosModal, setShowProdutosModal] = useState(false);
+  const [showVitrineModal, setShowVitrineModal] = useState(false);
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverVehicleType, setNewDriverVehicleType] = useState('motorcycle');
   const [newVehicleName, setNewVehicleName] = useState('');
@@ -1220,8 +1589,12 @@ export default function App() {
         vehicleType: newDriverVehicleType
       })
     })
-      .then(res => {
-        if (!res.ok) throw new Error('Erro ao cadastrar motoboy');
+      .then(async res => {
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          // 403 PLAN_LIMIT_REACHED: surface a mensagem de limite+upgrade do backend.
+          throw new Error(data.error || 'Erro ao cadastrar motoboy');
+        }
         return res.json();
       })
       .then(() => {
@@ -1292,17 +1665,130 @@ export default function App() {
   const hubMarkerRef = useRef<any>(null);
   const destinationMarkersRef = useRef<Map<string, any>>(new Map());
   const vehicleMarkersRef = useRef<Map<string, any>>(new Map());
-  const routeLinesRef = useRef<Map<string, any>>(new Map());
+  const routeLinesRef = useRef<Map<string, any>>(new Map()); // marcador "você está aqui" (GPS)
 
   // Romaneio e Impressão Térmica
   const [selectedForManifest, setSelectedForManifest] = useState<string[]>([]);
-  const [activeManifest, setActiveManifest] = useState<{ id: string; deliveryIds: string[]; driverName: string; driverId: string; totalValue: number } | null>(null);
+  const [activeManifest, setActiveManifest] = useState<{ id: string; deliveryIds: string[]; driverName: string; driverId: string; totalValue: number; despachado?: boolean } | null>(null);
   const [showThermalReceipt, setShowThermalReceipt] = useState(false);
 
   const getDeliveryValue = (d: Entrega) => {
     if (d.valor !== undefined && d.valor !== null) return d.valor;
     return ((d.id.charCodeAt(d.id.length - 1) || 0) * 3 % 100) + 25.50;
   };
+
+  // ===== Impressão automática de comanda (80mm térmica) =====
+  // Modo configurável por loja (persistido em localStorage):
+  //  - 'impressora': abre a comanda 80mm e dispara window.print() (vai p/ impressora
+  //    padrão; sai silencioso se o Chrome estiver com --kiosk-printing + 80mm como padrão)
+  //  - 'pdf': abre o documento 80mm numa aba para salvar/visualizar como PDF
+  //  - 'off': não imprime automaticamente
+  type ModoImpressaoComanda = 'impressora' | 'pdf' | 'off';
+  const [comandaPrintMode, setComandaPrintMode] = useState<ModoImpressaoComanda>(() => {
+    try { return (localStorage.getItem('distre_comanda_print_mode') as ModoImpressaoComanda) || 'impressora'; }
+    catch { return 'impressora'; }
+  });
+  const alterarModoImpressao = (m: ModoImpressaoComanda) => {
+    setComandaPrintMode(m);
+    try { localStorage.setItem('distre_comanda_print_mode', m); } catch { /* ignore */ }
+  };
+
+  const imprimirComandaTicket = (e: Entrega, modo: ModoImpressaoComanda) => {
+    if (modo === 'off') return;
+    const lojaNome = sessao?.nomeLoja || lojaVisualizada?.nome || 'DISTRE';
+    const valor = getDeliveryValue(e);
+    const itens = (e.itens && e.itens.length) ? e.itens : [];
+    const esc = (s: any) => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' } as Record<string, string>)[c]);
+    const linhasItens = itens.length
+      ? itens.map(i => `<div class="row"><span class="it">${esc(i)}</span></div>`).join('')
+      : '<div class="muted">Sem itens detalhados</div>';
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Comanda ${esc(e.id)}</title>
+      <style>
+        @page { size: 80mm auto; margin: 0; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { width: 80mm; padding: 4mm 3mm; font-family: 'Courier New', monospace; color: #000; background: #fff; font-size: 12px; line-height: 1.35; }
+        .center { text-align: center; } .b { font-weight: 700; } .xl { font-size: 18px; }
+        .row { display: flex; justify-content: space-between; gap: 6px; }
+        .it { flex: 1; } .muted { color: #444; font-style: italic; }
+        .sep { border-top: 1px dashed #000; margin: 6px 0; }
+        .sep-solid { border-top: 2px solid #000; margin: 6px 0; }
+        .total { font-size: 15px; font-weight: 700; }
+        .noprint { margin-top: 14px; text-align: center; }
+        .noprint button { font: inherit; padding: 8px 14px; cursor: pointer; }
+        @media print { .noprint { display: none; } }
+      </style></head><body>
+        <div class="center b xl">${esc(lojaNome)}</div>
+        <div class="center">COMANDA DE PEDIDO</div>
+        <div class="sep-solid"></div>
+        <div class="row"><span>COMANDA:</span><span class="b">${esc(e.id)}</span></div>
+        <div class="row"><span>DATA/HORA:</span><span>${new Date().toLocaleString('pt-BR')}</span></div>
+        ${e.formaPagamento ? `<div class="row"><span>PAGAMENTO:</span><span>${esc(String(e.formaPagamento).toUpperCase())}</span></div>` : ''}
+        <div class="sep"></div>
+        <div class="b">CLIENTE</div>
+        <div>${esc(e.nomeCliente)}</div>
+        ${e.clienteDocumento ? `<div>CPF/CNPJ: ${esc(e.clienteDocumento)}</div>` : ''}
+        <div class="sep"></div>
+        <div class="b">ENTREGA</div>
+        <div>${esc(e.endereco)}</div>
+        ${e.bairro ? `<div>Bairro: ${esc(e.bairro)}</div>` : ''}
+        ${e.cidade ? `<div>Cidade: ${esc(e.cidade)}</div>` : ''}
+        ${e.referencia ? `<div>Ref: ${esc(e.referencia)}</div>` : ''}
+        <div class="sep"></div>
+        <div class="b">ITENS</div>
+        ${linhasItens}
+        <div class="sep-solid"></div>
+        <div class="row total"><span>TOTAL:</span><span>R$ ${valor.toFixed(2)}</span></div>
+        <div class="sep"></div>
+        <div class="center">Distre - Gestao de Entregas</div>
+        <div class="noprint"><button onclick="window.print()">Imprimir / Salvar PDF</button></div>
+      </body></html>`;
+
+    // Impressão via IFRAME oculto em vez de window.open: NÃO aciona o bloqueador de
+    // pop-up do navegador (window.open sem gesto do usuário — ex.: auto-impressão de
+    // pedido novo — é SEMPRE bloqueado), então a comanda vai direto pra impressão sem
+    // o aviso "Permita pop-ups" travando a operação.
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+    document.body.appendChild(iframe);
+    const idoc = iframe.contentWindow?.document;
+    if (!idoc) { iframe.remove(); return; }
+    idoc.open(); idoc.write(html); idoc.close();
+
+    let jaImprimiu = false;
+    const dispararImpressao = () => {
+      if (jaImprimiu) return;
+      jaImprimiu = true;
+      try { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); } catch { /* ignore */ }
+      // Remove o iframe depois que o diálogo/impressão foi disparado.
+      setTimeout(() => { try { iframe.remove(); } catch { /* ignore */ } }, 1500);
+    };
+    // onload garante render antes do print; o timeout é fallback caso onload não dispare.
+    iframe.onload = () => setTimeout(dispararImpressao, 150);
+    setTimeout(dispararImpressao, 600);
+  };
+
+  // Detecta novos pedidos na fila e imprime a comanda automaticamente.
+  const comandasImpressasRef = useRef<Set<string>>(new Set());
+  const printInitRef = useRef(false);
+  useEffect(() => {
+    const pedidosRecebidos = deliveries.filter(d => d.tipoComanda === 'pedido' && d.status === 'RECEBIDO');
+    // Na 1ª carga, marca o backlog como "já visto" para não imprimir pedidos antigos de uma vez.
+    if (!printInitRef.current) {
+      pedidosRecebidos.forEach(d => comandasImpressasRef.current.add(d.id));
+      printInitRef.current = true;
+      return;
+    }
+    // Só auto-imprime no contexto operacional da própria loja (não no admin observando).
+    if (comandaPrintMode === 'off' || sessao?.tipo !== 'loja') return;
+    pedidosRecebidos
+      .filter(d => !comandasImpressasRef.current.has(d.id))
+      .forEach(d => {
+        comandasImpressasRef.current.add(d.id);
+        imprimirComandaTicket(d, comandaPrintMode);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deliveries, comandaPrintMode]);
 
   // Buffer de telemetria GPS quando estiver offline
   useEffect(() => {
@@ -1334,18 +1820,6 @@ export default function App() {
   const actionQueueRef = useRef(actionQueue);
 
   // Carrega configurações de despacho
-  useEffect(() => {
-    if (sessao) {
-      apiFetch(`${BACKEND_URL}/api/config`)
-        .then(res => {
-          if (res.ok) return res.json();
-          throw new Error('Erro ao buscar config');
-        })
-        .then(data => setAutoDispatch(data.autoDispatch))
-        .catch(err => console.error('[API] Falha ao obter configuração de despacho:', err));
-    }
-  }, [sessao]);
-
   useEffect(() => {
     offlineModeRef.current = offlineMode;
   }, [offlineMode]);
@@ -1395,6 +1869,7 @@ export default function App() {
       setIsConnected(false);
       setAllDeliveries([]);
       setAllDrivers([]);
+      setLiveEvents([]);
       return;
     }
 
@@ -1409,8 +1884,8 @@ export default function App() {
       })
       .catch(err => console.error('[API] Falha ao obter tipos de veículos:', err));
 
-    // Conecta ao backend Socket.io passando o token
-    const socket = io(BACKEND_URL, {
+    // Conecta ao backend Socket.io passando o token (BACKEND_URL vazio = mesma origem)
+    const socket = io(BACKEND_URL || undefined, {
       auth: {
         token: sessao.token
       }
@@ -1461,10 +1936,33 @@ export default function App() {
       });
       setAllDeliveries(nextDeliveries);
       setAllDrivers(data.drivers);
+      if (typeof data.lojaLat === 'number' && typeof data.lojaLng === 'number') {
+        setLojaCoordsLive(prev => {
+          if (prev && prev.lat === data.lojaLat && prev.lng === data.lojaLng) return prev;
+          return { lat: data.lojaLat, lng: data.lojaLng };
+        });
+      }
       // Webhooks recebidos não são mais salvos no estado
     });
 
-    // Evento do broker não é mais monitorado no frontend
+    // Eventos do broker → feed do "Centro de Operações" (buffer rolante, filtra ruído).
+    socket.on('broker_event', (data: any) => {
+      const ev = data?.event as BrokerEvento | undefined;
+      if (!ev || !ev.topic) return;
+      if (ev.topic === 'GPS_HEARTBEAT') return; // telemetria de alta frequência: descarta
+      if (ev.topic === 'entrega.monitorada') {
+        const s = ev.payload?.status;
+        const relevante = s === 'ENTREGUE' || s === 'NO_LOCAL' || s === 'RECUSADO_INSUCESSO' || s === 'AGUARDANDO_RETORNO_CD' || s === 'PRODUTO_RETORNADO_ESTOQUE';
+        if (!relevante) return; // ignora updates contínuos de EM_TRANSITO/telemetria
+      }
+      setLiveEvents(prev => {
+        const last = prev[0];
+        const sig = `${ev.topic}|${ev.deliveryId}|${ev.payload?.status ?? ''}`;
+        const lastSig = last ? `${last.topic}|${last.deliveryId}|${last.payload?.status ?? ''}` : '';
+        if (sig === lastSig) return prev; // dedupe de publicações consecutivas idênticas
+        return [ev, ...prev].slice(0, 40);
+      });
+    });
 
     // ---- Listeners do Simulador de WhatsApp ----
     socket.on('whatsapp_msg_received', (data: { phone: string; sender: 'customer' | 'bot'; text: string; timestamp: string }) => {
@@ -1496,29 +1994,11 @@ export default function App() {
   }, [offlineMode]);
 
   // ---- Função helper para enviar mensagens ao bot WhatsApp via socket ----
-  const [whatsappInput, setWhatsappInput] = useState('');
   const whatsappMessagesEndRef = useRef<HTMLDivElement>(null);
 
-  const sendWhatsappMessage = (text: string) => {
-    const msg = text.trim() || whatsappInput.trim();
-    if (!msg || !socketRef.current) return;
 
-    const lojaId = sessao?.lojaId || sessao?.tipo === 'admin' ? 'admin' : '';
-    const phone = whatsappPhoneRef.current;
-    const timestamp = new Date().toISOString();
 
-    // Adiciona a mensagem do usuário otimisticamente na UI
-    setWhatsappMessages(prev => [...prev, { sender: 'customer', text: msg, timestamp }]);
-    setWhatsappInput('');
 
-    // Envia para o backend via socket
-    socketRef.current.emit('whatsapp_send_msg', { phone, text: msg, lojaId });
-  };
-
-  const clearWhatsappHistory = () => {
-    setWhatsappMessages([]);
-    setWhatsappIsTyping(false);
-  };
 
   // Auto-scroll para o final do chat quando novas mensagens chegam
   useEffect(() => {
@@ -1585,12 +2065,35 @@ export default function App() {
     }
   };
 
+  // Coordenadas reais da loja atual (resolvidas via Nominatim no backend a partir do endereço).
+  // Ordem de prioridade:
+  //   1. lojaCoordsLive — vem em tempo real pelo system_status (cobre backfill e edição de endereço sem precisar relogar)
+  //   2. currentLoja (admin observando uma loja) ou sessao (usuário-loja logado)
+  //   3. Fallback: ponto fixo da grade (10,10) dentro do bounding box padrão da cidade
+  const lojaLat =
+    lojaCoordsLive?.lat ??
+    (sessao?.tipo === 'loja' ? sessao.latitude : currentLoja?.latitude);
+  const lojaLng =
+    lojaCoordsLive?.lng ??
+    (sessao?.tipo === 'loja' ? sessao.longitude : currentLoja?.longitude);
+  const hubLatLng: [number, number] =
+    typeof lojaLat === 'number' && typeof lojaLng === 'number'
+      ? [lojaLat, lojaLng]
+      : gridToLatLng(10, 10);
+
+  // Recentraliza o mapa quando as coordenadas reais da loja chegarem (ou mudarem após edição).
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    if (!map) return;
+    if (typeof lojaLat !== 'number' || typeof lojaLng !== 'number') return;
+    map.setView([lojaLat, lojaLng], map.getZoom());
+  }, [lojaLat, lojaLng]);
+
   // 1. Inicialização do Mapa Leaflet
   useEffect(() => {
     if (!mapContainerRef.current) return;
     if (leafletMapRef.current) return; // já inicializado
 
-    const hubLatLng = gridToLatLng(10, 10);
     
     // Inicializa o mapa com zoom ajustado
     const map = L.map(mapContainerRef.current, {
@@ -1603,9 +2106,9 @@ export default function App() {
     // Botões de zoom no canto superior direito para não poluir
     L.control.zoom({ position: 'topright' }).addTo(map);
 
-    // Adiciona o Tile Layer do CartoDB Dark Matter
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19
+    // Tile Layer claro estilo Waze (CartoDB Voyager) — vias e POIs em tema claro.
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 20
     }).addTo(map);
 
     leafletMapRef.current = map;
@@ -1613,7 +2116,7 @@ export default function App() {
     // Marcador do Hub (Loja) com divIcon customizado
     const hubIcon = L.divIcon({
       className: 'hub-icon-wrapper',
-      html: `<div class="map-city-hub" style="--hub-name: '${hubName}'; position: absolute; transform: translate(-50%, -50%); left: 0; top: 0;"></div>`,
+      html: hubIconHtml(hubName),
       iconSize: [0, 0],
       iconAnchor: [0, 0]
     });
@@ -1640,10 +2143,9 @@ export default function App() {
 
     // A. Atualizar marcador do Hub com o nome da loja dinâmico
     if (hubMarkerRef.current) {
-      const hubLatLng = gridToLatLng(10, 10);
       const hubIcon = L.divIcon({
         className: 'hub-icon-wrapper',
-        html: `<div class="map-city-hub" style="--hub-name: '${hubName}'; position: absolute; transform: translate(-50%, -50%); left: 0; top: 0;"></div>`,
+        html: hubIconHtml(hubName),
         iconSize: [0, 0],
         iconAnchor: [0, 0]
       });
@@ -1661,16 +2163,22 @@ export default function App() {
     activeDels.forEach(d => {
       if (!d.rota?.path) return;
       const endNode = d.rota.path[d.rota.path.length - 1];
-      const endLatLng = gridToLatLng(endNode.x, endNode.y);
+      // Prefere as coordenadas reais geocodificadas do endereço do cliente.
+      // Se não houver (entrega legada ou geocoder falhou), cai no ponto sintético da grade.
+      const endLatLng: [number, number] =
+        typeof d.destinoLatitude === 'number' && typeof d.destinoLongitude === 'number'
+          ? [d.destinoLatitude, d.destinoLongitude]
+          : gridToLatLng(endNode.x, endNode.y);
       const isSkipped = d.incidentes?.some(i => i.tipo === 'route_deviation' && i.descricao.includes('AlertaDesvioSequencia'));
       const hasArrived = d.status === 'NO_LOCAL';
 
       const key = d.id;
       currentDestKeys.add(key);
 
+      const isSelectedDest = d.id === selectedDeliveryId;
       const destIcon = L.divIcon({
         className: 'dest-icon-wrapper',
-        html: `<div class="map-destination ${hasArrived ? 'arrived' : ''} ${isSkipped ? 'skipped' : ''}" style="position: absolute; transform: translate(-50%, -50%); left: 0; top: 0;" title="Destino da Entrega ${d.id}"></div>`,
+        html: `<div class="map-destination ${hasArrived ? 'arrived' : ''} ${isSkipped ? 'skipped' : ''} ${isSelectedDest ? 'selected' : ''}" style="position: absolute; transform: translate(-50%, -50%); left: 0; top: 0;" title="Destino da Entrega ${d.id}"><div class="dest-label">${d.id}</div></div>`,
         iconSize: [0, 0],
         iconAnchor: [0, 0]
       });
@@ -1681,6 +2189,7 @@ export default function App() {
         marker.setIcon(destIcon);
       } else {
         const marker = L.marker(endLatLng, { icon: destIcon }).addTo(map);
+        marker.on('click', () => setSelectedDeliveryId(d.id));
         destinationMarkersRef.current.set(key, marker);
       }
     });
@@ -1695,38 +2204,39 @@ export default function App() {
 
     // C. Sincronizar Polylines (Rotas OSRM com cache)
     const currentRouteKeys = new Set<string>();
-    activeDels.forEach(d => {
+    activeDels.forEach((d, idx) => {
       if (!d.rota?.path) return;
       const key = d.id;
       currentRouteKeys.add(key);
 
-      const startLatLng = gridToLatLng(10, 10);
+      const startLatLng = hubLatLng;
       const endNode = d.rota.path[d.rota.path.length - 1];
-      const endLatLng = gridToLatLng(endNode.x, endNode.y);
-      
-      const cacheKey = `${d.id}-${endNode.x}-${endNode.y}`;
-      const isSelected = d.id === selectedDeliveryId;
-      const hasIncident = d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA';
+      const endLatLng: [number, number] =
+        typeof d.destinoLatitude === 'number' && typeof d.destinoLongitude === 'number'
+          ? [d.destinoLatitude, d.destinoLongitude]
+          : gridToLatLng(endNode.x, endNode.y);
 
-      const color = isSelected 
-        ? '#00f2fe' 
-        : hasIncident
-        ? '#f43f5e' 
-        : '#3b82f6';
-      const opacity = isSelected ? 0.9 : 0.45;
-      const weight = isSelected ? 4 : 2.5;
+      const cacheKey = `${d.id}-${hubLatLng[0].toFixed(5)}-${hubLatLng[1].toFixed(5)}-${endLatLng[0].toFixed(5)}-${endLatLng[1].toFixed(5)}`;
+      const isSelected = d.id === selectedDeliveryId;
+
+      // Linha CONTÍNUA (sólida). Cada entrega tem uma cor distinta da paleta — com 1
+      // entrega a rota é azul; a selecionada fica um pouco mais grossa/opaca pra destacar.
+      const color = ROUTE_COLORS[idx % ROUTE_COLORS.length];
+      const opacity = isSelected ? 1 : 0.85;
+      const weight = isSelected ? 6 : 4;
+      const dashArray: string | null = null;
 
       const drawPolyline = (latlngs: [number, number][]) => {
         if (routeLinesRef.current.has(key)) {
           const polyline = routeLinesRef.current.get(key);
           polyline.setLatLngs(latlngs);
-          polyline.setStyle({ color, opacity, weight });
+          polyline.setStyle({ color, opacity, weight, dashArray });
         } else {
           const polyline = L.polyline(latlngs, {
             color,
             opacity,
             weight,
-            dashArray: '5, 5',
+            dashArray,
             lineCap: 'round',
             lineJoin: 'round'
           }).addTo(map);
@@ -1885,84 +2395,37 @@ export default function App() {
 
   }, [deliveries, drivers, selectedDeliveryId, driverMobileVinculado, hubName, mapRoutesTrigger]);
 
-  const handleCreateDelivery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!clientName || !address) return;
+  // Foco automático: ao clicar/selecionar uma comanda, enquadra o mapa na entrega
+  // daquele motoboy (loja → posição do motoboy → destino), revelando o trajeto e o
+  // destino. Reage só à MUDANÇA de seleção (não a cada tick), para o mapa não "pular".
+  useEffect(() => {
+    const map = leafletMapRef.current;
+    if (!map || !selectedDeliveryId) return;
+    const d = deliveries.find(x => x.id === selectedDeliveryId);
+    if (!d) return;
 
-    setIsGeocoding(true);
-    let x: number | undefined;
-    let y: number | undefined;
-
-    // Concatena endereço com o número se informado
-    const fullAddress = addressNumber.trim() ? `${address.trim()}, ${addressNumber.trim()}` : address.trim();
-
-    try {
-      // Faz fetch na API de geocodificação pública do Nominatim
-      // Adicionamos ", Abreu e Lima, Pernambuco, Brasil" para filtrar na cidade foco se não houver cidade especificada
-      const query = cidade.trim() ? `${fullAddress}, ${cidade.trim()}, Brasil` : `${fullAddress}, Abreu e Lima, Pernambuco, Brasil`;
-      const resGeocode = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`
-      );
-      if (resGeocode.ok) {
-        const data = await resGeocode.json();
-        if (data && data.length > 0) {
-          const lat = parseFloat(data[0].lat);
-          const lon = parseFloat(data[0].lon);
-          const gridCoords = latLngToGrid(lat, lon);
-          x = gridCoords.x;
-          y = gridCoords.y;
-        }
-      }
-    } catch (err) {
-      console.warn('[Nominatim] Falha ao geocodificar endereço, usando fallback de simulação clássica:', err);
-    } finally {
-      setIsGeocoding(false);
+    const pts: [number, number][] = [hubLatLng];
+    if (typeof d.destinoLatitude === 'number' && typeof d.destinoLongitude === 'number') {
+      pts.push([d.destinoLatitude, d.destinoLongitude]);
+    } else if (d.rota?.path?.length) {
+      const n = d.rota.path[d.rota.path.length - 1];
+      pts.push(gridToLatLng(n.x, n.y));
+    }
+    const drv = drivers.find(v => v.id === d.motorista?.id && v.localizacaoAtual);
+    if (drv?.localizacaoAtual) {
+      pts.push(gridToLatLng(drv.localizacaoAtual.x, drv.localizacaoAtual.y));
+    } else if (d.telemetria?.localizacaoAtual) {
+      pts.push(gridToLatLng(d.telemetria.localizacaoAtual.x, d.telemetria.localizacaoAtual.y));
     }
 
-    try {
-      const response = await apiFetch(`${BACKEND_URL}/api/deliveries`, {
-        method: 'POST',
-        body: JSON.stringify({
-          clientName,
-          clienteDocumento: clienteDocumento || undefined,
-          address: fullAddress,
-          items: items ? items.split(',').map(i => i.trim()) : [],
-          priority,
-          cargoType,
-          formaPagamento,
-          bairro: bairro || undefined,
-          cidade: cidade || undefined,
-          referencia: referencia || undefined,
-          webhookUrl: webhookUrl || undefined,
-          valor: valor ? parseFloat(valor) : undefined,
-          driverId: driverId || undefined,
-          x,
-          y
-        })
-      });
-
-      if (response.ok) {
-        const newDelivery = await response.json();
-        setClientName('');
-        setClienteDocumento('');
-        setAddress('');
-        setAddressNumber('');
-        setBairro('');
-        setCidade('');
-        setReferencia('');
-        setItems('');
-        setPriority('media');
-        setCargoType('normal');
-        setFormaPagamento('maquininha');
-        setWebhookUrl('');
-        setValor('');
-        setDriverId('');
-        setSelectedDeliveryId(newDelivery.id);
-      }
-    } catch (err) {
-      console.error('Erro ao registrar entrega:', err);
+    if (pts.length >= 2) {
+      map.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 16, animate: true });
+    } else {
+      map.setView(pts[0], 15, { animate: true });
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDeliveryId]);
+
 
   const handlePrepararPedido = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1980,88 +2443,207 @@ export default function App() {
     }
   };
 
-  const handleFinalizarPedido = async (id: string, e: React.MouseEvent) => {
+  const handleCancelarPedido = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    const motivo = window.prompt('Motivo do cancelamento (opcional):', '');
+    if (motivo === null) return; // usuário fechou o prompt
+    if (!window.confirm(`Confirma o cancelamento da comanda ${id}? Esta ação não pode ser desfeita.`)) return;
     try {
-      const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${id}/finalize-order`, {
-        method: 'POST'
+      const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${id}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ motivo: motivo.trim() || undefined })
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Erro ao finalizar comanda');
+        throw new Error(data.error || 'Erro ao cancelar comanda');
       }
-      alert(data.message || 'Pedido finalizado e enviado para entrega!');
     } catch (err: any) {
       alert(err.message);
     }
   };
 
-  const handleManualDispatch = async () => {
-    if (!selectedDriverForDispatch) {
-      alert('Por favor, selecione um entregador.');
-      return;
+  // ===== Módulo Fiscal (NFC-e / NF-e) =====
+  // Ao concluir a separação a loja escolhe o documento da venda: NFC-e (cupom 80mm),
+  // NF-e (DANFE A4) ou nenhum. "Padrão" fica salvo por terminal (localStorage):
+  //  - 'perguntar': sempre abre o seletor;  - 'NFCE': emite NFC-e direto;
+  //  - 'NFE': abre o seletor já em NF-e (precisa do destinatário);  - 'NENHUMA': não emite.
+  type ModoNotaPadrao = 'perguntar' | 'NFCE' | 'NFE' | 'NENHUMA';
+  const [modoNotaPadrao, setModoNotaPadrao] = useState<ModoNotaPadrao>(() => {
+    try { return (localStorage.getItem('distre_nota_padrao') as ModoNotaPadrao) || 'perguntar'; }
+    catch { return 'perguntar'; }
+  });
+  const alterarModoNota = (m: ModoNotaPadrao) => {
+    setModoNotaPadrao(m);
+    try { localStorage.setItem('distre_nota_padrao', m); } catch { /* ignore */ }
+  };
+
+  const fiscalApi = useMemo(
+    () => (sessao?.token ? new FiscalApi(BACKEND_URL, sessao.token, sessao.tipo === 'admin' ? tenantLojaId : undefined) : null),
+    [sessao?.token, sessao?.tipo, tenantLojaId]
+  );
+  const [fiscalStatus, setFiscalStatus] = useState<StatusFiscal | null>(null);
+  const fiscalSimulado = !fiscalStatus || fiscalStatus.simulado;
+  const atualizarStatusFiscal = () => { fiscalApi?.status().then(setFiscalStatus).catch(() => { /* ignore */ }); };
+  const [notasFiscais, setNotasFiscais] = useState<NotaResumo[]>([]);
+  const [showConfigFiscal, setShowConfigFiscal] = useState(false);
+  const [showOperationSettings, setShowOperationSettings] = useState(false);
+  const [pedidoEmConferencia, setPedidoEmConferencia] = useState<string | null>(null);
+  const [emissaoFiscal, setEmissaoFiscal] = useState<{ modo: 'separacao' | 'emitir'; comandaId: string; escolhaInicial: EscolhaFiscal } | null>(null);
+
+  const carregarNotasFiscais = async () => {
+    if (!fiscalApi || !tenantLojaId) return;
+    try { setNotasFiscais(await fiscalApi.listarNotas(2)); }
+    catch (err) { console.warn('[Fiscal] Falha ao listar notas:', err); }
+  };
+
+  useEffect(() => {
+    if (!fiscalApi || !tenantLojaId) { setNotasFiscais([]); return; }
+    atualizarStatusFiscal();
+    carregarNotasFiscais();
+    // Outros caixas da mesma loja também emitem: ressincroniza os selos a cada minuto.
+    const t = setInterval(carregarNotasFiscais, 60_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fiscalApi, tenantLojaId]);
+
+  // Nota mais recente por entrega e por pedido de origem (a lista já vem do mais novo).
+  const notasPorComanda = useMemo(() => {
+    const m: Record<string, NotaResumo> = {};
+    for (const n of notasFiscais) {
+      for (const id of [n.entregaId, n.pedidoId]) if (id && !m[id]) m[id] = n;
     }
+    return m;
+  }, [notasFiscais]);
 
-    const recebidas = deliveries
-      .filter(d => selectedForManifest.includes(d.id) && d.status === 'RECEBIDO')
-      .map(d => d.id);
+  const registrarNota = (n: NotaResumo) => setNotasFiscais(prev => [n, ...prev.filter(x => x.id !== n.id)]);
 
-    if (recebidas.length === 0) {
-      alert('Selecione pelo menos uma comanda no status Recebido.');
-      return;
+  const avisarNotaPendente = (n: NotaResumo) => {
+    if (n.status === 'PROCESSANDO') {
+      alert(`${NOME_MODELO[n.modelo]} enviada e ainda em processamento na SEFAZ. Clique no selo da nota no card para atualizar e imprimir.`);
     }
+  };
 
-    try {
-      const response = await apiFetch(`${BACKEND_URL}/api/deliveries/dispatch-batch`, {
-        method: 'POST',
-        body: JSON.stringify({
-          deliveryIds: recebidas,
-          driverId: selectedDriverForDispatch
-        })
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Erro ao despachar entregas');
+  const executarFinalizacao = async (id: string, escolha: EscolhaFiscal, destinatario?: DestinatarioNota) => {
+    const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${id}/finalize-order`, {
+      method: 'POST',
+      body: JSON.stringify(escolha === 'NENHUMA' ? {} : { fiscal: { modelo: escolha, destinatario } })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      const err = new Error(data.error || 'Erro ao finalizar comanda') as Error & { status?: number };
+      err.status = response.status;
+      throw err;
+    }
+    // Sem pop-up de sucesso: a comanda já avança no Kanban via socket — operação flui.
+    const nota: NotaCompleta | undefined = data.fiscal?.nota;
+    if (nota) {
+      registrarNota(nota);
+      if (nota.status === 'AUTORIZADA') imprimirNota(nota);
+      else avisarNotaPendente(nota);
+    }
+    if (data.fiscal?.erro) {
+      alert(`Separação concluída, mas a nota fiscal não foi autorizada:\n${data.fiscal.erro}\n\nUse "Emitir nota" no card para tentar de novo.`);
+    }
+  };
+
+  const handleFinalizarPedido = (id: string, e: React.MouseEvent) => { e.stopPropagation(); setPedidoEmConferencia(id); };
+
+  const finalizarPedidoConferido = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (modoNotaPadrao === 'NENHUMA' || modoNotaPadrao === 'NFCE') {
+      try {
+        await executarFinalizacao(id, modoNotaPadrao);
+      } catch (err: any) {
+        alert(err.message);
+        if (err.status === 412) setShowConfigFiscal(true); // dados fiscais da loja não configurados
       }
-      alert(data.message || 'Comandas liberadas com sucesso!');
-      setSelectedForManifest([]);
-      setSelectedDriverForDispatch('');
+      return;
+    }
+    setEmissaoFiscal({ modo: 'separacao', comandaId: id, escolhaInicial: modoNotaPadrao === 'NFE' ? 'NFE' : 'NFCE' });
+  };
+
+  // Selo da nota no card: reimprime; NF-e em processamento é reconsultada; erro/rejeição/cancelada → reemite.
+  const handleNotaFiscalCard = async (comandaId: string, nota?: NotaResumo) => {
+    if (!fiscalApi) return;
+    if (!nota || nota.status === 'ERRO' || nota.status === 'REJEITADA' || nota.status === 'CANCELADA') {
+      setEmissaoFiscal({ modo: 'emitir', comandaId, escolhaInicial: nota?.modelo || (modoNotaPadrao === 'NFE' ? 'NFE' : 'NFCE') });
+      return;
+    }
+    try {
+      const completa = nota.status === 'PROCESSANDO' ? await fiscalApi.atualizar(nota.id) : await fiscalApi.obterNota(nota.id);
+      registrarNota(completa);
+      if (completa.status === 'AUTORIZADA') imprimirNota(completa);
+      else alert(`${NOME_MODELO[completa.modelo]}: ${completa.status.toLowerCase()}${completa.mensagem ? ` — ${completa.mensagem}` : ''}`);
     } catch (err: any) {
       alert(err.message);
     }
   };
 
-  const handleSyncExternalOrders = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!externalApiUrl) return;
-
-    setIsSyncing(true);
-    try {
-      const response = await apiFetch(`${BACKEND_URL}/api/simulator/import-external`, {
-        method: 'POST',
-        body: JSON.stringify({ url: externalApiUrl })
-      });
-      
-      if (response.ok) {
-        const resData = await response.json();
-        if (resData.importedCount > 0) {
-          alert(`Sucesso! ${resData.importedCount} comandas foram importadas da API externa.`);
-          if (resData.deliveries && resData.deliveries.length > 0) {
-            setSelectedDeliveryId(resData.deliveries[0]);
-          }
-        } else {
-          alert('Sincronizado! Nenhum pedido novo encontrado (pedidos já foram importados).');
-        }
-      } else {
-        const errData = await response.json();
-        alert(`Erro: ${errData.error || 'Não foi possível sincronizar o canal'}`);
+  const confirmarEmissaoFiscal = async (escolha: EscolhaFiscal, destinatario?: DestinatarioNota) => {
+    if (!emissaoFiscal) return;
+    if (emissaoFiscal.modo === 'separacao') {
+      await executarFinalizacao(emissaoFiscal.comandaId, escolha, destinatario);
+    } else if (fiscalApi && escolha !== 'NENHUMA') {
+      try {
+        const nota = await fiscalApi.emitir(emissaoFiscal.comandaId, escolha, destinatario);
+        registrarNota(nota);
+        if (nota.status === 'AUTORIZADA') imprimirNota(nota);
+        else avisarNotaPendente(nota);
+      } catch (err: any) {
+        if (err.nota) registrarNota(err.nota); // tentativa com erro fica registrada no card
+        throw err;
       }
-    } catch (err: any) {
-      console.error('Erro de conexão ao sincronizar canal externo:', err);
-      alert(`Erro de conexão: ${err.message || 'Verifique se o backend está rodando'}`);
-    } finally {
-      setIsSyncing(false);
     }
+    setEmissaoFiscal(null);
+  };
+
+  const comandaEmEmissao = emissaoFiscal ? deliveries.find(d => d.id === emissaoFiscal.comandaId) : undefined;
+
+  // Gera o romaneio (manifesto) das comandas selecionadas + entregador escolhido.
+  // Extraído do antigo botão "Gerar Romaneios" do header; acionado pelo Kanban (Coluna "Prontos").
+  const gerarRomaneioParaSelecionados = (driverId?: string) => {
+    if (selectedForManifest.length === 0) return;
+    const driver =
+      drivers.find(drv => drv.id === driverId) ||
+      drivers.find(drv => drv.id === selectedDriverForDispatch) ||
+      drivers.find(drv => drv.status === 'ocioso') ||
+      drivers[0];
+    const driverName = driver ? driver.name : 'Motoboy Terceirizado';
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const romId = `ROM-${dateStr}-${Math.floor(100 + Math.random() * 900)}`;
+    const totalValue = selectedForManifest.reduce((acc, deliveryId) => {
+      const found = deliveries.find(del => del.id === deliveryId);
+      return acc + (found ? getDeliveryValue(found) : 0);
+    }, 0);
+    setActiveManifest({
+      id: romId,
+      deliveryIds: [...selectedForManifest],
+      driverName,
+      driverId: driver ? driver.id : '',
+      totalValue,
+    });
+    setSelectedForManifest([]);
+  };
+
+
+
+
+  const despacharPedidosProntos = async (ids: string[], driverId: string) => {
+    const driver = drivers.find(d => d.id === driverId);
+    if (!driver) throw new Error('O entregador não está mais cadastrado.');
+    const pedidos = ids.map(id => deliveries.find(d => d.id === id));
+    if (!ids.length || pedidos.some(d => !d || d.status !== 'RECEBIDO' || d.tipoComanda === 'pedido')) {
+      throw new Error('A seleção mudou. Selecione apenas pedidos prontos para despacho.');
+    }
+    const romId = `ROM-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomUUID().slice(0, 8)}`;
+    const response = await apiFetch(`${BACKEND_URL}/api/deliveries/dispatch-batch`, {
+      method: 'POST', body: JSON.stringify({ deliveryIds: ids, driverId, romaneioId: romId })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Erro ao despachar pedidos.');
+    setActiveManifest({ id: romId, deliveryIds: [...ids], driverId, driverName: driver.name,
+      totalValue: pedidos.reduce((sum, d) => sum + (d ? getDeliveryValue(d) : 0), 0), despachado: true });
+    setSelectedForManifest(prev => prev.filter(id => !ids.includes(id)));
   };
 
   const handleInjectIncident = async () => {
@@ -2389,28 +2971,14 @@ export default function App() {
       case 'AGUARDANDO_RETORNO_CD': return 'Aguardando Retorno a Loja';
       case 'PRODUTO_RETORNADO_ESTOQUE': return 'Cancelado / Devolvido';
       case 'SLA_ALERTA': return 'Alerta de SLA';
+      case 'CANCELADO': return 'Cancelado';
       default: return status;
     }
   };
 
-  const getPriorityText = (priority: string) => {
-    switch (priority) {
-      case 'baixa': return 'Baixa';
-      case 'media': return 'Média';
-      case 'alta': return 'Alta';
-      case 'critica': return 'Crítica';
-      default: return priority;
-    }
-  };
 
-  const getCargoTypeText = (type: string) => {
-    switch (type) {
-      case 'normal': return 'Entrega Normal';
-      case 'expressa': return 'Entrega Expressa';
-      case 'agendado': return 'Entrega Agendada';
-      default: return type;
-    }
-  };
+
+
 
   const selectedDelivery = deliveries.find(d => d.id === selectedDeliveryId);
   const activeDeliveries = deliveries.filter(d => d.status !== 'ENTREGUE' && d.status !== 'RECUSADO_INSUCESSO' && d.status !== 'PRODUTO_RETORNADO_ESTOQUE');
@@ -2470,8 +3038,13 @@ export default function App() {
       <div className="login-page">
         <div className="login-card">
           <div className="login-logo">
-            <div className="logo-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>D</div>
-            <h2>DISTRE</h2>
+            <div className="login-brand">
+              <svg className="login-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <rect width="48" height="48" rx="10" fill="#070f1d" />
+                <path d="m5 11 12 13L5 37h9l12-13L14 11Zm16 0 12 13-12 13h9l12-13L30 11Z" fill="#2878ff" />
+              </svg>
+              <span className="login-word">DISTRE</span>
+            </div>
             <p>Orquestração e Gestão de Entregas</p>
           </div>
           
@@ -2554,8 +3127,711 @@ export default function App() {
           </div>
         </header>
 
-        {/* Stats Grid */}
-        <div className="admin-stats-grid">
+        {/* Navigation Tabs — segmented control */}
+        <div style={{ display: 'flex', gap: 'var(--space-1)', background: 'var(--bg-secondary)', padding: 'var(--space-1)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-thin)', marginBottom: 'var(--space-6)' }}>
+          {([
+            { id: 'operacional', label: 'Gestão de Empresas & Lojas' },
+            { id: 'financeiro', label: 'Controle Financeiro & Cobrança (ERP)' },
+          ] as const).map(tab => {
+            const ativo = adminSubView === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setAdminSubView(tab.id)}
+                style={{
+                  flex: 1,
+                  background: ativo ? 'var(--bg-card)' : 'transparent',
+                  color: ativo ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: 'var(--text-sm)',
+                  padding: '0.6rem 1rem',
+                  borderRadius: 'var(--radius-sm)',
+                  boxShadow: ativo ? 'var(--shadow-sm)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s ease, color 0.15s ease',
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {adminSubView === 'financeiro' ? (
+          <div className="financeiro-panel-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            {/* KPI Cards Grid */}
+            <div className="report-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-cyan)' }}>
+                <span className="kpi-label">MRR Atual (Assinaturas Ativas)</span>
+                <span className="kpi-value" style={{ color: 'var(--color-cyan)' }}>
+                  R$ {finDashboard?.mrrAtual.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0,00'}
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                  Projetado próximo mês: R$ {finDashboard?.mrrProjetado.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
+                </span>
+              </div>
+              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-amber)' }}>
+                <span className="kpi-label">Cobranças em Aberto</span>
+                <span className="kpi-value" style={{ color: 'var(--color-amber)' }}>
+                  {finDashboard?.totalFaturasEmAberto || 0} faturas
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                  Total: R$ {finDashboard?.valorEmAberto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
+                </span>
+              </div>
+              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-rose)' }}>
+                <span className="kpi-label">Inadimplência</span>
+                <span className="kpi-value" style={{ color: 'var(--color-rose)' }}>
+                  {finDashboard?.taxaInadimplencia || 0}%
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                  {finDashboard?.lojasInadimplentes || 0} de {finDashboard?.totalLojas || 0} lojas atrasadas
+                </span>
+              </div>
+              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-emerald)' }}>
+                <span className="kpi-label">Faturamento Líquido (Mês Atual)</span>
+                <span className="kpi-value" style={{ color: 'var(--color-emerald)' }}>
+                  R$ {finDashboard?.faturamentoLiquidoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
+                </span>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                  Faturamento bruto: R$ {finDashboard?.faturamentoBrutoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
+                </span>
+              </div>
+            </div>
+
+            {/* Sub-tabs for Financeiro */}
+            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-thin)', paddingBottom: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-small"
+                style={{
+                  background: finSubTab === 'faturas' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                  color: finSubTab === 'faturas' ? 'var(--color-cyan)' : 'var(--text-secondary)',
+                  border: finSubTab === 'faturas' ? '1px solid var(--color-cyan)' : '1px solid transparent',
+                  borderRadius: '4px',
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8rem',
+                  fontWeight: 600
+                }}
+                onClick={() => setFinSubTab('faturas')}
+              >
+                Faturas e Cobranças
+              </button>
+              <button
+                type="button"
+                className="btn btn-small"
+                style={{
+                  background: finSubTab === 'relatorios' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                  color: finSubTab === 'relatorios' ? 'var(--color-cyan)' : 'var(--text-secondary)',
+                  border: finSubTab === 'relatorios' ? '1px solid var(--color-cyan)' : '1px solid transparent',
+                  borderRadius: '4px',
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8rem',
+                  fontWeight: 600
+                }}
+                onClick={() => setFinSubTab('relatorios')}
+              >
+                Relatórios Analíticos
+              </button>
+              <button
+                type="button"
+                className="btn btn-small"
+                style={{
+                  background: finSubTab === 'planos_config' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
+                  color: finSubTab === 'planos_config' ? 'var(--color-cyan)' : 'var(--text-secondary)',
+                  border: finSubTab === 'planos_config' ? '1px solid var(--color-cyan)' : '1px solid transparent',
+                  borderRadius: '4px',
+                  padding: '0.4rem 0.8rem',
+                  fontSize: '0.8rem',
+                  fontWeight: 600
+                }}
+                onClick={() => setFinSubTab('planos_config')}
+              >
+                Planos, Assinaturas e Configurações
+              </button>
+            </div>
+
+            {/* TAB: FATURAS */}
+            {finSubTab === 'faturas' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {/* Filtros e Nova Cobrança */}
+                <div className="card" style={{ padding: '1rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'end', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'end' }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Empresa</label>
+                      <select
+                        className="form-input"
+                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
+                        value={finFaturasFiltros.empresaId}
+                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, empresaId: e.target.value }))}
+                      >
+                        <option value="">Todas as Empresas</option>
+                        {empresas.map(emp => (
+                          <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Status</label>
+                      <select
+                        className="form-input"
+                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
+                        value={finFaturasFiltros.status}
+                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, status: e.target.value }))}
+                      >
+                        <option value="">Todos os Status</option>
+                        <option value="PAGA">Paga</option>
+                        <option value="PENDENTE">Pendente</option>
+                        <option value="ATRASADA">Atrasada</option>
+                        <option value="CONTESTADA">Contestada</option>
+                        <option value="CANCELADA">Cancelada</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Vencimento Inicial</label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
+                        value={finFaturasFiltros.dataInicio}
+                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, dataInicio: e.target.value }))}
+                      />
+                    </div>
+
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Vencimento Final</label>
+                      <input
+                        type="date"
+                        className="form-input"
+                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
+                        value={finFaturasFiltros.dataFim}
+                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, dataFim: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-success"
+                    style={{ height: '34px', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}
+                    onClick={() => setShowCobrarManualForm(true)}
+                  >
+                    + Cobrança Manual
+                  </button>
+                </div>
+
+                {/* Tabela de Faturas */}
+                <div className="card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-thin)', overflow: 'hidden' }}>
+                  <div className="lojas-table-container">
+                    <table className="lojas-table">
+                      <thead>
+                        <tr>
+                          <th>ID / Ref</th>
+                          <th>Empresa</th>
+                          <th>CNPJ</th>
+                          <th>Mes/Ano</th>
+                          <th>Bruto</th>
+                          <th>Desconto</th>
+                          <th>Líquido</th>
+                          <th>Vencimento</th>
+                          <th>Pagamento</th>
+                          <th>Status</th>
+                          <th style={{ textAlign: 'right' }}>Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finFaturas.length === 0 ? (
+                          <tr>
+                            <td colSpan={11} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
+                              Nenhuma fatura encontrada com os filtros selecionados.
+                            </td>
+                          </tr>
+                        ) : (
+                          finFaturas.map(fat => {
+                            let badgeColor = 'gray';
+                            let statusText = fat.status;
+                            if (fat.status === 'PAGA') { badgeColor = 'var(--color-emerald)'; statusText = 'Paga'; }
+                            else if (fat.status === 'PENDENTE') { badgeColor = 'var(--color-amber)'; statusText = 'Pendente'; }
+                            else if (fat.status === 'ATRASADA') { badgeColor = 'var(--color-rose)'; statusText = 'Atrasada'; }
+                            else if (fat.status === 'CONTESTADA') { badgeColor = 'var(--color-purple)'; statusText = 'Contestada'; }
+                            else if (fat.status === 'CANCELADA') { badgeColor = '#4b5563'; statusText = 'Cancelada'; }
+
+                            return (
+                              <tr key={fat.id}>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{fat.id}</td>
+                                <td><strong>{fat.empresaNome}</strong></td>
+                                <td style={{ color: 'var(--text-secondary)' }}>{fat.cnpj}</td>
+                                <td>{fat.referenciaMesAno}</td>
+                                <td style={{ fontFamily: 'var(--font-mono)' }}>R$ {fat.valorBruto.toFixed(2)}</td>
+                                <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-rose)' }}>-R$ {fat.valorDesconto.toFixed(2)}</td>
+                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>R$ {fat.valorLiquido.toFixed(2)}</td>
+                                <td>{new Date(fat.dataVencimento).toLocaleDateString('pt-BR')}</td>
+                                <td>{fat.dataPagamento ? new Date(fat.dataPagamento).toLocaleDateString('pt-BR') : '-'}</td>
+                                <td>
+                                  <span style={{
+                                    display: 'inline-block',
+                                    padding: '0.15rem 0.5rem',
+                                    borderRadius: '12px',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    background: `rgba(${badgeColor === 'var(--color-emerald)' ? '16,185,129' : badgeColor === 'var(--color-amber)' ? '245,158,11' : badgeColor === 'var(--color-rose)' ? '244,63,94' : badgeColor === 'var(--color-purple)' ? '139,92,246' : '75,85,99'}, 0.15)`,
+                                    color: badgeColor,
+                                    border: `1px solid ${badgeColor}`
+                                  }}>
+                                    {statusText}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
+                                    {fat.status !== 'PAGA' && fat.status !== 'CANCELADA' && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          className="btn btn-small btn-success"
+                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'var(--color-emerald)', color: '#000' }}
+                                          onClick={() => setShowBaixaManualForm(fat.id)}
+                                        >
+                                          Baixar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-small"
+                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'rgba(139, 92, 246, 0.2)', color: 'var(--color-purple)', border: '1px solid rgba(139, 92, 246, 0.3)' }}
+                                          onClick={() => {
+                                            setShowContestarForm(fat.id);
+                                            setContestarMotivo('');
+                                          }}
+                                        >
+                                          Contestar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="btn btn-small"
+                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'rgba(244, 63, 94, 0.2)', color: 'var(--color-rose)', border: '1px solid rgba(244, 63, 94, 0.3)' }}
+                                          onClick={() => handleCancelarFatura(fat.id)}
+                                        >
+                                          Cancelar
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Paginação */}
+                  {finTotalPaginas > 1 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', borderTop: '1px solid var(--border-thin)' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Página <strong>{finPaginaAtual}</strong> de <strong>{finTotalPaginas}</strong>
+                      </span>
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          disabled={finPaginaAtual === 1}
+                          onClick={() => setFinPaginaAtual(prev => Math.max(prev - 1, 1))}
+                        >
+                          Anterior
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-small"
+                          disabled={finPaginaAtual === finTotalPaginas}
+                          onClick={() => setFinPaginaAtual(prev => Math.min(prev + 1, finTotalPaginas))}
+                        >
+                          Próximo
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB: RELATORIOS */}
+            {finSubTab === 'relatorios' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
+                  {/* Gráfico 1: Faturamento Bruto vs Líquido */}
+                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
+                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Faturamento Bruto vs. Líquido Mensal (Pagas)</h3>
+                    {finRelFaturamento.length === 0 ? (
+                      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Sem dados históricos suficientes.</div>
+                    ) : (
+                      <div>
+                        {/* Renderizar Gráfico SVG */}
+                        <svg width="100%" height="220" viewBox="0 0 500 220" style={{ overflow: 'visible' }}>
+                          <line x1="50" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
+                          <line x1="50" y1="70" x2="480" y2="70" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
+                          <line x1="50" y1="120" x2="480" y2="120" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
+                          <line x1="50" y1="170" x2="480" y2="170" stroke="var(--border-thin)" strokeWidth="1" />
+                          
+                          {/* Desenha as barras */}
+                          {(() => {
+                            const maxVal = Math.max(...finRelFaturamento.map(d => Math.max(d.bruto, d.liquido)), 100);
+                            const scale = 150 / maxVal;
+                            
+                            return finRelFaturamento.slice(-5).map((d, idx) => {
+                              const x = 80 + idx * 80;
+                              const hBruto = d.bruto * scale;
+                              const hLiquido = d.liquido * scale;
+                              
+                              return (
+                                <g key={d.referencia}>
+                                  {/* Barra Bruto (Blue) */}
+                                  <rect x={x} y={170 - hBruto} width="18" height={hBruto} fill="url(#gradBruto)" rx="2" stroke="var(--color-blue)" strokeWidth="0.5" />
+                                  {/* Barra Liquido (Emerald) */}
+                                  <rect x={x + 22} y={170 - hLiquido} width="18" height={hLiquido} fill="url(#gradLiquido)" rx="2" stroke="var(--color-emerald)" strokeWidth="0.5" />
+                                  
+                                  {/* Labels */}
+                                  <text x={x + 20} y="185" fill="var(--text-secondary)" fontSize="9" textAnchor="middle">{d.referencia}</text>
+                                  {d.bruto > 0 && <text x={x + 9} y={165 - hBruto} fill="var(--color-blue)" fontSize="8" textAnchor="middle">R$ {d.bruto.toFixed(0)}</text>}
+                                  {d.liquido > 0 && <text x={x + 31} y={165 - hLiquido} fill="var(--color-emerald)" fontSize="8" textAnchor="middle">R$ {d.liquido.toFixed(0)}</text>}
+                                </g>
+                              );
+                            });
+                          })()}
+                          <defs>
+                            <linearGradient id="gradBruto" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="var(--color-blue)" stopOpacity="1" />
+                              <stop offset="100%" stopColor="rgba(59, 130, 246, 0.2)" stopOpacity="0.2" />
+                            </linearGradient>
+                            <linearGradient id="gradLiquido" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="var(--color-emerald)" stopOpacity="1" />
+                              <stop offset="100%" stopColor="rgba(16, 185, 129, 0.2)" stopOpacity="0.2" />
+                            </linearGradient>
+                          </defs>
+                        </svg>
+                        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <span style={{ width: '12px', height: '12px', background: 'var(--color-blue)', borderRadius: '2px', border: '1px solid var(--color-blue)' }}></span>
+                            Faturamento Bruto
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <span style={{ width: '12px', height: '12px', background: 'var(--color-emerald)', borderRadius: '2px', border: '1px solid var(--color-emerald)' }}></span>
+                            Faturamento Líquido
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Gráfico 2: Taxa de Inadimplência */}
+                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
+                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Taxa de Inadimplência Mensal (%)</h3>
+                    {finRelInadimplencia.length === 0 ? (
+                      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Sem dados suficientes.</div>
+                    ) : (
+                      <div>
+                        <svg width="100%" height="220" viewBox="0 0 500 220" style={{ overflow: 'visible' }}>
+                          <line x1="50" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
+                          <line x1="50" y1="70" x2="480" y2="70" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
+                          <line x1="50" y1="120" x2="480" y2="120" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
+                          <line x1="50" y1="170" x2="480" y2="170" stroke="var(--border-thin)" strokeWidth="1" />
+                          
+                          {/* Desenhar linha/pontos */}
+                          {(() => {
+                            const points: string[] = [];
+                            finRelInadimplencia.slice(-5).forEach((d, idx) => {
+                              const x = 80 + idx * 80;
+                              const y = 170 - (d.taxaInadimplencia * 1.5);
+                              points.push(`${x},${y}`);
+                            });
+                            
+                            return (
+                              <g>
+                                {points.length > 1 && (
+                                  <polyline
+                                    fill="none"
+                                    stroke="var(--color-rose)"
+                                    strokeWidth="2.5"
+                                    points={points.join(' ')}
+                                  />
+                                )}
+                                {finRelInadimplencia.slice(-5).map((d, idx) => {
+                                  const x = 80 + idx * 80;
+                                  const y = 170 - (d.taxaInadimplencia * 1.5);
+                                  return (
+                                    <g key={d.referencia}>
+                                      <circle cx={x} cy={y} r="5" fill="var(--bg-card)" stroke="var(--color-rose)" strokeWidth="2.5" />
+                                      <text x={x} y="185" fill="var(--text-secondary)" fontSize="9" textAnchor="middle">{d.referencia}</text>
+                                      <text x={x} y={y - 10} fill="var(--color-rose)" fontSize="9" textAnchor="middle" fontWeight="bold">{d.taxaInadimplencia}%</text>
+                                    </g>
+                                  );
+                                })}
+                              </g>
+                            );
+                          })()}
+                        </svg>
+                        <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          Taxa % de MRR retido por faturas atrasadas sobre o total faturado no mês.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
+                  {/* Churn Rate Financeiro */}
+                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
+                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Churn Rate Financeiro (MRR Perdido por Cancelamento)</h3>
+                    <div className="lojas-table-container">
+                      <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Referência</th>
+                            <th>Faturas Emitidas</th>
+                            <th>Faturas Canceladas</th>
+                            <th>Receita Total</th>
+                            <th>Receita Perdida</th>
+                            <th>Churn Rate</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {finRelChurn.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Sem dados de cancelamento.</td>
+                            </tr>
+                          ) : (
+                            finRelChurn.map(d => (
+                              <tr key={d.referencia}>
+                                <td style={{ fontWeight: 600 }}>{d.referencia}</td>
+                                <td>{d.faturasTotal}</td>
+                                <td style={{ color: 'var(--color-rose)' }}>{d.faturasCanceladas}</td>
+                                <td>R$ {d.receitaTotal.toFixed(2)}</td>
+                                <td style={{ color: 'var(--color-rose)' }}>R$ {d.receitaPerdida.toFixed(2)}</td>
+                                <td>
+                                  <strong style={{ color: d.churnRate > 0 ? 'var(--color-rose)' : 'var(--color-emerald)' }}>
+                                    {d.churnRate}%
+                                  </strong>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Relatório de Previsibilidade */}
+                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
+                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Contas a Receber nos Próximos Meses (Previsibilidade)</h3>
+                    <div className="lojas-table-container">
+                      <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Dia Vencimento</th>
+                            <th>Total de Assinaturas</th>
+                            <th>Faturamento Projetado (MRR)</th>
+                            <th>Projeção Trimestral (3 Meses)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {finRelPrevisibilidade.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Nenhuma assinatura ativa para previsão.</td>
+                            </tr>
+                          ) : (
+                            finRelPrevisibilidade.map(d => (
+                              <tr key={d.diaVencimento}>
+                                <td style={{ fontWeight: 600 }}>Dia {d.diaVencimento}</td>
+                                <td>{d.totalAssinaturas} assinatura(s)</td>
+                                <td style={{ color: 'var(--color-cyan)', fontWeight: 600 }}>R$ {d.mrrProjetado.toFixed(2)}</td>
+                                <td style={{ color: 'var(--color-emerald)', fontWeight: 600 }}>R$ {(d.mrrProjetado * 3).toFixed(2)}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: PLANOS E CONFIGURAÇÕES */}
+            {finSubTab === 'planos_config' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
+                
+                {/* CONFIGURAÇÃO DE COBRANÇA */}
+                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Configurações de Cobrança e Inadimplência</h3>
+                  {finConfiguracoes && (
+                    <form onSubmit={handleSalvarConfigCobranca} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      <div className="form-group">
+                        <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Carência para Bloqueio de Acesso (Dias)</label>
+                        <input
+                          type="number"
+                          className="form-input"
+                          value={finConfiguracoes.diasCarenciaBloqueio}
+                          onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, diasCarenciaBloqueio: parseInt(e.target.value) || 0 }))}
+                          required
+                        />
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Tempo limite com faturas vencidas antes de suspender acessos das lojas.</span>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="form-group">
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Multa por Atraso (%)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="form-input"
+                            value={finConfiguracoes.multaPercentual}
+                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, multaPercentual: parseFloat(e.target.value) || 0 }))}
+                            required
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Juros ao Mês (%)</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="form-input"
+                            value={finConfiguracoes.jurosMesPercentual}
+                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, jurosMesPercentual: parseFloat(e.target.value) || 0 }))}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div className="form-group">
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Notificar E-mail (Dias Antes)</label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={finConfiguracoes.emailNotificacaoDiasAntes}
+                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, emailNotificacaoDiasAntes: parseInt(e.target.value) || 0 }))}
+                            required
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Notificar WhatsApp (Dias Atraso)</label>
+                          <input
+                            type="number"
+                            className="form-input"
+                            value={finConfiguracoes.whatsappNotificacaoDiasAtraso}
+                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, whatsappNotificacaoDiasAtraso: parseInt(e.target.value) || 0 }))}
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <button type="submit" className="btn btn-success" style={{ marginTop: '0.5rem', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}>
+                        Salvar Configurações
+                      </button>
+                    </form>
+                  )}
+                </div>
+
+                {/* PLANOS */}
+                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>Planos de Assinatura</h3>
+                    <button type="button" className="btn btn-success btn-small" onClick={startNovoPlano}>
+                      + Novo Plano
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {finPlanos.map(plan => (
+                      <div key={plan.id} style={{ padding: '0.75rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-thin)', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <strong style={{ color: 'var(--color-cyan)' }}>{plan.nome}</strong>
+                          <span style={{ fontSize: '0.85rem', marginLeft: '0.5rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
+                            R$ {plan.valorMensal.toFixed(2)}/mês
+                          </span>
+                          <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
+                            {plan.descricao}
+                          </p>
+                        </div>
+                        <button type="button" className="btn btn-small" onClick={() => startEditPlano(plan)} style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>
+                          Editar
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ASSINATURAS DAS EMPRESAS */}
+                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', gridColumn: 'span 2' }}>
+                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Assinaturas Ativas de Empresas</h3>
+                  <div className="lojas-table-container">
+                    <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
+                      <thead>
+                        <tr>
+                          <th>Empresa</th>
+                          <th>CNPJ</th>
+                          <th>Plano</th>
+                          <th>Valor Cobrado</th>
+                          <th>Dia Vencimento</th>
+                          <th>Status</th>
+                          <th>Próxima Cobrança</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {finAssinaturas.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Sem assinaturas registradas.</td>
+                          </tr>
+                        ) : (
+                          finAssinaturas.map(sub => (
+                            <tr key={sub.id}>
+                              <td><strong>{sub.empresaNome}</strong></td>
+                              <td style={{ color: 'var(--text-secondary)' }}>{sub.cnpj}</td>
+                              <td><span className="badge-tenant ativo" style={{ background: 'var(--color-purple)' }}>{sub.planoNome}</span></td>
+                              <td style={{ fontFamily: 'var(--font-mono)' }}>R$ {sub.valorEfetivo.toFixed(2)}</td>
+                              <td>Todo dia {sub.diaVencimento}</td>
+                              <td>
+                                {(() => {
+                                  const estilos: Record<string, { bg: string; cor: string; label: string }> = {
+                                    ATIVA:     { bg: 'rgba(16,185,129,0.1)', cor: 'var(--color-emerald)', label: 'Ativa' },
+                                    TRIAL:     { bg: 'rgba(59,130,246,0.1)', cor: 'var(--color-blue, #3b82f6)', label: 'Trial' },
+                                    ATRASADA:  { bg: 'rgba(245,158,11,0.1)', cor: 'var(--color-amber)', label: 'Atrasada' },
+                                    SUSPENSA:  { bg: 'rgba(244,63,94,0.1)', cor: 'var(--color-rose)', label: 'Suspensa' },
+                                    CANCELADA: { bg: 'rgba(75,85,99,0.15)', cor: '#9ca3af', label: 'Cancelada' },
+                                  };
+                                  const e = estilos[sub.status] ?? estilos.CANCELADA;
+                                  return (
+                                    <span style={{
+                                      display: 'inline-block',
+                                      padding: '0.1rem 0.4rem',
+                                      borderRadius: '4px',
+                                      fontSize: '0.75rem',
+                                      background: e.bg,
+                                      color: e.cor
+                                    }}>
+                                      {e.label}
+                                    </span>
+                                  );
+                                })()}
+                              </td>
+                              <td>{sub.proximoFaturamento ? new Date(sub.proximoFaturamento).toLocaleDateString('pt-BR') : '-'}</td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Stats Grid */}
+            <div className="admin-stats-grid">
           <div className="admin-stat-card">
             <span className="admin-stat-label">Total de Empresas</span>
             <span className="admin-stat-value">{empresas.length}</span>
@@ -2709,7 +3985,11 @@ export default function App() {
                         <h4 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lojas / Redes</h4>
                         <button 
                           className="btn btn-success btn-small"
-                          onClick={() => setShowNovaLojaForm(isNovaLojaAberta ? null : empresa.id)}
+                          onClick={() => {
+                            const abrindo = !isNovaLojaAberta;
+                            setShowNovaLojaForm(abrindo ? empresa.id : null);
+                            if (abrindo && finPlanos.length === 0) carregarFinanceiroPlanos();
+                          }}
                         >
                           {isNovaLojaAberta ? 'Cancelar' : '+ Nova Loja'}
                         </button>
@@ -2758,40 +4038,88 @@ export default function App() {
                               <input 
                                 type="password" 
                                 className="form-input" 
-                                value={novaLojaSenha} 
-                                onChange={e => setNovaLojaSenha(e.target.value)} 
-                                placeholder="Senha da loja" 
-                                required 
+                                value={novaLojaSenha}
+                                onChange={e => setNovaLojaSenha(e.target.value)}
+                                placeholder="Senha da loja"
+                                required
                               />
                             </div>
                             <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Endereço</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaEndereco} 
-                                onChange={e => setNovaLojaEndereco(e.target.value)} 
-                                placeholder="Rua A, 123" 
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Plano de Assinatura</label>
+                              <select
+                                className="form-input"
+                                value={novaLojaPlanoId}
+                                onChange={e => setNovaLojaPlanoId(e.target.value)}
+                                required
+                              >
+                                <option value="">Selecione o plano...</option>
+                                {finPlanos.filter(p => p.ativo !== false).map(p => (
+                                  <option key={p.id} value={p.id}>
+                                    {p.nome} — R$ {Number(p.valorMensal).toFixed(2)}/mês
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>CEP</label>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={novaLojaCep}
+                                onChange={e => setNovaLojaCep(e.target.value)}
+                                placeholder="00000-000"
+                                maxLength={9}
+                              />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Endereço (Logradouro)</label>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={novaLojaEndereco}
+                                onChange={e => setNovaLojaEndereco(e.target.value)}
+                                placeholder="Rua das Flores"
+                              />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Número</label>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={novaLojaNumero}
+                                onChange={e => setNovaLojaNumero(e.target.value)}
+                                placeholder="123"
                               />
                             </div>
                             <div className="form-group" style={{ marginBottom: 0 }}>
                               <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Bairro</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaBairro} 
-                                onChange={e => setNovaLojaBairro(e.target.value)} 
-                                placeholder="Bairro" 
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={novaLojaBairro}
+                                onChange={e => setNovaLojaBairro(e.target.value)}
+                                placeholder="Bairro"
                               />
                             </div>
                             <div className="form-group" style={{ marginBottom: 0 }}>
                               <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Cidade</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaCidade} 
-                                onChange={e => setNovaLojaCidade(e.target.value)} 
-                                placeholder="São Paulo" 
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={novaLojaCidade}
+                                onChange={e => setNovaLojaCidade(e.target.value)}
+                                placeholder="São Paulo"
+                              />
+                            </div>
+                            <div className="form-group" style={{ marginBottom: 0 }}>
+                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>UF</label>
+                              <input
+                                type="text"
+                                className="form-input"
+                                value={novaLojaUf}
+                                onChange={e => setNovaLojaUf(e.target.value.toUpperCase())}
+                                placeholder="SP"
+                                maxLength={2}
                               />
                             </div>
                             <div className="form-group" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', height: '34px' }}>
@@ -2951,6 +4279,253 @@ export default function App() {
             })
           )}
         </div>
+      </>
+    )}
+
+        {/* --- MODAIS DO MÓDULO FINANCEIRO --- */}
+        {showCobrarManualForm && createPortal(
+          <div className="report-modal-overlay" onClick={() => setShowCobrarManualForm(false)}>
+            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <div className="report-modal-header">
+                <h2>Gerar Cobrança Manual (Fatura Avulsa)</h2>
+                <button type="button" className="report-modal-close-btn" onClick={() => setShowCobrarManualForm(false)}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <div className="report-modal-body">
+                <form onSubmit={handleCobrarManual} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Empresa</label>
+                    <select
+                      className="form-input"
+                      value={manualCobrarEmpresaId}
+                      onChange={e => setManualCobrarEmpresaId(e.target.value)}
+                      required
+                    >
+                      <option value="">Selecione uma empresa...</option>
+                      {empresas.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Valor Cobrado (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="form-input"
+                      value={manualCobrarValor}
+                      onChange={e => setManualCobrarValor(e.target.value)}
+                      placeholder="Ex: 299.00"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Referência / Descrição</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={manualCobrarDescricao}
+                      onChange={e => setManualCobrarDescricao(e.target.value)}
+                      placeholder="Ex: Mensalidade extra"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Data de Vencimento</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      value={manualCobrarVencimento}
+                      onChange={e => setManualCobrarVencimento(e.target.value)}
+                      required
+                    />
+                  </div>
+                  {manualCobrarError && (
+                    <div style={{ color: 'var(--color-rose)', fontSize: '0.75rem' }}>{manualCobrarError}</div>
+                  )}
+                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}>Gerar Cobrança</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        , document.body)}
+
+        {showBaixaManualForm && createPortal(
+          <div className="report-modal-overlay" onClick={() => setShowBaixaManualForm(null)}>
+            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <div className="report-modal-header">
+                <h2>Dar Baixa Manual na Fatura</h2>
+                <button type="button" className="report-modal-close-btn" onClick={() => setShowBaixaManualForm(null)}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <div className="report-modal-body">
+                <form onSubmit={handleBaixaManual} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Fatura ID</label>
+                    <input type="text" className="form-input" value={showBaixaManualForm} readOnly disabled />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Comprovante de Referência / Transação</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={baixaManualComprovante}
+                      onChange={e => setBaixaManualComprovante(e.target.value)}
+                      placeholder="Ex: Autenticação Pix E123456"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Observações</label>
+                    <textarea
+                      className="form-input"
+                      value={baixaManualObservacoes}
+                      onChange={e => setBaixaManualObservacoes(e.target.value)}
+                      placeholder="Ex: Recebido via transferência bancária direta."
+                      rows={3}
+                      style={{ resize: 'vertical', minHeight: '60px' }}
+                    />
+                  </div>
+                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem' }}>Confirmar Pagamento</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        , document.body)}
+
+        {showContestarForm && createPortal(
+          <div className="report-modal-overlay" onClick={() => setShowContestarForm(null)}>
+            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <div className="report-modal-header">
+                <h2>Marcar Fatura como Contestada</h2>
+                <button type="button" className="report-modal-close-btn" onClick={() => setShowContestarForm(null)}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <div className="report-modal-body">
+                <form onSubmit={handleContestarFatura} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Fatura ID</label>
+                    <input type="text" className="form-input" value={showContestarForm} readOnly disabled />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Motivo da Contestação</label>
+                    <textarea
+                      className="form-input"
+                      value={contestarMotivo}
+                      onChange={e => setContestarMotivo(e.target.value)}
+                      placeholder="Descreva o motivo relatado pela empresa para a contestação da cobrança..."
+                      rows={4}
+                      required
+                      style={{ resize: 'vertical', minHeight: '80px' }}
+                    />
+                  </div>
+                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem', background: 'var(--color-purple)', border: '1px solid var(--color-purple)', color: '#fff' }}>Registrar Contestação</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        , document.body)}
+
+        {showPlanoForm && createPortal(
+          <div className="report-modal-overlay" onClick={() => setShowPlanoForm(null)}>
+            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
+              <div className="report-modal-header">
+                <h2>{showPlanoForm.id ? 'Editar Plano de Assinatura' : 'Criar Novo Plano de Assinatura'}</h2>
+                <button type="button" className="report-modal-close-btn" onClick={() => setShowPlanoForm(null)}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              <div className="report-modal-body">
+                <form onSubmit={handleSalvarPlano} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Nome do Plano</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={planoNome}
+                      onChange={e => setPlanoNome(e.target.value)}
+                      placeholder="Ex: Silver Plus"
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Descrição do Plano</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={planoDescricao}
+                      onChange={e => setPlanoDescricao(e.target.value)}
+                      placeholder="Ex: Recomendado para redes médias"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Valor Mensal (R$)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="form-input"
+                      value={planoValorMensal}
+                      onChange={e => setPlanoValorMensal(e.target.value)}
+                      placeholder="Ex: 349.00"
+                      required
+                    />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                    <div className="form-group">
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Entregas/Mês</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        value={planoLimiteEntregas}
+                        onChange={e => setPlanoLimiteEntregas(e.target.value)}
+                        placeholder="Deixe em branco para ilimitado"
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Lojas</label>
+                      <input
+                        type="number"
+                        className="form-input"
+                        value={planoLimiteLojas}
+                        onChange={e => setPlanoLimiteLojas(e.target.value)}
+                        placeholder="Deixe em branco para ilimitado"
+                      />
+                    </div>
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Motoristas</label>
+                    <input
+                      type="number"
+                      className="form-input"
+                      value={planoLimiteMotoristas}
+                      onChange={e => setPlanoLimiteMotoristas(e.target.value)}
+                      placeholder="Deixe em branco para ilimitado"
+                    />
+                  </div>
+                  {planoError && (
+                    <div style={{ color: 'var(--color-rose)', fontSize: '0.75rem' }}>{planoError}</div>
+                  )}
+                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem' }}>Salvar Plano</button>
+                </form>
+              </div>
+            </div>
+          </div>
+        , document.body)}
 
         {editingLoja && createPortal(
           <div className="report-modal-overlay" onClick={() => setEditingLoja(null)}>
@@ -3006,38 +4581,74 @@ export default function App() {
                       placeholder="Nova senha da loja"
                     />
                   </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Endereço</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaEndereco} 
-                      onChange={e => setEditLojaEndereco(e.target.value)} 
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                    <div className="form-group">
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>CEP</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={editLojaCep}
+                        onChange={e => setEditLojaCep(e.target.value)}
+                        placeholder="00000-000"
+                        maxLength={9}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>UF</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={editLojaUf}
+                        onChange={e => setEditLojaUf(e.target.value.toUpperCase())}
+                        placeholder="SP"
+                        maxLength={2}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.6rem' }}>
+                    <div className="form-group">
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Endereço (Logradouro)</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={editLojaEndereco}
+                        onChange={e => setEditLojaEndereco(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Número</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={editLojaNumero}
+                        onChange={e => setEditLojaNumero(e.target.value)}
+                        placeholder="123"
+                      />
+                    </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
                     <div className="form-group">
                       <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Bairro</label>
-                      <input 
-                        type="text" 
-                        className="form-input" 
-                        value={editLojaBairro} 
-                        onChange={e => setEditLojaBairro(e.target.value)} 
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={editLojaBairro}
+                        onChange={e => setEditLojaBairro(e.target.value)}
                       />
                     </div>
                     <div className="form-group">
                       <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cidade</label>
-                      <input 
-                        type="text" 
-                        className="form-input" 
-                        value={editLojaCidade} 
-                        onChange={e => setEditLojaCidade(e.target.value)} 
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={editLojaCidade}
+                        onChange={e => setEditLojaCidade(e.target.value)}
                       />
                     </div>
                   </div>
                   <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <input 
-                      type="checkbox" 
+                    <input
+                      type="checkbox"
                       id="editLojaRecebePedidosMaster"
                       checked={editLojaRecebePedidos} 
                       onChange={e => setEditLojaRecebePedidos(e.target.checked)} 
@@ -3059,7 +4670,7 @@ export default function App() {
 
   // Dashboard da Loja
   return (
-    <div className="app-container">
+    <div className="app-container distre-operations">
       {lojaVisualizada && (
         <div className="viewing-tenant-banner">
           <span className="viewing-tenant-text">
@@ -3078,10 +4689,11 @@ export default function App() {
       {/* 1. App Header */}
       <header className="app-header">
         <div className="logo-section">
-          <div className="logo-icon" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'block' }}>
-              <path d="M3 7h6l4 10h8" />
-              <path d="M3 17h6l4-10h8" />
+          <div className="logo-icon" style={{ background: 'transparent', boxShadow: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {/* Logo oficial Distre — mesmo mark da landing (site/index.html) e da tela de login */}
+            <svg width="40" height="40" viewBox="0 0 48 48" fill="none" aria-hidden="true" style={{ display: 'block' }}>
+              <rect width="48" height="48" rx="10" fill="#070f1d" />
+              <path d="m5 11 12 13L5 37h9l12-13L14 11Zm16 0 12 13-12 13h9l12-13L30 11Z" fill="#2878ff" />
             </svg>
           </div>
           <div>
@@ -3103,9 +4715,12 @@ export default function App() {
             <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
             <span>{isConnected ? 'Servidor Conectado' : 'Desconectado'}</span>
           </div>
-          <div className="status-badge" style={{ color: 'var(--color-cyan)' }}>
-            <strong>{activeDeliveries.length}</strong> Entregas Ativas
-          </div>
+          {/* "Entregas Ativas" ocultado a pedido (jun/2026) */}
+          {false && (
+            <div className="status-badge" style={{ color: 'var(--color-cyan)' }}>
+              <strong>{activeDeliveries.length}</strong> Entregas Ativas
+            </div>
+          )}
           {alertDeliveries.length > 0 && (
             <div className="status-badge" style={{ color: 'var(--color-rose)' }}>
               <strong>{alertDeliveries.length}</strong> Alertas Ativos
@@ -3113,13 +4728,31 @@ export default function App() {
           )}
         </div>
         <div className="header-actions">
-          {isRecebePedidosEnabled && (
-            <button className="btn btn-primary" onClick={triggerQuickOrder}>Gerar Pedido</button>
+          {/* Hierarquia: 1 primária (Gerar Pedido), 1 secundária (Entrega Rápida),
+              destrutivo e logout rebaixados a ghost p/ não competir nem causar clique acidental. */}
+          {/* "Gerar Pedido" e "Entrega Rápida" ocultados a pedido (jun/2026) */}
+          {false && (
+            <>
+              <button className="btn btn-primary" onClick={triggerQuickOrder}>+ Gerar Pedido</button>
+              <button className="btn btn-secondary" onClick={triggerQuickDelivery}>Entrega Rápida</button>
+            </>
           )}
-          <button className="btn btn-success" onClick={triggerQuickDelivery}>Entrega Rápida</button>
-          <button className="btn btn-danger" onClick={handleClearSimulation}>Limpar Dados</button>
+          <button
+            className="btn"
+            style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-thin)' }}
+            onClick={handleClearSimulation}
+            title="Apagar todos os dados da simulação"
+          >
+            Limpar Dados
+          </button>
           {!lojaVisualizada && (
-            <button className="btn" style={{ background: '#1f293d', color: 'var(--color-rose)', border: '1px solid rgba(244, 63, 94, 0.2)' }} onClick={handleLogout}>Sair</button>
+            <button
+              className="btn"
+              style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-thin)' }}
+              onClick={handleLogout}
+            >
+              Sair
+            </button>
           )}
         </div>
       </header>
@@ -3150,22 +4783,22 @@ export default function App() {
         </div>
       )}
 
+      {/* Centro de Operações — painel operacional ao vivo (KPIs + SLA + eventos) */}
+      <details className="ops-analytics">
+      <summary>Indicadores de entrega e eventos da operação</summary>
+      <CentroOperacoes
+        deliveries={deliveries}
+        drivers={drivers}
+        liveEvents={liveEvents}
+        zona={sessao?.nomeLoja || currentLoja?.nome || undefined}
+      />
+      </details>
+
       {/* 3. Seção de Entregas Cadastradas (Comandas) */}
       <section className="glass-panel deliveries-top-panel glow-cyan">
-        <div className="panel-header">
+        {!dispatchViewActive && !showProdutosModal && <div className="panel-header">
           <h2 style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             Controle de Comandas
-            {tenantLojaId && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', cursor: 'pointer', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                <input
-                  type="checkbox"
-                  checked={autoDispatch}
-                  onChange={handleToggleAutoDispatch}
-                  style={{ accentColor: 'var(--color-cyan)', cursor: 'pointer' }}
-                />
-                Despacho Automático
-              </label>
-            )}
           </h2>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             {selectedRecebidas.length > 0 && tenantLojaId && (
@@ -3178,49 +4811,22 @@ export default function App() {
                 >
                   <option value="">Selecione o Entregador</option>
                   {drivers.map(d => (
-                    <option key={d.id} value={d.id} disabled={!d.dispositivoConectado}>
-                      {d.name} ({!d.dispositivoConectado ? 'Offline' : d.status === 'ocioso' ? 'Disponível' : 'Em Rota'})
+                    <option key={d.id} value={d.id}>
+                      {d.name} ({d.status === 'ocioso' ? 'Disponível' : 'Em Rota'})
                     </option>
                   ))}
                 </select>
               </div>
             )}
-            {selectedForManifest.length > 0 && (
-              <button
-                type="button"
-                className="btn btn-secondary btn-small"
-                style={{ fontSize: '0.68rem', padding: '0.2rem 0.4rem', border: '1px solid #1f293d', background: '#141b27' }}
-                onClick={() => {
-                  const driver = drivers.find(drv => drv.id === selectedDriverForDispatch) || drivers.find(drv => drv.status === 'ocioso') || drivers[0];
-                  const driverName = driver ? driver.name : 'Motoboy Terceirizado';
-                  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-                  const romId = `ROM-${dateStr}-${Math.floor(100 + Math.random() * 900)}`;
-                  const totalValue = selectedForManifest.reduce((acc, deliveryId) => {
-                    const found = deliveries.find(del => del.id === deliveryId);
-                    return acc + (found ? getDeliveryValue(found) : 0);
-                  }, 0);
-                  setActiveManifest({
-                    id: romId,
-                    deliveryIds: [...selectedForManifest],
-                    driverName,
-                    driverId: driver ? driver.id : '',
-                    totalValue
-                  });
-                  setSelectedForManifest([]);
-                }}
-              >
-                Gerar Romaneios para Impressão e Liberar Entrega ({selectedForManifest.length})
-              </button>
-            )}
+            {/* Despacho em lote movido para o Kanban (Coluna "Prontos p/ Despacho") */}
             <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
               Total: {deliveries.length} comandas
             </span>
           </div>
-        </div>
-
+        </div>}
         {/* Romaneio Ativo */}
         {activeManifest && (
-          <div style={{ 
+          <div className="ops-manifest" style={{
             background: '#0d131f', 
             border: '1px solid #1f293d', 
             borderRadius: '8px', 
@@ -3235,12 +4841,13 @@ export default function App() {
               <button 
                 style={{ background: 'transparent', border: 'none', color: 'var(--color-rose)', cursor: 'pointer', fontSize: '0.75rem' }}
                 onClick={() => {
+                  if (activeManifest.despachado) { setActiveManifest(null); return; }
                   setSelectedForManifest(activeManifest.deliveryIds);
                   setSelectedDriverForDispatch(activeManifest.driverId);
                   setActiveManifest(null);
                 }}
               >
-                Desfazer
+                {activeManifest.despachado ? 'Fechar romaneio' : 'Desfazer'}
               </button>
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
@@ -3262,7 +4869,7 @@ export default function App() {
                 color: 'var(--color-cyan)',
                 fontWeight: 600
               }}>
-                Valor Total a Cobrar em Maquininha: R$ {activeManifest.totalValue.toFixed(2)}
+                Total dos pedidos: R$ {activeManifest.totalValue.toFixed(2)}
               </div>
             </div>
 
@@ -3292,7 +4899,7 @@ export default function App() {
                 Imprimir Guia do Motoboy (80mm)
               </button>
 
-              <button
+              {!activeManifest.despachado && <button
                 type="button"
                 className="btn btn-primary btn-small"
                 style={{ 
@@ -3326,492 +4933,53 @@ export default function App() {
                 }}
               >
                 Liberar Entrega
-              </button>
+              </button>}
             </div>
           </div>
         )}
 
-        {isRecebePedidosEnabled ? (
-          <>
-            <div className="comandas-section-title font-mono" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-amber)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--color-amber)' }}></span>
-              Fila de Pedidos (WhatsApp / API)
-            </div>
-            <div className="deliveries-horizontal-list" style={{ marginBottom: '1.2rem', minHeight: '80px', borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: '1rem' }}>
-              {deliveries.filter(e => e.tipoComanda === 'pedido' && e.status !== 'ENTREGUE').length === 0 ? (
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '1rem', width: '100%' }}>
-                  Nenhum pedido pendente na fila.
-                </div>
-              ) : (
-                [...deliveries]
-                  .filter(e => e.tipoComanda === 'pedido' && e.status !== 'ENTREGUE')
-                  .sort((e, t) => {
-                    const n = e.criadoEm ? new Date(e.criadoEm).getTime() : 0;
-                    const r = t.criadoEm ? new Date(t.criadoEm).getTime() : 0;
-                    return r - n;
-                  })
-                  .map(e => (
-                    <div 
-                      key={e.id}
-                      className={`delivery-item-card order-card ${selectedDeliveryId === e.id ? 'selected' : ''}`}
-                      style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', padding: '0.75rem', minWidth: '280px', border: '1px solid rgba(245, 158, 11, 0.2)', background: 'rgba(245, 158, 11, 0.01)' }}
-                      onClick={() => setSelectedDeliveryId(e.id)}
-                    >
-                      <div className="card-title-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span className="card-id font-mono" style={{ color: 'var(--color-amber)' }}>{e.id}</span>
-                        <div style={{ display: 'flex', gap: '0.3rem', alignItems: 'center' }}>
-                          <span className="card-badge" style={{ fontSize: '0.6rem', padding: '0.1rem 0.35rem', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.1)', color: 'var(--color-amber)', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                            PEDIDO
-                          </span>
-                          <span className="card-badge" style={{ 
-                            fontSize: '0.55rem', 
-                            padding: '0.1rem 0.35rem', 
-                            borderRadius: '4px', 
-                            background: e.status === 'EM_PREPARO' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(245, 158, 11, 0.1)', 
-                            color: e.status === 'EM_PREPARO' ? 'var(--color-blue)' : 'var(--color-amber)', 
-                            border: e.status === 'EM_PREPARO' ? '1px solid rgba(59, 130, 246, 0.2)' : '1px solid rgba(245, 158, 11, 0.2)',
-                            textTransform: 'uppercase'
-                          }}>
-                            {e.status === 'EM_PREPARO' ? 'Preparando' : 'Recebido'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="card-details" style={{ fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                        <div><strong>Cliente:</strong> {e.nomeCliente}</div>
-                        <div><strong>Itens:</strong> {e.itens && e.itens.length > 0 ? e.itens.join(', ') : 'Nenhum item'}</div>
-                        <div style={{ color: 'var(--color-amber)', fontWeight: 500, fontSize: '0.75rem', marginTop: '0.15rem' }}>
-                          Valor: R$ {getDeliveryValue(e).toFixed(2)}
-                        </div>
-                        <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {e.endereco}
-                        </div>
-                      </div>
-                      {e.status === 'RECEBIDO' ? (
-                        <button 
-                          className="btn btn-primary btn-small"
-                          style={{ marginTop: '0.4rem', width: '100%', fontSize: '0.68rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem', padding: '0.35rem 0.5rem', background: 'var(--color-amber)', borderColor: 'var(--color-amber)', color: '#000', fontWeight: 600, borderRadius: '4px' }}
-                          onClick={(t) => handlePrepararPedido(e.id, t)}
-                        >
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ marginRight: '2px' }}>
-                            <path d="M5 12h14M12 5l7 7-7 7" />
-                          </svg>
-                          Aceitar e Preparar
-                        </button>
-                      ) : (
-                        <button 
-                          className="btn btn-success btn-small"
-                          style={{ marginTop: '0.4rem', width: '100%', fontSize: '0.68rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.2rem', padding: '0.35rem 0.5rem', background: 'var(--color-emerald)', borderColor: 'var(--color-emerald)', color: '#000', fontWeight: 600, borderRadius: '4px' }}
-                          onClick={(t) => handleFinalizarPedido(e.id, t)}
-                        >
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" style={{ marginRight: '2px' }}>
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                          Finalizar e Enviar para Entrega
-                        </button>
-                      )}
-                    </div>
-                  ))
-              )}
-            </div>
-
-            <div className="comandas-section-title font-mono" style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-cyan)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <span style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--color-cyan)' }}></span>
-              Fila de Entregas (Despacho / Rota)
-            </div>
-            <div className="deliveries-horizontal-list">
-              {deliveries.filter(e => e.tipoComanda !== 'pedido').length === 0 ? (
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '1rem', width: '100%' }}>
-                  Nenhuma entrega cadastrada.
-                </div>
-              ) : (
-                [...deliveries]
-                  .filter(e => e.tipoComanda !== 'pedido')
-                  .sort((a, b) => {
-                    const isCompA = a.status === 'ENTREGUE' || a.status === 'PRODUTO_RETORNADO_ESTOQUE' || a.status === 'RECUSADO_INSUCESSO';
-                    const isCompB = b.status === 'ENTREGUE' || b.status === 'PRODUTO_RETORNADO_ESTOQUE' || b.status === 'RECUSADO_INSUCESSO';
-
-                    if (isCompA && !isCompB) return 1;
-                    if (!isCompA && isCompB) return -1;
-
-                    const dateA = a.criadoEm ? new Date(a.criadoEm).getTime() : 0;
-                    const dateB = b.criadoEm ? new Date(b.criadoEm).getTime() : 0;
-                    return dateB - dateA;
-                  })
-                  .map(d => (
-                    <div 
-                      key={d.id} 
-                      className={`delivery-item-card ${selectedDeliveryId === d.id ? 'selected' : ''}`}
-                      style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.8rem', minWidth: '280px' }}
-                      onClick={() => setSelectedDeliveryId(d.id)}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedForManifest.includes(d.id)}
-                        onChange={t => {
-                          t.stopPropagation();
-                          if (t.target.checked) {
-                            setSelectedForManifest(prev => [...prev, d.id]);
-                          } else {
-                            setSelectedForManifest(prev => prev.filter(id => id !== d.id));
-                          }
-                        }}
-                        style={{ width: '13px', height: '13px', accentColor: 'var(--color-cyan)', border: '1px solid #1f293d', cursor: 'pointer', background: 'transparent' }}
-                      />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', flex: 1, minWidth: 0 }}>
-                        <div className="card-title-row">
-                          <span className="card-id font-mono">{d.id}</span>
-                          <span className={`card-badge ${d.status}`} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>
-                            {getStatusText(d.status)}
-                          </span>
-                        </div>
-                        <div className="card-details" style={{ fontSize: '0.7rem', display: 'flex', flexDirection: 'column', gap: '0.15rem' }}>
-                          <div><strong>Cliente:</strong> {d.nomeCliente}</div>
-                          <div><strong>Endereço:</strong> {d.endereco}</div>
-                          <div style={{ color: 'var(--color-cyan)', fontWeight: 500, fontSize: '0.7rem' }}>
-                            <strong>Valor da comanda:</strong> R$ {getDeliveryValue(d).toFixed(2)}
-                          </div>
-                          {d.motorista && (
-                            <div style={{ fontSize: '0.68rem', marginTop: '0.1rem', color: 'var(--text-secondary)' }}>
-                              <strong>Motoboy:</strong> <strong style={{ color: 'var(--text-primary)' }}>{d.motorista.name}</strong>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))
-              )}
-            </div>
-          </>
-        ) : (
-          <div className="deliveries-horizontal-list">
-            {deliveries.length === 0 ? (
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem', width: '100%' }}>
-                Nenhuma entrega cadastrada na simulação.
-              </div>
-            ) : (
-              [...deliveries]
-                .sort((a, b) => {
-                  const isCompA = a.status === 'ENTREGUE' || a.status === 'PRODUTO_RETORNADO_ESTOQUE' || a.status === 'RECUSADO_INSUCESSO';
-                  const isCompB = b.status === 'ENTREGUE' || b.status === 'PRODUTO_RETORNADO_ESTOQUE' || b.status === 'RECUSADO_INSUCESSO';
-
-                  if (isCompA && !isCompB) return 1;
-                  if (!isCompA && isCompB) return -1;
-
-                  const dateA = a.criadoEm ? new Date(a.criadoEm).getTime() : 0;
-                  const dateB = b.criadoEm ? new Date(b.criadoEm).getTime() : 0;
-                  return dateB - dateA;
-                })
-                .map(d => (
-                <div 
-                  key={d.id} 
-                  className={`delivery-item-card ${selectedDeliveryId === d.id ? 'selected' : ''}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.6rem 0.8rem' }}
-                  onClick={() => setSelectedDeliveryId(d.id)}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedForManifest.includes(d.id)}
-                    onChange={(e) => {
-                      e.stopPropagation();
-                      if (e.target.checked) {
-                        setSelectedForManifest(prev => [...prev, d.id]);
-                      } else {
-                        setSelectedForManifest(prev => prev.filter(id => id !== d.id));
-                      }
-                    }}
-                    style={{
-                      width: '13px',
-                      height: '13px',
-                      accentColor: 'var(--color-cyan)',
-                      border: '1px solid #1f293d',
-                      cursor: 'pointer',
-                      background: 'transparent'
-                    }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div className="card-title-row" style={{ gap: '0.4rem' }}>
-                      <span className="card-id font-mono">{d.id}</span>
-                      <span className={`card-badge ${d.status}`} style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>
-                        {getStatusText(d.status)}
-                      </span>
-                      {d.incidentes?.some(i => i.tipo === 'route_deviation' && i.descricao.includes('AlertaDesvioSequencia')) && (
-                        <span className="card-badge failed" style={{ fontSize: '0.6rem', padding: '0.1rem 0.3rem' }}>
-                          PULADA
-                        </span>
-                      )}
-                    </div>
-                    <div className="card-details" style={{ marginTop: '0.2rem' }}>
-                      <div>Cliente: {d.nomeCliente}</div>
-                      <div>Prioridade: {getPriorityText(d.prioridade)} | {getCargoTypeText(d.tipoCarga)}</div>
-                      <div style={{ color: 'var(--color-cyan)', fontSize: '0.68rem', marginTop: '0.15rem' }}>Valor: R$ {getDeliveryValue(d).toFixed(2)}</div>
-                      {d.motorista && (
-                        <div style={{ fontSize: '0.68rem', marginTop: '0.1rem', color: 'var(--text-secondary)' }}>
-                          Motoboy: <strong style={{ color: 'var(--text-primary)' }}>{d.motorista.name}</strong>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+        {/* Kanban de Controle de Comandas — substitui as 2 filas verticais antigas */}
+        <OperationsWorkspace
+          activeMenuKey={showProdutosModal ? 'produtos' : undefined}
+          onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não salvas do produto?')) return false; setShowProdutosModal(false); setCatalogoAlterado(false); return true; }}
+          workspace={showProdutosModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoProdutos backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onClose={() => setShowProdutosModal(false)} onEstoque={() => setShowEstoqueModal(true)} onVitrine={() => setShowVitrineModal(true)} onDirtyChange={setCatalogoAlterado} refreshKey={catalogoRefresh} /> : undefined}
+          onDispatchViewChange={setDispatchViewActive}
+          onDespacharProntos={despacharPedidosProntos}
+          menuActions={[
+            ...(tenantLojaId ? [{ key: 'configuracoes', label: 'Configurações', icon: 'settings' as const, onClick: () => setShowOperationSettings(true) }] : []),
+            ...(sessao?.tipo === 'loja' && sessao.lojaId ? [
+              { key: 'produtos', label: 'Produtos', icon: 'products' as const, onClick: () => setShowProdutosModal(true) },
+              { key: 'vitrine', label: 'Configuração da vitrine', icon: 'products' as const, onClick: () => setShowVitrineModal(true) },
+              { key: 'estoque', label: 'Estoque', icon: 'stock' as const, onClick: () => setShowEstoqueModal(true) },
+            ] : []),
+            { key: 'relatorios', label: 'Relatórios', icon: 'reports', onClick: () => { setReportPhase('filters'); setReportModalOpen(true); } },
+            { key: 'motoristas', label: 'Cadastrar Motoboy', icon: 'drivers', onClick: () => setShowDriverModal(true) },
+            { key: 'veiculos', label: 'Tipos de veículo', icon: 'vehicles', onClick: () => setShowVehicleModal(true) },
+          ]}
+          deliveries={deliveries}
+          drivers={drivers}
+          selectedForManifest={selectedForManifest}
+          onToggleManifest={(id, checked) => setSelectedForManifest(prev => (checked ? [...new Set([...prev, id])] : prev.filter(x => x !== id)))}
+          onPreparar={handlePrepararPedido}
+          onFinalizar={handleFinalizarPedido}
+          onCancelar={handleCancelarPedido}
+          onAbrirComanda={setSelectedDeliveryId}
+          onDespachar={gerarRomaneioParaSelecionados}
+          onImprimir={(c) => imprimirComandaTicket(c as any, 'impressora')}
+          getValor={getDeliveryValue as any}
+          getStatusText={getStatusText}
+          notasPorComanda={notasPorComanda}
+          onNotaFiscal={tenantLojaId && fiscalApi ? handleNotaFiscalCard : undefined}
+        />
+        {/* (as 2 filas verticais antigas foram substituídas pelo Kanban acima) */}
       </section>
 
       {/* 4. Dashboard Main Body Grid */}
       <div className="dashboard-grid">
         
-        {/* Left Side: Create Delivery Form & Ingestion Control */}
-        <section className="glass-panel">
-          <div className="panel-header">
-            <h2 style={{ display: 'flex', alignItems: 'center' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '8px', color: 'var(--color-cyan)' }}>
-                <rect width="20" height="8" x="2" y="3" rx="2" />
-                <rect width="20" height="8" x="2" y="13" rx="2" />
-                <path d="M6 7h.01M6 17h.01" />
-              </svg>
-              Registrar Nova Entrega
-            </h2>
-          </div>
-
-          <form onSubmit={handleCreateDelivery} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-            <div className="form-group">
-              <label>ID da Comanda</label>
-              <input 
-                type="text" 
-                className="form-input font-mono" 
-                value="ID: [Gerado Automaticamente]" 
-                disabled 
-                style={{ opacity: 0.6, cursor: 'not-allowed' }}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Nome do Cliente</label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="Ex: Lojas Americanas"
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>CPF/CNPJ <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(opcional)</span></label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="Ex: 000.000.000-00 ou 00.000.000/0000-00"
-                value={clienteDocumento}
-                onChange={(e) => setClienteDocumento(e.target.value)}
-              />
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '2.5fr 1fr', gap: '0.6rem' }}>
-              <div className="form-group">
-                <label>Endereço de Entrega (Rua/Av.)</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="Ex: Av. Paulista"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Número</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="Ex: 1000"
-                  value={addressNumber}
-                  onChange={(e) => setAddressNumber(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-              <div className="form-group">
-                <label>Bairro <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(opcional)</span></label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="Ex: Piedade"
-                  value={bairro}
-                  onChange={(e) => setBairro(e.target.value)}
-                />
-              </div>
-              <div className="form-group">
-                <label>Cidade <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(opcional)</span></label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="Ex: Abreu e Lima"
-                  value={cidade}
-                  onChange={(e) => setCidade(e.target.value)}
-                />
-              </div>
-            </div>
-            
-            <div className="form-group">
-              <label>Referência <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(opcional)</span></label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="Ex: Ao lado do banco"
-                value={referencia}
-                onChange={(e) => setReferencia(e.target.value)}
-              />
-            </div>
-            
-            <div className="form-group">
-              <label>Itens da Carga (separados por vírgula) <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(opcional)</span></label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder="Ex: Dipirona 500mg, Soro (opcional)"
-                value={items}
-                onChange={(e) => setItems(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-              <div className="form-group">
-                <label>Prioridade SLA</label>
-                <select className="form-select" value={priority} onChange={(e: any) => setPriority(e.target.value)}>
-                  <option value="baixa">Baixa</option>
-                  <option value="media">Média</option>
-                  <option value="alta">Alta</option>
-                  <option value="critica">Crítica</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label>Tipo de Entrega</label>
-                <select className="form-select" value={cargoType} onChange={(e: any) => setCargoType(e.target.value)}>
-                  <option value="expressa">Expressa</option>
-                  <option value="normal">Normal</option>
-                  <option value="agendado">Agendado</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-              <div className="form-group">
-                <label>Valor da Entrega (R$) <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(opcional)</span></label>
-                <input 
-                  type="number" 
-                  step="0.01"
-                  min="0"
-                  className="form-input" 
-                  placeholder="Ex: 45.90"
-                  value={valor}
-                  onChange={(e) => setValor(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label>Motoboy para Atribuição <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>(opcional)</span></label>
-                <select className="form-select" value={driverId} onChange={(e: any) => setDriverId(e.target.value)}>
-                  <option value="">Atribuição Automática</option>
-                  {drivers.filter(d => d.status === 'ocioso').map(d => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label>Forma de Pagamento</label>
-              <select className="form-select" value={formaPagamento} onChange={(e: any) => setFormaPagamento(e.target.value)}>
-                <option value="maquininha">Maquininha (Cartao)</option>
-                <option value="pix">Pix</option>
-                <option value="dinheiro">Dinheiro</option>
-              </select>
-            </div>
-
-
-            <button 
-              type="submit" 
-              className="btn btn-primary" 
-              style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: isGeocoding ? 0.7 : 1, cursor: isGeocoding ? 'not-allowed' : 'pointer' }}
-              disabled={isGeocoding}
-            >
-              {isGeocoding ? (
-                <>Geocodificando endereço...</>
-              ) : (
-                <>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
-                    <path d="M5 12h14M12 5v14" />
-                  </svg>
-                  Incluir Nova Comanda
-                </>
-              )}
-            </button>
-          </form>
-
-          <hr style={{ margin: '1.2rem 0', borderColor: 'var(--border-thin)', opacity: 0.15 }} />
-
-          <div className="external-channel-sync" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-            <h3 style={{ fontSize: '0.85rem', color: 'var(--color-cyan)', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-              </svg>
-              Sincronizar Canal de Vendas (Cenário Externo)
-            </h3>
-            
-            <form onSubmit={handleSyncExternalOrders} style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              <div className="form-group">
-                <label style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>URL da API de Pedidos Externos</label>
-                <input 
-                  type="text" 
-                  className="form-input font-mono" 
-                  style={{ fontSize: '0.72rem', padding: '0.35rem 0.5rem' }}
-                  value={externalApiUrl}
-                  onChange={(e) => setExternalApiUrl(e.target.value)}
-                  required
-                />
-              </div>
-              
-              <button 
-                type="submit" 
-                className="btn btn-secondary btn-small" 
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
-                  fontSize: '0.72rem', 
-                  padding: '0.35rem',
-                  width: '100%',
-                  opacity: isSyncing ? 0.6 : 1,
-                  cursor: isSyncing ? 'not-allowed' : 'pointer'
-                }}
-                disabled={isSyncing}
-              >
-                {isSyncing ? 'Sincronizando...' : 'Sincronizar Pedidos'}
-              </button>
-            </form>
-          </div>
-
-          {/* A listagem de comandas foi movida para o topo */}
-
-          {/* A Frota de Motoristas foi movida para a coluna da direita */}
-        </section>
-
-        {/* Center: Live GPS Map & Mobile Simulator / Telemetry split */}
+        {/* Painel do Operador: detalhe da comanda aberta (Acompanhar / ›) + simulador do entregador */}
+        {selectedDelivery && (
         <section className="glass-panel" style={{ minWidth: '0' }}>
-          <div className="panel-header">
-            <h2>Telemetria e Monitoramento de Rotas (GPS)</h2>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Grade de Coordenadas 100x100</span>
-          </div>
-
-          <div className="map-container" style={{ position: 'relative', overflow: 'hidden' }}>
-            <div ref={mapContainerRef} style={{ width: '100%', height: '100%', background: '#090d16' }}></div>
-          </div>
-
           <div className="split-telemetry-container">
             
             {/* Painel do Operador */}
@@ -4356,9 +5524,10 @@ export default function App() {
           </div>
         </div>
       </section>
+        )}
 
         {/* Right Side: Frota de Motoristas */}
-        <section className="glass-panel">
+        {!dispatchViewActive && !showProdutosModal && <section className="glass-panel">
           <div className="panel-header">
             <h2>Frota de Motoristas</h2>
           </div>
@@ -4368,19 +5537,7 @@ export default function App() {
                 ? `${d.codigoVinculo.substring(0, 3)}-${d.codigoVinculo.substring(3)}`
                 : '---';
               return (
-                <div 
-                  key={d.id} 
-                  style={{ 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center',
-                    padding: '0.75rem 1rem', 
-                    background: 'var(--bg-card)', 
-                    border: '1px solid var(--border-thin)', 
-                    borderRadius: '8px',
-                    fontSize: '0.85rem'
-                  }}
-                >
+                <div key={d.id} className="driver-card">
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                     <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span 
@@ -4388,11 +5545,11 @@ export default function App() {
                           width: '8px', 
                           height: '8px', 
                           borderRadius: '50%', 
-                          background: d.dispositivoConectado ? 'var(--color-emerald)' : '#4b5563', 
-                          boxShadow: d.dispositivoConectado ? '0 0 8px var(--color-emerald)' : 'none',
+                          background: 'var(--color-emerald)',
+                          boxShadow: '0 0 8px var(--color-emerald)',
                           display: 'inline-block' 
                         }}
-                        title={d.dispositivoConectado ? 'Celular conectado' : 'Dispositivo offline'}
+                        title={'Online para despacho'}
                       />
                       {getVehicleIcon(d.vehicleType)} 
                       {d.name}
@@ -4402,8 +5559,8 @@ export default function App() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <span className={`card-badge ${!d.dispositivoConectado ? 'offline' : d.status === 'ocioso' ? 'completed' : 'failed'}`} style={{ textTransform: 'capitalize', fontSize: '0.7rem' }}>
-                      {!d.dispositivoConectado ? 'Offline' : d.status === 'ocioso' ? 'Disponível' : 'Em Rota'}
+                    <span className={`card-badge ${d.status === 'ocioso' ? 'completed' : 'failed'}`} style={{ textTransform: 'capitalize', fontSize: '0.7rem' }}>
+                      {d.status === 'ocioso' ? 'Disponível' : 'Em Rota'}
                     </span>
                     <button 
                       className="icon-btn danger" 
@@ -4421,7 +5578,7 @@ export default function App() {
               );
             })}
           </div>
-        </section>
+        </section>}
 
       </div>
       {showThermalReceipt && activeManifest && createPortal(
@@ -4542,76 +5699,119 @@ export default function App() {
         </div>
       , document.body)}
 
-      {/* Botão Flutuante de Ação (FAB) */}
-      <div className="fab-container">
-        {fabOpen && (
-          <div className="fab-menu">
-            <button 
-              className="fab-menu-item" 
-              onClick={() => {
-                setFabOpen(false);
-                setReportPhase('filters');
-                setReportModalOpen(true);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="20" x2="18" y2="10" />
-                <line x1="12" y1="20" x2="12" y2="4" />
-                <line x1="6" y1="20" x2="6" y2="14" />
-              </svg>
-              Gerar Relatório de Desempenho
-            </button>
-            <button 
-              className="fab-menu-item" 
-              onClick={() => {
-                setFabOpen(false);
-                setShowDriverModal(true);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                <circle cx="8.5" cy="7" r="4" />
-                <line x1="20" y1="8" x2="20" y2="14" />
-                <line x1="23" y1="11" x2="17" y2="11" />
-              </svg>
-              Cadastrar Motoboy
-            </button>
-            <button 
-              className="fab-menu-item" 
-              onClick={() => {
-                setFabOpen(false);
-                setShowVehicleModal(true);
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="1" y="3" width="15" height="13" />
-                <polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
-                <circle cx="5.5" cy="18.5" r="2.5" />
-                <circle cx="18.5" cy="18.5" r="2.5" />
-              </svg>
-              Cadastrar Tipo de Veículo
-            </button>
-          </div>
-        )}
-        <button 
-          className={`fab-button ${fabOpen ? 'active' : ''}`}
-          onClick={() => setFabOpen(prev => !prev)}
-          title="Menu de Ações"
-        >
-          {fabOpen ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          ) : (
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="3" y1="12" x2="21" y2="12" />
-              <line x1="3" y1="6" x2="21" y2="6" />
-              <line x1="3" y1="18" x2="21" y2="18" />
-            </svg>
-          )}
-        </button>
-      </div>
+      {pedidoEmConferencia && sessao && (
+        <ConferenciaSeparacao pedidoId={pedidoEmConferencia} backendUrl={BACKEND_URL} token={sessao.token}
+          onClose={() => setPedidoEmConferencia(null)}
+          onComplete={e => { const id = pedidoEmConferencia; setPedidoEmConferencia(null); void finalizarPedidoConferido(id, e); }} />
+      )}
+      {showOperationSettings && (
+        <OperationSettingsModal onClose={() => setShowOperationSettings(false)}>
+            {tenantLojaId && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" />
+                </svg>
+                Impressão de comanda:
+                <select
+                  className="form-select"
+                  aria-label="Impressão de comanda" value={comandaPrintMode}
+                  onChange={ev => alterarModoImpressao(ev.target.value as ModoImpressaoComanda)}
+                  style={{ width: 'auto', minHeight: '30px', padding: '0 var(--space-2)', fontSize: '0.75rem' }}
+                  title="Como a comanda é gerada quando um pedido novo entra na fila"
+                >
+                  <option value="impressora">Impressora 80mm (auto)</option>
+                  <option value="pdf">Abrir PDF</option>
+                  <option value="off">Desligada</option>
+                </select>
+              </label>
+            )}
+            {tenantLojaId && fiscalApi && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                <span aria-hidden="true">🧾</span>
+                Nota fiscal:
+                <select
+                  className="form-select"
+                  aria-label="Nota fiscal padrão" value={modoNotaPadrao}
+                  onChange={ev => alterarModoNota(ev.target.value as ModoNotaPadrao)}
+                  style={{ width: 'auto', minHeight: '30px', padding: '0 var(--space-2)', fontSize: '0.75rem' }}
+                  title="Documento fiscal emitido ao concluir a separação"
+                >
+                  <option value="perguntar">Perguntar (NFC-e ou NF-e)</option>
+                  <option value="NFCE">NFC-e automática</option>
+                  <option value="NFE">NF-e</option>
+                  <option value="NENHUMA">Não emitir</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => { setShowOperationSettings(false); setShowConfigFiscal(true); }}
+                  style={{ minHeight: '30px', padding: '0 0.6rem', fontSize: '0.72rem' }}
+                  title="CNPJ, IE, endereço, séries e tributação padrão do emitente"
+                >
+                  Dados fiscais
+                </button>
+                {fiscalStatus && (
+                  <span
+                    title={fiscalStatus.podeEmitir ? 'Ambiente fiscal da loja' : 'Configuração fiscal incompleta — abra Dados fiscais'}
+                    style={{
+                      fontSize: '0.66rem', fontWeight: 700,
+                      color: !fiscalStatus.podeEmitir ? 'var(--color-rose)' : fiscalStatus.simulado ? 'var(--color-amber)'
+                        : fiscalStatus.ambiente === 'PRODUCAO' ? 'var(--color-emerald)' : 'var(--color-cyan)',
+                    }}
+                  >
+                    {!fiscalStatus.podeEmitir ? 'CONFIGURAR' : fiscalStatus.simulado ? 'SIMULADO' : fiscalStatus.ambiente === 'PRODUCAO' ? 'PRODUÇÃO' : 'HOMOLOGAÇÃO'}
+                  </span>
+                )}
+              </label>
+            )}
+        </OperationSettingsModal>
+      )}
+
+      {showEstoqueModal && sessao?.tipo === 'loja' && sessao.lojaId && (
+        <GestaoEstoque backendUrl={BACKEND_URL} token={sessao.token}
+          onClose={() => { setShowEstoqueModal(false); setCatalogoRefresh(v => v + 1); }}
+          onProdutos={() => { setShowEstoqueModal(false); setShowProdutosModal(true); }} />
+      )}
+      {/* Configuração da vitrine pública */}
+      {showVitrineModal && sessao?.tipo === 'loja' && sessao.lojaId && (
+        <GestaoVitrine
+          backendUrl={BACKEND_URL}
+          token={sessao.token}
+          lojaId={sessao.lojaId}
+          nomeLoja={sessao.nomeLoja || 'Minha Loja'}
+          onClose={() => { setShowVitrineModal(false); setCatalogoRefresh(v => v + 1); }}
+        />
+      )}
+
+      {/* Módulo Fiscal: escolha NFC-e / NF-e ao concluir a separação (ou reemissão pelo card) */}
+      {emissaoFiscal && comandaEmEmissao && (
+        <EmissaoNotaModal
+          titulo={emissaoFiscal.modo === 'separacao' ? 'Concluir separação' : 'Emitir nota fiscal'}
+          comanda={{
+            id: comandaEmEmissao.id,
+            nomeCliente: comandaEmEmissao.nomeCliente,
+            clienteDocumento: comandaEmEmissao.clienteDocumento,
+            endereco: comandaEmEmissao.endereco,
+            bairro: comandaEmEmissao.bairro,
+            cidade: comandaEmEmissao.cidade,
+            valor: getDeliveryValue(comandaEmEmissao),
+          }}
+          escolhaInicial={emissaoFiscal.escolhaInicial}
+          permitirSemNota={emissaoFiscal.modo === 'separacao'}
+          simulado={fiscalSimulado || fiscalStatus?.ambiente !== 'PRODUCAO'}
+          onConfirmar={confirmarEmissaoFiscal}
+          onAbrirConfig={() => setShowConfigFiscal(true)}
+          onFechar={() => setEmissaoFiscal(null)}
+        />
+      )}
+      {showConfigFiscal && fiscalApi && tenantLojaId && (
+        <ConfigFiscalModal
+          api={fiscalApi}
+          nomeLoja={sessao?.nomeLoja || lojaVisualizada?.nome || 'Minha Loja'}
+          onSalvo={atualizarStatusFiscal}
+          onFechar={() => setShowConfigFiscal(false)}
+        />
+      )}
 
       {/* Modal do Relatório Analítico */}
       {reportModalOpen && createPortal(
@@ -5208,11 +6408,11 @@ export default function App() {
                         padding: '0.1rem 0.3rem', 
                         borderRadius: '4px',
                         marginLeft: '0.25rem',
-                        background: !d.dispositivoConectado ? 'rgba(156, 163, 175, 0.08)' : d.status === 'ocioso' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)',
-                        color: !d.dispositivoConectado ? '#9ca3af' : d.status === 'ocioso' ? 'var(--color-emerald)' : 'var(--color-rose)',
+                        background: d.status === 'ocioso' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(244, 63, 94, 0.08)',
+                        color: d.status === 'ocioso' ? 'var(--color-emerald)' : 'var(--color-rose)',
                         textTransform: 'capitalize'
                       }}>
-                        {!d.dispositivoConectado ? 'offline' : d.status === 'ocioso' ? 'disponível' : 'em rota'}
+                        {d.status === 'ocioso' ? 'disponível' : 'em rota'}
                       </span>
                     </span>
                     <button 
@@ -5420,38 +6620,74 @@ export default function App() {
                     placeholder="Nova senha da loja"
                   />
                 </div>
-                <div className="form-group">
-                  <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Endereço</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    value={editLojaEndereco} 
-                    onChange={e => setEditLojaEndereco(e.target.value)} 
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>CEP</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editLojaCep}
+                      onChange={e => setEditLojaCep(e.target.value)}
+                      placeholder="00000-000"
+                      maxLength={9}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>UF</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editLojaUf}
+                      onChange={e => setEditLojaUf(e.target.value.toUpperCase())}
+                      placeholder="SP"
+                      maxLength={2}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.6rem' }}>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Endereço (Logradouro)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editLojaEndereco}
+                      onChange={e => setEditLojaEndereco(e.target.value)}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Número</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editLojaNumero}
+                      onChange={e => setEditLojaNumero(e.target.value)}
+                      placeholder="123"
+                    />
+                  </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
                   <div className="form-group">
                     <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Bairro</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaBairro} 
-                      onChange={e => setEditLojaBairro(e.target.value)} 
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editLojaBairro}
+                      onChange={e => setEditLojaBairro(e.target.value)}
                     />
                   </div>
                   <div className="form-group">
                     <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cidade</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaCidade} 
-                      onChange={e => setEditLojaCidade(e.target.value)} 
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={editLojaCidade}
+                      onChange={e => setEditLojaCidade(e.target.value)}
                     />
                   </div>
                 </div>
                 <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <input 
-                    type="checkbox" 
+                  <input
+                    type="checkbox"
                     id="editLojaRecebePedidos"
                     checked={editLojaRecebePedidos} 
                     onChange={e => setEditLojaRecebePedidos(e.target.checked)} 

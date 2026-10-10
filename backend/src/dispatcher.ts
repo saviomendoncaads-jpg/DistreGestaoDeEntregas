@@ -146,7 +146,6 @@ export class DispatcherAgent {
       motorista = drivers.find(d =>
         d.id === preferredDriverId &&
         d.status === 'ocioso' &&
-        d.dispositivoConectado === true &&
         (!lojaId || d.lojaId === lojaId)
       ) || null;
     }
@@ -209,9 +208,8 @@ export class DispatcherAgent {
   }
 
   private findDriverForCargo(tipoCarga: string, lojaId?: string): Motorista | null {
-    // Filtra motoristas pelo contexto de tenant (loja) e garante que estão online
-    const frotas = (lojaId ? drivers.filter(d => d.lojaId === lojaId) : drivers)
-      .filter(d => d.dispositivoConectado === true);
+    // Todo motorista cadastrado está online; mantém o contexto da loja.
+    const frotas = lojaId ? drivers.filter(d => d.lojaId === lojaId) : drivers;
 
     // Tenta encontrar um veículo preferencial
     let tiposPreferenciais: string[] = [];
@@ -313,10 +311,6 @@ export class DispatcherAgent {
     const motorista = drivers.find(d => d.id === driverId);
     if (!motorista) {
       throw new Error("Motorista não encontrado.");
-    }
-
-    if (!motorista.dispositivoConectado) {
-      throw new Error("Não é possível atribuir entregas a um motorista offline.");
     }
 
     motorista.status = 'ocupado';
