@@ -331,6 +331,50 @@ curl -X POST http://localhost:5000/api/integracao/entregas \
 
 ---
 
+## Funcionalidades e alterações recentes (Outubro/2026)
+
+Resumo do que foi construído desde a retomada do projeto. Os detalhes de banco de dados estão em [Banco de Dados](#banco-de-dados-sql-server); os de estoque e conferência, em `backend/docs/`.
+
+### Painel da loja — Central de pedidos
+- Layout em **lista + kanban** com as etapas **Pedidos, Novos, Separação, Despacho, Entregas, Atrasados e Notas fiscais**. Pedidos novos aparecem primeiro e com destaque de cor, distintos dos já faturados, com nota emitida e em rota.
+- Removidos da tela da loja o formulário "Registrar Nova Entrega" e o mapa GPS.
+- O botão flutuante deu lugar a um **menu de ações**: Configurações (impressão de comanda, nota fiscal padrão e dados fiscais), Produtos, Configuração da vitrine, Estoque, Relatórios, Cadastrar Motoboy e Tipos de veículo.
+- **Despacho**: seleciona os pedidos prontos, escolhe o entregador e despacha com romaneio.
+- **Motoboys sempre online para despacho**, independentemente de o celular estar conectado (`dispositivoConectado` é sempre verdadeiro).
+
+### Separação, conferência por EAN e produto em falta
+- Ao clicar em **Concluir separação**, o operador confere cada unidade lendo o EAN (leitor USB/Bluetooth ou digitação). O backend bloqueia a finalização enquanto houver unidade sem conferir.
+- **Em falta**: o operador informa a quantidade que faltou e o motivo, e escolhe entre retirar só o item (o pedido segue, com linhas e valor recalculados) ou cancelar o pedido inteiro. Estoque, valor e histórico são atualizados numa única transação SQL, de forma idempotente. Opcionalmente o saldo do produto é zerado por um `AJUSTE` auditável.
+- Documentação: `backend/docs/conferencia-ean.md`. Código: `backend/src/conferencia.ts`, `faltas.ts`, `itensPedido.ts` e `frontend/src/components/ConferenciaSeparacao.tsx`.
+
+### Estoque da vitrine
+- Recebimento de mercadorias (entrada) com saldo por loja e produto, **nunca negativo**, e extrato de movimentos (`ENTRADA`, `VENDA`, `ESTORNO`, `AJUSTE`).
+- A baixa acontece no checkout da vitrine, na mesma transação que grava a comanda. Produto controlado e sem saldo fica indisponível. Cancelar o pedido estorna uma única vez.
+- Documentação: `backend/docs/estoque.md`. Código: `backend/src/estoque.ts` e `frontend/src/components/GestaoEstoque.tsx`. Rotas: `GET /api/gestao/estoque` e `POST /api/gestao/estoque/entradas`.
+
+### Cadastro de produtos
+- Formulário completo: EAN/GTIN, código interno (SKU), situação (rascunho, ativo, arquivado), **publicação independente** na vitrine, marca, fabricante, custo, preço promocional, várias imagens, estoque mínimo, peso e dimensões, SEO e dados fiscais (NCM, CEST, CFOP, ICMS, unidade).
+- **Histórico de alterações** de cada produto (quem mudou, quando e o retrato dos dados), edição e importação em lote.
+- Rotas em `/api/gestao/produtos` (listar, criar, editar, excluir, importar, lote e histórico). Regras em `backend/src/catalogoProduto.ts`.
+
+### Módulo fiscal (NFC-e / NF-e)
+- A nota é emitida ao concluir a separação. O operador escolhe o documento da venda — **NFC-e** (cupom 80mm) ou **NF-e** — e a nota autorizada é impressa. O comportamento padrão (perguntar, NFC-e automática, NF-e ou não emitir) é ajustado em Configurações e fica salvo no navegador.
+- Tudo é parametrizado **por loja** em Configurações → Dados fiscais: provedor (`SIMULADO`, padrão e sem valor fiscal, ou `FOCUSNFE`), dados do emitente, séries, tributação padrão, certificado A1 (.pfx), CSC e tokens, com um checklist que mostra se a loja já pode emitir. Uma empresa com as credenciais só preenche e emite.
+- Certificado, senha, CSC e tokens ficam **cifrados (AES-256-GCM)** no banco; a chave fica em `backend/.chave-fiscal`, fora do banco, e precisa de backup.
+- A nota usa o preço praticado no pedido, mesmo que o catálogo mude antes da emissão, e há no máximo uma nota ativa por venda. Rotas em `/api/fiscal`. Código em `backend/src/fiscal/`.
+
+### Vitrine pública (loja online)
+- Loja no layout de farmácia em `/loja/<id>`: categorias, banner rotativo, carrinho e checkout com **CPF** do cliente (validado e gravado no pedido, usado na nota fiscal).
+- Mostra só produtos publicados, com preço promocional e saldo de estoque. Catálogo de demonstração com 14 produtos e fotos de licença aberta (créditos em `backend/docs/creditos-imagens-catalogo.json`). Detalhes em `backend/docs/VITRINE_PUBLICA.md`.
+
+### Site (landing page)
+- Landing page em tema escuro servida na raiz `/` (arquivos em `site/`); o painel fica em `/app`.
+
+### Documentação do banco
+- Estrutura completa e descrições de todas as tabelas e colunas neste README, mais o script `backend/docs/schema-completo.sql`, que recria o banco vazio. Ambos são regerados do banco real por `node backend/scripts/gerar-doc-banco.cjs`; as descrições ficam em `backend/scripts/descricoes-banco.cjs`.
+
+---
+
 ## Banco de Dados (SQL Server)
 
 ### Bancos e conexão
@@ -1069,3 +1113,42 @@ graph TD
    ```
 4. Acesse o frontend no navegador em: http://localhost:5173/
 5. Monitore os logs no terminal para acompanhar o ciclo dos agentes.
+
+### Build e testes
+
+```bash
+npm run build                      # compila backend (tsc) e frontend (tsc -b + vite build)
+npm run typecheck --prefix backend # checagem de tipos do backend
+npm test --prefix backend          # testes unitários (vitest)
+```
+
+Os testes que usam **SQL Server de verdade** são opcionais: criam um banco temporário (`DISTRE_TEST_*`), rodam e o removem. Em PowerShell:
+
+```powershell
+$env:RUN_SQL_ESTOQUE_TESTS='1'; npm test --prefix backend -- test/estoque-sql.test.ts test/faltas-sql.test.ts
+```
+
+A integração contínua (`.github/workflows/ci.yml`) roda typecheck e testes do backend e o bundle do frontend a cada push.
+
+### Variáveis de ambiente
+
+Copie `backend/.env.example` para `backend/.env`. As principais: `DB_SERVER` e `DB_DATABASE` (banco), `ADMIN_USUARIO` e `ADMIN_SENHA` (administrador inicial), `CORS_ORIGINS`, `PAYMENT_GATEWAY` e as chaves do gateway, `RUN_BACKGROUND_JOBS` e `TRUST_PROXY`. Atrás de proxy ou túnel (Cloudflare, por exemplo) defina `TRUST_PROXY=1`; sem isso o limite de requisições é compartilhado por todos os clientes. Os tokens, o certificado e o CSC fiscais **não** ficam no `.env`: são informados por loja no painel.
+
+### Produção (Windows)
+
+- O backend serve a landing em `/`, o painel em `/app`, a vitrine em `/loja/<id>` e a API em `/api`, tudo na porta 5000, com o banco `DISTRE_PROD`.
+- Os processos rodam no **pm2**: `distre` (`backend/dist/index.js`, a partir de `backend`) e `distre-tunnel` (túnel Cloudflare apontando para `localhost:5000`). Num túnel rápido a URL `trycloudflare.com` muda a cada reinício do túnel; para um endereço fixo é preciso um túnel nomeado com domínio próprio.
+- Depois de alterar o código: `npm run build` e `pm2 restart distre`. No Windows o `pm2 restart` às vezes deixa o processo antigo preso à porta 5000; confira com `Get-NetTCPConnection -LocalPort 5000` se o PID é o do pm2 e, se não for, encerre o antigo com `taskkill /PID <pid> /T /F`.
+- Faça backup do banco, de `backend/uploads/` e de `backend/.chave-fiscal` (ver [Banco de Dados](#banco-de-dados-sql-server)).
+
+### Documentação por assunto
+
+| Assunto | Arquivo |
+|---|---|
+| Estoque da vitrine | `backend/docs/estoque.md` |
+| Conferência por EAN e produto em falta | `backend/docs/conferencia-ean.md` |
+| Vitrine pública | `backend/docs/VITRINE_PUBLICA.md` |
+| Motor de cobrança | `backend/docs/ARQUITETURA_MOTOR_COBRANCA.md` |
+| Deploy no Azure | `backend/docs/DEPLOY_AZURE.md` |
+| Escala multi-instância | `backend/docs/ESCALA_MULTI_INSTANCIA.md` |
+| Estrutura completa do banco | `backend/docs/schema-completo.sql` e a seção [Banco de Dados](#banco-de-dados-sql-server) |
