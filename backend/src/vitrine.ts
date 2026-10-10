@@ -7,6 +7,8 @@ import { lojas, empresas } from './tenants';
 import { deliveries, gerarIdComanda } from './gateway';
 import { geocodificarEndereco } from './geocoding';
 import { verificarLimiteEntregasMes, erroLimite } from './billing/planLimitsService';
+import { normalizarCpfCheckout } from './cpfCheckout';
+import { publicadoNaVitrine, precoVenda } from './catalogoProduto';
 
 // ============================================================================
 // VITRINE PÚBLICA — Painel do Cliente (cardápio + checkout)
@@ -34,6 +36,7 @@ interface PedidoVitrineEntrada {
   cliente: {
     nome: string;
     telefone?: string;
+    cpf: string;
   };
   itens: ItemCarrinhoEntrada[];
   endereco: {
@@ -107,7 +110,7 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
     }
 
     const suspensa = loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO';
-    const produtos = suspensa ? [] : await obterProdutos(loja.id);
+    const produtos = suspensa ? [] : (await obterProdutos(loja.id)).filter(publicadoNaVitrine);
     const saldos = suspensa ? new Map<string, number>() : await saldosPublicos(loja.id);
     const empresa = empresas.find(e => e.id === loja.empresaId);
 
@@ -135,7 +138,10 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
         estoqueDisponivel: saldos.get(p.id),
         nome: p.nome,
         descricao: p.descricao || undefined,
-        preco: p.preco,
+        preco: precoVenda(p),
+        precoOriginal: p.precoPromocional ? p.preco : undefined,
+        marca: p.marca,
+        imagens: p.imagens,
         imagemUrl: p.imagemUrl || undefined,
         categoria: p.categoria || undefined,
         subcategoria: p.subcategoria || undefined
@@ -174,6 +180,13 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
     }
 
     const nomeCliente = textoLimpo(payload.cliente?.nome, MAX_TEXTO_CURTO);
+    let clienteDocumento: string | undefined;
+    try {
+      clienteDocumento = normalizarCpfCheckout(payload.cliente?.cpf);
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+      return;
+    }
     if (!nomeCliente) {
       res.status(400).json({ error: 'cliente.nome é obrigatório.' });
       return;
@@ -203,7 +216,7 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
 
     // Resolve cada item contra o catálogo REAL da loja: produto inexistente ou
     // inativo derruba o pedido; o preço usado é sempre o do banco de dados.
-    const catalogo = await obterProdutos(loja.id);
+    const catalogo = (await obterProdutos(loja.id)).filter(publicadoNaVitrine);
     const porId = new Map<string, Produto>(catalogo.map(p => [p.id, p]));
 
     const itensValidados: { produto: Produto; quantidade: number; observacao?: string }[] = [];
@@ -222,7 +235,7 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
       itensValidados.push({ produto, quantidade, observacao });
     }
 
-    const subtotal = itensValidados.reduce((acc, it) => acc + it.produto.preco * it.quantidade, 0);
+    const subtotal = itensValidados.reduce((acc, it) => acc + precoVenda(it.produto) * it.quantidade, 0);
     const taxaEntrega = 0; // v1: frete definido pela loja na comanda; campo reservado
     const total = Number((subtotal + taxaEntrega).toFixed(2));
 
@@ -267,6 +280,7 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
     const novaComanda: Entrega = {
       id,
       nomeCliente,
+      clienteDocumento,
       endereco: partesEndereco.join(', '),
       itens: itensTexto,
       prioridade: 'media',
@@ -296,7 +310,7 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
     };
 
     await salvarVendaComEstoque(novaComanda, itensValidados.map(it => ({ produtoId: it.produto.id, quantidade: it.quantidade })),
-      itensValidados.map(it => ({ produtoId: it.produto.id, quantidade: it.quantidade, nome: it.produto.nome, ean: it.produto.codigoBarras, preco: it.produto.preco })));
+      itensValidados.map(it => ({ produtoId: it.produto.id, quantidade: it.quantidade, nome: it.produto.nome, ean: it.produto.codigoBarras, preco: precoVenda(it.produto) })));
     deliveries.set(id, novaComanda);
 
     if (!recebePedidos) {
@@ -320,7 +334,7 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
         produtoId: it.produto.id,
         nome: it.produto.nome,
         quantidade: it.quantidade,
-        precoUnitario: it.produto.preco
+        precoUnitario: precoVenda(it.produto)
       }))
     });
   } catch (err: any) {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // O serviço fiscal lê produtos e grava notas no SQL Server: isola os dois.
 vi.mock('../src/database', () => ({
+  obterPrecosVenda: vi.fn(async () => []),
   obterProdutos: vi.fn(async () => [
     { id: 'prod-1', nome: 'Pizza Margherita', preco: 42.9, ativo: true },
     { id: 'prod-4', nome: 'Coca-Cola 2L', preco: 11, ativo: true, ncm: '22021000', cest: '0300700', codigoBarras: '7894900011517', unidade: 'GF', icmsSituacao: '500' },
@@ -23,6 +24,7 @@ import {
   calcularProntidao, cnpjValido, cpfValido, emitirNotaDaVenda, montarDadosNota, validarEmissao, vendaIdDaEntrega, ErroFiscal,
 } from '../src/fiscal/fiscalService';
 import * as repo from '../src/fiscal/fiscalRepo';
+import { obterPrecosVenda } from '../src/database';
 import { _resetProvedorFiscal } from '../src/fiscal/fiscalFactory';
 import { ConfigFiscalLoja } from '../src/fiscal/tipos';
 import { Entrega } from '../src/types';
@@ -141,6 +143,14 @@ describe('validação de documentos', () => {
 });
 
 describe('montarDadosNota', () => {
+  it('mantém a promoção praticada no pedido mesmo após mudar o catálogo', async () => {
+    vi.mocked(obterPrecosVenda).mockResolvedValueOnce([{ nome: 'Pizza Margherita', preco: 30 }, { nome: 'Coca-Cola 2L', preco: 11 }]);
+    const d = await montarDadosNota({ entrega: entrega({ itens: ['1x Pizza Margherita', '1x Coca-Cola 2L'], valor: 41 }), config, modelo: 'NFCE', vendaId: 'ped-1' });
+    expect(d.itens[0].valorUnitario).toBe(30);
+    expect(d.itens[1].valorUnitario).toBe(11);
+    expect(d.valorTotal).toBe(41);
+    expect(d.valorDesconto).toBe(0);
+  });
   it('usa o preço do cardápio e rateia a taxa de entrega como outras despesas', async () => {
     const d = await montarDadosNota({
       entrega: entrega({ itens: ['2x Pizza Margherita', '1x Coca-Cola 2L'], valor: 104.8, formaPagamento: 'pix' }),

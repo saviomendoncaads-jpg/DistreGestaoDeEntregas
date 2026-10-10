@@ -2,6 +2,10 @@
 // Espelham os contratos do backend em backend/src/vitrine.ts.
 
 export interface ProdutoVitrine {
+  precoOriginal?: number;
+  marca?: string;
+  imagens?: string[];
+  estoqueDisponivel?: number;
   id: string;
   nome: string;
   descricao?: string;
@@ -84,6 +88,7 @@ export interface PedidoPayload {
   cliente: {
     nome: string;
     telefone?: string;
+    cpf: string;
   };
   itens: {
     produtoId: string;

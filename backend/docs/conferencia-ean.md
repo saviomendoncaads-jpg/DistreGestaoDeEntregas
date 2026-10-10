@@ -1,6 +1,6 @@
 # Conferência de produtos na separação
 
-O **EAN / GTIN** (8, 12, 13 ou 14 dígitos) é informado no cadastro do produto e é a referência lida na conferência. O sistema preserva zeros à esquerda. Produtos sem EAN não podem ser conferidos até o código ser cadastrado.
+O cadastro exibe **EAN / GTIN do produto** como campo principal obrigatório (8, 12, 13 ou 14 dígitos). O sistema preserva zeros à esquerda e impede reaproveitar o mesmo código em outro produto da mesma loja. Produtos antigos precisam ter o EAN preenchido ao editar o cadastro.
 
 Ao clicar em **Concluir separação**, o operador entra na conferência do pedido. O leitor USB/Bluetooth deve funcionar como teclado e enviar Enter ao fim da leitura. Também é possível digitar o EAN. Cada leitura conta uma unidade, até atingir a quantidade pedida. Código de outro produto, produto já completo e leitura excessiva são recusados.
 

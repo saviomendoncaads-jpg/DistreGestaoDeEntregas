@@ -193,11 +193,14 @@ async function inicializarBanco() {
       STATUS VARCHAR(50) NOT NULL,
       LOJA_ID VARCHAR(100) NULL,
       CODIGO_VINCULO VARCHAR(50) NOT NULL UNIQUE,
-      DISPOSITIVO_CONECTADO BIT NOT NULL DEFAULT 0,
+      DISPOSITIVO_CONECTADO BIT NOT NULL DEFAULT 1,
       X INT NULL,
       Y INT NULL,
       ULTIMA_ATUALIZACAO VARCHAR(100) NULL
     );
+
+    -- Todos os motoboys permanecem online para despacho, mesmo sem celular conectado.
+    UPDATE MOTORISTAS SET DISPOSITIVO_CONECTADO = 1 WHERE DISPOSITIVO_CONECTADO = 0;
 
     IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='EMPRESAS' AND xtype='U')
     CREATE TABLE EMPRESAS (
@@ -274,6 +277,29 @@ async function inicializarBanco() {
       ALTER TABLE PRODUTOS ADD UNIDADE VARCHAR(6) NULL;
       ALTER TABLE PRODUTOS ADD CODIGO_BARRAS VARCHAR(14) NULL;
     END
+
+    IF OBJECT_ID('PRODUTOS') IS NOT NULL AND COL_LENGTH('PRODUTOS', 'CODIGO_INTERNO') IS NULL
+      ALTER TABLE PRODUTOS ADD CODIGO_INTERNO NVARCHAR(60) NULL;
+
+    -- Publicação independente da situação do cadastro. Preserva a vitrine existente.
+    IF COL_LENGTH('PRODUTOS', 'PUBLICADO') IS NULL
+    BEGIN
+      ALTER TABLE PRODUTOS ADD PUBLICADO BIT NOT NULL CONSTRAINT DF_PRODUTOS_PUBLICADO DEFAULT 0;
+      EXEC('UPDATE PRODUTOS SET PUBLICADO = ATIVO');
+    END
+    IF COL_LENGTH('PRODUTOS', 'SITUACAO') IS NULL
+    BEGIN
+      ALTER TABLE PRODUTOS ADD SITUACAO VARCHAR(12) NOT NULL CONSTRAINT DF_PRODUTOS_SITUACAO DEFAULT 'ativo';
+      EXEC('UPDATE PRODUTOS SET ATIVO = 1');
+    END
+    IF COL_LENGTH('PRODUTOS', 'DADOS_CATALOGO') IS NULL
+      ALTER TABLE PRODUTOS ADD DADOS_CATALOGO NVARCHAR(MAX) NULL;
+    IF OBJECT_ID('PRODUTOS_HISTORICO') IS NULL
+      CREATE TABLE PRODUTOS_HISTORICO (
+        ID BIGINT IDENTITY PRIMARY KEY, PRODUTO_ID VARCHAR(100) NOT NULL, LOJA_ID VARCHAR(100) NOT NULL,
+        ACAO NVARCHAR(200) NOT NULL, AUTOR NVARCHAR(200) NOT NULL, DADOS NVARCHAR(MAX) NOT NULL,
+        CRIADO_EM DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+      );
 
     -- Garante que se a tabela LOJAS já existe, ela tenha a coluna CNPJ
     IF OBJECT_ID('LOJAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LOJAS') AND name = 'CNPJ')
@@ -874,7 +900,7 @@ export async function obterMotoristas(): Promise<Motorista[]> {
       status: row.STATUS as 'ocioso' | 'ocupado',
       lojaId: row.LOJA_ID || undefined,
       codigoVinculo: row.CODIGO_VINCULO,
-      dispositivoConectado: row.DISPOSITIVO_CONECTADO === 1 || row.DISPOSITIVO_CONECTADO === true,
+      dispositivoConectado: true,
       localizacaoAtual: row.X !== null && row.Y !== null ? { x: row.X, y: row.Y } : undefined,
       ultimaAtualizacao: row.ULTIMA_ATUALIZACAO || undefined
     }));
@@ -914,7 +940,7 @@ export async function salvarMotorista(m: Motorista) {
       .input('status', mssql.VarChar, m.status)
       .input('lojaId', mssql.VarChar, m.lojaId || null)
       .input('codigoVinculo', mssql.VarChar, m.codigoVinculo)
-      .input('dispositivoConectado', mssql.Bit, m.dispositivoConectado ? 1 : 0)
+      .input('dispositivoConectado', mssql.Bit, 1)
       .input('x', mssql.Int, m.localizacaoAtual?.x !== undefined ? m.localizacaoAtual.x : null)
       .input('y', mssql.Int, m.localizacaoAtual?.y !== undefined ? m.localizacaoAtual.y : null)
       .input('ultimaAtualizacao', mssql.VarChar, m.ultimaAtualizacao || null)
@@ -1141,9 +1167,17 @@ export async function salvarTipoVeiculo(vt: TipoVeiculo) {
   }
 }
 
+const CAMPOS_CATALOGO = ['marca', 'fabricante', 'custo', 'precoPromocional', 'imagens', 'estoqueMinimo', 'peso', 'altura', 'largura', 'comprimento', 'seoTitulo', 'seoDescricao'] as const;
 function linhaParaProduto(row: any): Produto {
+  let extras: any = {};
+  try { extras = JSON.parse(row.DADOS_CATALOGO || '{}'); } catch { /* cadastro anterior */ }
+  const catalogo = Object.fromEntries(CAMPOS_CATALOGO.map(k => [k, extras?.[k]]));
   return {
     id: row.ID,
+    codigoInterno: row.CODIGO_INTERNO || row.ID,
+    ...catalogo,
+    situacao: row.SITUACAO || 'ativo',
+    publicado: row.PUBLICADO === undefined ? !!row.ATIVO : !!row.PUBLICADO,
     nome: row.NOME,
     preco: Number(row.PRECO),
     lojaId: row.LOJA_ID || undefined,
@@ -1195,21 +1229,42 @@ export async function obterProdutosDaLoja(lojaId: string): Promise<Produto[]> {
   }
 }
 
-export async function salvarProduto(p: Produto): Promise<void> {
+export async function salvarProduto(p: Produto, autor = 'Sistema', acao = 'Edição do produto', tx?: Transaction): Promise<void> {
   if (!pool) throw new Error('Banco de dados indisponível.');
+  if (!tx) {
+    const transaction = new mssql.Transaction(pool);
+    await transaction.begin(mssql.ISOLATION_LEVEL.SERIALIZABLE);
+    try { await salvarProduto(p, autor, acao, transaction); await transaction.commit(); }
+    catch (e) { await transaction.rollback(); throw e; }
+    return;
+  }
   const query = `
+    IF @lojaId IS NOT NULL AND EXISTS (SELECT ID FROM PRODUTOS WITH (UPDLOCK, HOLDLOCK) WHERE LOJA_ID = @lojaId AND ID <> @id AND CODIGO_INTERNO = @codigoInterno)
+      THROW 51001, 'Código interno já cadastrado.', 1;
+    IF @lojaId IS NOT NULL AND @codigoBarras IS NOT NULL AND EXISTS (SELECT ID FROM PRODUTOS WITH (UPDLOCK, HOLDLOCK) WHERE LOJA_ID = @lojaId AND ID <> @id AND CODIGO_BARRAS = @codigoBarras)
+      THROW 51002, 'EAN já cadastrado.', 1;
     MERGE INTO PRODUTOS AS target
     USING (SELECT @id AS ID) AS source
     ON target.ID = source.ID
     WHEN MATCHED THEN
       UPDATE SET NOME = @nome, PRECO = @preco, LOJA_ID = @lojaId, ATIVO = @ativo, IMAGEM_URL = @imagemUrl, DESCRICAO = @descricao, CATEGORIA = @categoria, SUBCATEGORIA = @subcategoria,
-        NCM = @ncm, CEST = @cest, CFOP = @cfop, ICMS_SITUACAO = @icmsSituacao, UNIDADE = @unidade, CODIGO_BARRAS = @codigoBarras
+        NCM = @ncm, CEST = @cest, CFOP = @cfop, ICMS_SITUACAO = @icmsSituacao, UNIDADE = @unidade, CODIGO_BARRAS = @codigoBarras, CODIGO_INTERNO = @codigoInterno, PUBLICADO = @publicado, SITUACAO = @situacao, DADOS_CATALOGO = @catalogo
     WHEN NOT MATCHED THEN
-      INSERT (ID, NOME, PRECO, LOJA_ID, ATIVO, IMAGEM_URL, DESCRICAO, CATEGORIA, SUBCATEGORIA, NCM, CEST, CFOP, ICMS_SITUACAO, UNIDADE, CODIGO_BARRAS)
-      VALUES (@id, @nome, @preco, @lojaId, @ativo, @imagemUrl, @descricao, @categoria, @subcategoria, @ncm, @cest, @cfop, @icmsSituacao, @unidade, @codigoBarras);
+      INSERT (ID, NOME, PRECO, LOJA_ID, ATIVO, IMAGEM_URL, DESCRICAO, CATEGORIA, SUBCATEGORIA, NCM, CEST, CFOP, ICMS_SITUACAO, UNIDADE, CODIGO_BARRAS, CODIGO_INTERNO, PUBLICADO, SITUACAO, DADOS_CATALOGO)
+      VALUES (@id, @nome, @preco, @lojaId, @ativo, @imagemUrl, @descricao, @categoria, @subcategoria, @ncm, @cest, @cfop, @icmsSituacao, @unidade, @codigoBarras, @codigoInterno, @publicado, @situacao, @catalogo);
+    IF @lojaId IS NOT NULL
+      INSERT INTO PRODUTOS_HISTORICO (PRODUTO_ID, LOJA_ID, ACAO, AUTOR, DADOS)
+      VALUES (@id, @lojaId, @acao, @autor, @snapshot);
   `;
-  await pool.request()
+  await (tx ? new mssql.Request(tx) : pool.request())
     .input('id', mssql.VarChar, p.id)
+    .input('publicado', mssql.Bit, p.publicado ?? p.ativo)
+    .input('situacao', mssql.VarChar(12), p.situacao || 'ativo')
+    .input('catalogo', mssql.NVarChar(mssql.MAX), JSON.stringify(Object.fromEntries(CAMPOS_CATALOGO.map(k => [k, p[k]]))))
+    .input('autor', mssql.NVarChar(200), autor)
+    .input('acao', mssql.NVarChar(200), acao)
+    .input('snapshot', mssql.NVarChar(mssql.MAX), JSON.stringify(p))
+    .input('codigoInterno', mssql.NVarChar(60), p.codigoInterno || p.id)
     .input('nome', mssql.NVarChar, p.nome)
     .input('preco', mssql.Decimal(10, 2), p.preco)
     .input('lojaId', mssql.VarChar, p.lojaId || null)
@@ -1225,6 +1280,29 @@ export async function salvarProduto(p: Produto): Promise<void> {
     .input('unidade', mssql.VarChar, p.unidade || null)
     .input('codigoBarras', mssql.VarChar, p.codigoBarras || null)
     .query(query);
+}
+
+export async function salvarProdutosEmLote(produtos: Produto[], autor: string, acao: string) {
+  if (!pool) throw new Error('Banco de dados indisponível.');
+  const tx = new mssql.Transaction(pool);
+  await tx.begin(mssql.ISOLATION_LEVEL.SERIALIZABLE);
+  try { for (const p of produtos) await salvarProduto(p, autor, acao, tx); await tx.commit(); }
+  catch (e) { await tx.rollback(); throw e; }
+}
+export async function historicoProduto(lojaId: string, produtoId: string) {
+  if (!pool) throw new Error('Banco de dados indisponível.');
+  const r = await pool.request().input('loja', mssql.VarChar(100), lojaId).input('produto', mssql.VarChar(100), produtoId)
+    .query('SELECT TOP (50) ID id, ACAO acao, AUTOR autor, CRIADO_EM criadoEm, DADOS dados FROM PRODUTOS_HISTORICO WHERE LOJA_ID = @loja AND PRODUTO_ID = @produto ORDER BY ID DESC');
+  return r.recordset.map(r => ({ ...r, dados: JSON.parse(r.dados) }));
+}
+
+export async function obterPrecosVenda(lojaId: string, pedidoId: string): Promise<{ nome: string; preco: number }[]> {
+  if (!pool) return [];
+  const r = await pool.request().input('loja', mssql.VarChar(100), lojaId).input('pedido', mssql.VarChar(100), pedidoId)
+    .query(`SELECT i.NOME nome, i.PRECO preco FROM PEDIDO_CONFERENCIA_ITENS i
+      JOIN ENTREGAS e ON e.ID = i.PEDIDO_ID AND e.LOJA_ID = @loja
+      WHERE i.PEDIDO_ID = @pedido AND i.PRECO IS NOT NULL`);
+  return r.recordset.map(r => ({ nome: r.nome, preco: Number(r.preco) }));
 }
 
 export async function deletarProduto(id: string, lojaId: string): Promise<boolean> {

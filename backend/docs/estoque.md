@@ -1,6 +1,6 @@
 # Estoque da vitrine
 
-A tela de estoque do painel (`GestaoEstoque.tsx`) é ligada ao menu da operação em um commit à parte; até lá os recebimentos entram pela API descrita abaixo.
+O menu da operação reúne Vitrine & Produtos, Estoque, Relatórios, cadastro de motoboys e tipos de veículo. O antigo botão flutuante foi removido.
 
 Em **Estoque**, selecione um produto cadastrado na própria loja, informe a quantidade física recebida (unidades inteiras) e, opcionalmente, o documento de entrada/fornecedor. Cada recebimento soma o saldo e registra uma movimentação. O documento é uma referência textual; não há importação de XML de NF-e de entrada nesta versão.
 

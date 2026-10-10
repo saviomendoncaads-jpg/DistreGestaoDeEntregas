@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useCarrinho } from '../context/CarrinhoContext';
 import { buscarEnderecoPorCep, mascararCep } from '../services/cep';
 import { criarPedido, montarPayload } from '../services/pedidoService';
+import { cpfValido, mascararCpf } from '../services/cpf';
 import { formatarPreco, lerClienteIdentificado } from '../types';
 import type { EnderecoEntrega, FormaPagamentoVitrine, PedidoConfirmacao } from '../types';
 
@@ -42,6 +43,7 @@ export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) 
   // Pré-preenche com a identificação feita em "Entrar" (se houver).
   const [nome, setNome] = useState(() => lerClienteIdentificado()?.nome || '');
   const [telefone, setTelefone] = useState(() => lerClienteIdentificado()?.telefone || '');
+  const [cpf, setCpf] = useState('');
   const [endereco, setEndereco] = useState<EnderecoEntrega>(ENDERECO_VAZIO);
   const [formaPagamento, setFormaPagamento] = useState<FormaPagamentoVitrine>('pix');
   const [trocoStr, setTrocoStr] = useState('');
@@ -77,6 +79,8 @@ export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) 
     if (itens.length === 0) return 'Sua sacola está vazia.';
     if (!nome.trim()) return 'Informe seu nome.';
     if (telefone.replace(/\D/g, '').length < 10) return 'Informe um telefone válido com DDD.';
+    if (!cpf.trim()) return 'Informe seu CPF para finalizar a compra.';
+    if (!cpfValido(cpf)) return 'Informe um CPF válido para a nota fiscal.';
     if (!endereco.logradouro.trim()) return 'Informe a rua do endereço de entrega.';
     if (!endereco.numero.trim()) return 'Informe o número do endereço.';
     if (!endereco.bairro.trim()) return 'Informe o bairro.';
@@ -103,6 +107,7 @@ export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) 
       const payload = montarPayload(itens, {
         nome,
         telefone,
+        cpf,
         endereco,
         formaPagamento,
         troco,
@@ -166,6 +171,22 @@ export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) 
                 onChange={e => setTelefone(mascararTelefone(e.target.value))}
                 placeholder="(00) 00000-0000"
               />
+            </div>
+            <div className="v-campo">
+              <label htmlFor="v-cpf">CPF para a nota fiscal *</label>
+              <input
+                id="v-cpf"
+                required
+                className="v-input"
+                type="text"
+                inputMode="numeric"
+                maxLength={14}
+                value={cpf}
+                onChange={e => setCpf(mascararCpf(e.target.value))}
+                placeholder="000.000.000-00"
+                aria-describedby="v-cpf-ajuda"
+              />
+              <small id="v-cpf-ajuda">O CPF informado será salvo neste pedido para emissão da nota.</small>
             </div>
           </section>
 

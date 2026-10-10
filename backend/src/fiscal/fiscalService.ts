@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { obterProdutos } from '../database';
+import { obterProdutos, obterPrecosVenda } from '../database';
 import { Entrega, FormaPagamento, Produto } from '../types';
 import { getProvedorFiscal } from './fiscalFactory';
 import { ContextoEmissao } from './FiscalProviderAdapter';
@@ -85,6 +85,8 @@ async function precificarLinhas(entrega: Entrega, lojaId: string): Promise<{ lin
   const brutas = (entrega.itens || []).map(parseLinha).filter(l => l.nome && !LINHA_TAXA_ENTREGA.test(l.nome));
   const produtos = await obterProdutos(lojaId);
   const porNome = new Map(produtos.map(p => [normalizar(p.nome), p]));
+  // Preserva o preço praticado no pedido, mesmo se o catálogo mudar antes da emissão.
+  const precosVenda = new Map((await obterPrecosVenda(lojaId, vendaIdDaEntrega(entrega))).map(p => [normalizar(p.nome), p.preco]));
 
   if (brutas.length === 0) {
     const total = Math.round((entrega.valor ?? 0) * 100);
@@ -100,7 +102,7 @@ async function precificarLinhas(entrega: Entrega, lojaId: string): Promise<{ lin
       nome: l.nome,
       // Sem cadastro: código curto e estável derivado do nome (cProd é obrigatório).
       codigo: p?.id || normalizar(l.nome).replace(/[^a-z0-9]/g, '').slice(0, 8).toUpperCase() || 'ITEM',
-      brutoCentavos: p ? Math.round(p.preco * 100) * l.qtd : -1, // -1 = sem preço de cadastro
+      brutoCentavos: precosVenda.has(normalizar(l.nome)) ? Math.round(precosVenda.get(normalizar(l.nome))! * 100) * l.qtd : p ? Math.round(p.preco * 100) * l.qtd : -1,
     };
   });
 

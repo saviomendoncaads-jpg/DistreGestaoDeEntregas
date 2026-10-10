@@ -298,23 +298,26 @@ function useFavoritos(lojaId: string) {
 }
 
 function FotoProduto({ produto }: { produto: ProdutoVitrine }) {
-  const [falhou, setFalhou] = useState(false);
-  const src = urlImagem(produto.imagemUrl);
-  if (!src || falhou) return <div className="vt-card-foto vt-card-foto--vazia" aria-hidden="true">{produto.nome.charAt(0).toUpperCase()}</div>;
-  return <div className="vt-card-foto"><img src={src} alt={produto.nome} loading="lazy" onError={() => setFalhou(true)} /></div>;
+  const [indice, setIndice] = useState(0);
+  const urls = produto.imagens?.length ? produto.imagens : produto.imagemUrl ? [produto.imagemUrl] : [];
+  const src = urlImagem(urls[indice] || urls[0]);
+  return <div className="vt-card-foto" style={{ position: 'relative' }}>{src ? <img src={src} alt={produto.nome + (urls.length > 1 ? ' — foto ' + (indice + 1) : '')} loading="lazy" /> : <div className="vt-card-foto--vazia">{produto.nome.charAt(0).toUpperCase()}</div>}{urls.length > 1 && <div className="vt-product-gallery"><button type="button" aria-label={'Foto anterior de ' + produto.nome} onClick={() => setIndice(i => (i - 1 + urls.length) % urls.length)}>‹</button><span>{indice + 1} / {urls.length}</span><button type="button" aria-label={'Próxima foto de ' + produto.nome} onClick={() => setIndice(i => (i + 1) % urls.length)}>›</button></div>}</div>;
 }
 
 export function CardProduto({ produto, favorito, onFavoritar, podePedir }: { produto: ProdutoVitrine; favorito: boolean; onFavoritar: () => void; podePedir: boolean }) {
   const { adicionar, incrementar, decrementar, quantidadeDe } = useCarrinho();
   const qtd = quantidadeDe(produto.id);
   return (
-    <article className="vt-card">
+    <article className={`vt-card ${qtd > 0 ? 'vt-card--no-carrinho' : ''}`}>
       <button type="button" className={`vt-fav ${favorito ? 'is-fav' : ''}`} onClick={onFavoritar} aria-pressed={favorito} aria-label={favorito ? `Remover ${produto.nome} dos favoritos` : `Favoritar ${produto.nome}`}><IcoCoracao cheio={favorito} /></button>
       <FotoProduto produto={produto} />
       <h3 className="vt-card-nome">{produto.nome}</h3>
       <p className="vt-card-sub">{produto.descricao || produto.subcategoria || produto.categoria || ' '}</p>
-      <strong className="vt-card-preco">{formatarPreco(produto.preco)}</strong>
-      {!podePedir ? (
+      <div>{produto.precoOriginal && <del style={{ color: '#64748b', fontSize: '0.8rem' }}>{formatarPreco(produto.precoOriginal)}</del>}<strong className="vt-card-preco">{formatarPreco(produto.preco)}</strong></div>
+      <div className="vt-card-carrinho-status" role="status" aria-atomic="true">
+        {qtd > 0 && <><IcoCarrinho size={14} /><span>{qtd} {qtd === 1 ? 'unidade na cestinha' : 'unidades na cestinha'}</span></>}
+      </div>
+      {!podePedir || produto.estoqueDisponivel === 0 ? (
         <button type="button" className="vt-btn-add" disabled>Indisponível</button>
       ) : qtd === 0 ? (
         <button type="button" className="vt-btn-add" onClick={() => adicionar(produto)}><IcoCarrinho size={18} /> Adicionar</button>
@@ -322,7 +325,7 @@ export function CardProduto({ produto, favorito, onFavoritar, podePedir }: { pro
         <div className="vt-stepper" role="group" aria-label={`Quantidade de ${produto.nome}`}>
           <button type="button" onClick={() => decrementar(produto.id)} aria-label="Remover uma unidade">−</button>
           <span aria-live="polite">{qtd}</span>
-          <button type="button" onClick={() => incrementar(produto.id)} aria-label="Adicionar uma unidade">+</button>
+          <button type="button" disabled={produto.estoqueDisponivel !== undefined && qtd >= produto.estoqueDisponivel} onClick={() => incrementar(produto.id)} aria-label="Adicionar uma unidade">+</button>
         </div>
       )}
     </article>

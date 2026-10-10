@@ -427,10 +427,11 @@ io.on('connection', (socket) => {
     if (driverIdVinculado) {
       const driver = drivers.find(d => d.id === driverIdVinculado);
       if (driver) {
-        driver.dispositivoConectado = false;
+        // Desconectar o celular não altera a disponibilidade operacional.
+        driver.dispositivoConectado = true;
         driver.ultimaAtualizacao = new Date().toISOString();
         await salvarMotorista(driver);
-        console.log(`[Socket] Dispositivo do motoboy ${driverIdVinculado} ficou offline.`);
+        console.log(`[Socket] Celular do motoboy ${driverIdVinculado} desconectado; motoboy permanece online.`);
       }
     }
   });

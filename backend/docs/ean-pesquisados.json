@@ -1,0 +1,13 @@
+[
+  {"id":"prod-2d4ae6c40f","nome":"Advil Mulher 400mg","ean":"7896009498480","apresentacao":"10 cápsulas moles","fonte":"https://www.fazenda.mg.gov.br/empresas/legislacao_tributaria/portarias/2019/port_sutri905_2019_anexos.pdf"},
+  {"id":"prod-37e1153bd8","nome":"Buscopan","ean":"7896094921429","apresentacao":"10mg, 20 drágeas (simples)","fonte":"https://www.drogasil.com.br/buscopan-10-mg-20-drageas.html"},
+  {"id":"prod-fa537e6ad7","nome":"Creme Dental Sorriso Fresh","ean":"7891528038568","apresentacao":"Menthol Impact, 90g","fonte":"https://pulmer.com.br/wp-content/uploads/2023/02/Catalogo-Colgate.pdf"},
+  {"id":"prod-79f3dcfd82","nome":"Dorflex","ean":"7891058002916","apresentacao":"Blister com 10 comprimidos (unidade, não caixa com 30 blisters)","fonte":"https://atendimento.receita.rs.gov.br/upload/arquivos/202601/23110315-lista-homologacao-pmpfrs-2c25.pdf"},
+  {"id":"prod-0fa5c9a07b","nome":"Ibuprofeno 400mg Neo Química","ean":"7896714211275","apresentacao":"10 comprimidos","fonte":"https://www.formosa.com.br/ibuprofeno-400mg-10cpr-nq4998/p"},
+  {"id":"prod-cdcf93d7ab","nome":"Leite de Magnésia Estomazil","ean":"7896094928916","apresentacao":"80mg/ml, tradicional, 300ml","fonte":"https://www.fazenda.pr.gov.br/sites/default/arquivos_restritos/files/documento/2026-03/pmpf_pr_20260313.pdf"},
+  {"id":"prod-901132b33c","nome":"Loratadina 10mg Cimed","ean":"7896523227573","apresentacao":"12 comprimidos, genérico","fonte":"https://fliphtml5.com/gxfoi/zluo/Cat%C3%A1logo_Cimed_2025/114/"},
+  {"id":"prod-ab92936574","nome":"Paracetamol Bebê EMS","ean":"7896004716299","apresentacao":"100mg/ml, suspensão 15ml com seringa dosadora","fonte":"https://www.farmaciabrito.com.br/paracetamol-bebe-100mgml-susp-c15-ml/p"},
+  {"id":"prod-f9a95fe3dd","nome":"Sabonete Dove Original","ean":"7898422746759","apresentacao":"Barra 90g","fonte":"https://www.ultrafarma.com.br/sabonete-em-barra-dove-original-90g"},
+  {"id":"prod-6bd535037b","nome":"Strepsils Mel e Limão","ean":"7896222720863","apresentacao":"24 pastilhas","fonte":"https://stcruz.com.br/wp-content/uploads/2025/07/Catalogo-Inverno_GSC_2025.pdf"},
+  {"id":"prod-b05f534d4d","nome":"Tylenol Criança","ean":"7896212409457","apresentacao":"32mg/ml, suspensão 60ml","fonte":"https://www.panpharma.com.br/assets/pdf/Catalogo_Mega_Inverno_2020.pdf"}
+]
