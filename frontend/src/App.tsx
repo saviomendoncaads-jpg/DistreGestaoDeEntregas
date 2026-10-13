@@ -954,6 +954,11 @@ export default function App() {
   const [showProdutosModal, setShowProdutosModal] = useState(false);
   const [showVitrineModal, setShowVitrineModal] = useState(false);
   const [implementationState,setImplementationState]=useState<ImplementationState|null>(null);
+  useEffect(() => {
+    document.title = !sessao ? 'Distre - Acesso ao ERP'
+      : sessao.tipo === 'admin' && !lojaVisualizada ? 'Distre - Painel Administrador'
+        : 'Distre - Operação';
+  }, [sessao, lojaVisualizada]);
   useEffect(()=>{
     if(sessao?.tipo!=='loja')return;
     const area=new URLSearchParams(location.search).get('area');
