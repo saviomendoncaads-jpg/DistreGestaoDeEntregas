@@ -4,8 +4,9 @@ import './admin-master.css';
 import './admin-content.css';
 import './admin-overview.css';
 
-export type MasterSection = 'overview' | 'empresas' | 'faturas' | 'relatorios' | 'planos' | 'assinaturas' | 'configuracoes';
+export type MasterSection = 'overview' | 'empresas' | 'implantacao' | 'faturas' | 'relatorios' | 'planos' | 'assinaturas' | 'configuracoes';
 const sections: {key: MasterSection; label: string; title: string; description: string; path: string}[] = [
+  {key:'implantacao',label:'Implantação das lojas',title:'Implantação das lojas',description:'Acompanhe o progresso e as pendências de cada loja.',path:'M5 3v18M5 6h14M5 12h14M5 18h14'},
   {key:'overview',label:'Visão geral',title:'Visão geral da plataforma',description:'Acompanhe empresas, lojas e assinaturas e veja onde sua atenção é necessária.',path:'M3 3h7v7H3ZM14 3h7v7h-7ZM3 14h7v7H3ZM14 14h7v7h-7Z'},
   {key:'empresas',label:'Empresas e lojas',title:'Empresas e lojas',description:'Gerencie as empresas da plataforma e acesse a operação de cada loja.',path:'M3 21V3h12v18M15 9h6v12M7 7h4M7 11h4M7 15h4M2 21h20'},
   {key:'faturas',label:'Faturas e cobranças',title:'Faturas e cobranças',description:'Acompanhe vencimentos, pagamentos e pendências das assinaturas da plataforma.',path:'M6 3h9l4 4v14H6ZM14 3v5h5M9 12h7M9 16h5'},

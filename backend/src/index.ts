@@ -28,6 +28,7 @@ import integracaoEntregasRouter from './integracaoEntregas';
 import vitrineRouter from './vitrine';
 import gestaoVitrineRouter, { uploadsDir } from './gestaoVitrine';
 import { inicializarEstoque } from './estoque';
+import implantacaoRouter, { inicializarImplantacao } from './implantacao';
 import fiscalRouter from './fiscal/fiscalRoutes';
 import webhookRouter from './billing/webhookRoutes';
 import { iniciarWorkerWebhooks } from './billing/webhookProcessor';
@@ -82,6 +83,7 @@ app.use('/api/billing/webhooks', express.raw({ type: '*/*' }), webhookRouter);
 // Gestão da vitrine (painel da loja): CRUD de produtos, logo e upload de imagens.
 // Montado ANTES do json global para usar um limite maior (imagens em base64).
 app.use('/api/gestao', express.json({ limit: '5mb' }), gestaoVitrineRouter);
+app.use('/api/implantacao', express.json({ limit: '20kb' }), implantacaoRouter);
 
 // Módulo Fiscal: NFC-e / NF-e por loja (emitente, credenciais, emissão, DANFE, cancelamento).
 // Antes do json global: o upload do certificado A1 (base64) passa do limite padrão.
@@ -371,6 +373,7 @@ async function startServer() {
   // Conecta ao SQL Server
   await conectarBanco();
   await inicializarEstoque();
+  await inicializarImplantacao();
 
   // Carrega os tenants (empresas/lojas) do banco de dados / realiza migração se necessário
   await carregarTenantsDoBanco();

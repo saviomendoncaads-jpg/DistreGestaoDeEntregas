@@ -1,24 +1,27 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
 import Timeline from './Timeline';
 import Icon from './Icon';
-import { steps } from './types';
+import { getSession,implementationRequest,type ImplementationState } from './api';
 import './implementation.css';
-export default function ImplementationPanel() {
-  const [completed, setCompleted] = useState(0);
-  const percent = Math.round(completed / steps.length * 100);
-  function complete(index: number) { setCompleted(current => index === current ? Math.min(current + 1, steps.length) : current); }
-  return <div className="imp-shell"><Sidebar /><div className="imp-page">
-    <header className="imp-topbar"><span>Área do cliente <span className="imp-breadcrumb">/</span> <strong>Implantação</strong></span><span className="imp-preview-badge">PRÉVIA INTERATIVA</span></header>
-    <div className="imp-layout"><main id="jornada" className="min-w-0">
-      <div className="imp-intro"><span className="imp-eyebrow">SEU ERP COMEÇA AQUI</span><h1>Vamos preparar sua operação.</h1><p>Aprenda, coloque em prática e avance. Uma jornada guiada para começar com tudo organizado.</p></div>
-      <section className="imp-progress-card" aria-label="Progresso da implantação"><div><strong>Minha implantação</strong><span>{completed} de {steps.length} etapas concluídas <b>{percent}%</b></span></div><div className="imp-progress-track" role="progressbar" aria-label="Implantação concluída" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${percent}%` }} /></div><p>{completed === steps.length ? 'Jornada demonstrativa concluída.' : `Agora: ${steps[completed].title}`}</p></section>
-      <p className="imp-demo-note">Estrutura demonstrativa. Vídeos, modelos, manuais e integração das importações serão adicionados depois. O progresso é temporário e reinicia ao atualizar a página.</p>
-      <Timeline completed={completed} onComplete={complete} />
-      {completed === steps.length && <div className="imp-finished" role="status"><Icon name="check" /><div><strong>Você concluiu a prévia!</strong><p>Todos os passos foram liberados e concluídos.</p></div><a className="imp-button primary" href="/app">Abrir painel do ERP</a></div>}
-      <div className="imp-bottom"><span>Seu progresso nesta sessão</span><button className="imp-text-button" onClick={() => setCompleted(0)}>Reiniciar demonstração</button></div>
-      <span className="sr-only" role="status" aria-live="polite">{completed === steps.length ? 'Todas as etapas concluídas.' : `Passo ${completed + 1} liberado: ${steps[completed].title}`}</span>
-    </main><aside className="imp-support" id="ajuda"><section><span className="imp-support-icon"><Icon name="help" size={25} /></span><h2>Você não precisa fazer isso sozinho.</h2><p>Uma etapa depende da anterior. Siga a sequência para preparar sua operação com segurança.</p><div className="imp-support-divider" /><h3 id="materiais">O que vem depois</h3><ul><li><Icon name="play" size={16} /> Aulas de cada etapa</li><li><Icon name="file" size={16} /> Planilhas modelo</li><li><Icon name="book" size={16} /> Manual de operação e PDV</li></ul><span className="imp-coming">Conteúdos em preparação</span></section><div className="imp-tip"><strong>Uma boa implantação começa nos dados.</strong><p>Organize códigos, nomes e saldos dos produtos antes de iniciar as importações.</p></div></aside></div>
-    <footer className="imp-footer">DISTRE <span>Preparando sua próxima etapa.</span></footer>
-  </div></div>;
+export default function ImplementationPanel(){
+ const [session]=useState(getSession);const [state,setState]=useState<ImplementationState|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);
+ const lojaId=session?.tipo==='admin'?new URLSearchParams(location.search).get('lojaId')||undefined:undefined;
+ const load=useCallback(async()=>{if(!session)return;try{setError('');setState(await implementationRequest(session.token,session.tipo==='loja'?'/inicio':'',session.tipo==='loja'?'POST':'GET',lojaId));}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar.');}},[session,lojaId]);
+ useEffect(()=>{if(!session){location.replace('/app?next=implantacao');return;}if(session.tipo==='admin'&&!lojaId){location.replace('/app?adminArea=implantacao');return;}void load();},[session,lojaId,load]);
+ async function complete(step:number){if(!session||busy)return;setBusy(true);setError('');try{setState(await implementationRequest(session.token,`/etapas/${step}`,'POST',lojaId));}catch(e){setError(e instanceof Error?e.message:'Não foi possível concluir.');}finally{setBusy(false);}}
+ return <div className="imp-shell"><Sidebar name={state?.nomeLoja} completed={state?.completed===7}/><div className="imp-page">
+  <header className="imp-topbar"><span>Área da loja / <strong>Implantação</strong></span><span className="imp-preview-badge">{session?.tipo==='admin'?'ACOMPANHAMENTO':'PROGRESSO DA LOJA'}</span></header>
+  <div className="imp-layout"><main id="jornada" className="min-w-0"><div className="imp-intro"><span className="imp-eyebrow">SEU ERP COMEÇA AQUI</span><h1>{state?.nomeLoja?`Vamos preparar ${state.nomeLoja}.`:'Vamos preparar sua operação.'}</h1><p>Aprenda, coloque em prática e avance. Seu progresso fica salvo nesta loja.</p></div>
+  {error&&<div className="imp-error" role="alert">{error} <button className="imp-text-button" disabled={busy} onClick={()=>void load()}>Atualizar dados</button></div>}
+  {!state&&!error&&<p role="status">Carregando a implantação da loja…</p>}
+  {state&&<><section className="imp-progress-card"><div><strong>Minha implantação</strong><span>{state.completed} de 7 etapas concluídas <b>{state.percent}%</b></span></div><div className="imp-progress-track" role="progressbar" aria-label="Implantação concluída" aria-valuenow={state.percent} aria-valuemin={0} aria-valuemax={100}><span style={{width:`${state.percent}%`}}/></div><p>{state.currentTitle}</p></section>
+   <p className="imp-demo-note">Vídeos, modelos e manual serão disponibilizados depois. Conhecimento prévio é confirmado pela loja; tarefas práticas são verificadas com dados reais.</p>
+   <Timeline state={state} busy={busy} readOnly={session?.tipo==='admin'} onComplete={step=>void complete(step)}/>
+   {state.completed===7&&<div className="imp-finished" role="status"><Icon name="check"/><div><strong>Implantação concluída!</strong><p>Conclusão registrada em {new Date(state.completedAt!).toLocaleString('pt-BR',{timeZone:'America/Fortaleza'})}.</p></div><a className="imp-button primary" href="/app">Acessar meu painel</a></div>}
+   <div className="imp-bottom"><button className="imp-text-button" disabled={busy} onClick={()=>void load()}>Atualizar progresso</button><a className="imp-text-button" href="/app">{session?.tipo==='admin'?'Voltar ao Admin Master':'Acessar meu painel'}</a></div>
+   <span className="sr-only" role="status" aria-live="polite">{state.currentTitle}</span></>}
+  </main><aside className="imp-support" id="ajuda"><section><Icon name="help" size={26}/><h2>Um passo de cada vez.</h2><p>O progresso é individual por loja. Etapas práticas só avançam após a conferência do servidor.</p><h3 id="materiais">Materiais em preparação</h3><p>As aulas, modelos e manual de operação serão produzidos depois. Conhecimento prévio fica registrado como confirmação da loja, sem comprovar aula assistida.</p></section></aside></div>
+  <footer className="imp-footer">DISTRE <span>Preparando sua próxima etapa.</span></footer>
+ </div></div>;
 }
