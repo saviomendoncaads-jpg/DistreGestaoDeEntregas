@@ -70,3 +70,12 @@ Build completo e quatro checks CI aprovados. Navegador com conjunto de oito coma
 Código `78dc122ea094951a91d52abaabb8d0f8cabd802d` publicado. Títulos de abas: Distre - Operação na sessão da loja e visualização administrativa de loja; Distre - Painel Administrador no Master; Distre - Área do Cliente na jornada e portal; Distre - Acesso ao ERP no login. Distre - Loja, Pedidos e Logística fica na página inicial institucional. Vitrine pública preserva título configurado pela loja.
 
 Build e quatro checks CI aprovados; navegador autenticado conferiu transição entre operação, portal e Master. Backup SQL restaurado, estágio saudável e quatro comandas preservadas; checagem pública verificou títulos do login, Master, portal e HTML institucional.
+
+
+## Dashboard de implantação, financeiro e utilização — 13/10/2026
+
+Código `a067722d30f715cd54ac57ce55edb69d5b5c877f` publicado. Master apresenta indicadores clicáveis, busca/filtros, progresso e etapa, início/conclusão, primeiro/último pagamento registrado e vencimento da fatura correspondente, fatura em aberto mais próxima (ou última paga), situação financeira e sinais de utilização. Detalhe inclui contato cadastrado, histórico e próxima ação sugerida. Exportação CSV aplica os filtros.
+
+Pagamentos/faturas respeitam vínculo da loja, inclusive vínculo via assinatura. Registros antigos por empresa são identificados explicitamente, compartilhados pelas filiais pertinentes e não representam valores somáveis por loja. Primeiro pagamento registrado não prova a data de liberação do acesso. Utilização considera atividade em comandas, histórico de produtos e etapas, sem afirmar último login ou tempo conectado. Contagem de 30 dias evita duplicar pedido e entrega vinculados. Alertas de ausência de avanço/atividade usam 7 dias. Não há envio de mensagens, cobranças automáticas ou alterações de progresso nesta tela.
+
+232 testes passaram, incluindo 38 SQL. Testes adicionais verificam isolamento de faturas de filiais, escopo legado por empresa, prioridade da fatura em aberto e contagem operacional sem duplicação. Navegador em base temporária verificou permissão administrativa, baixa manual refletida no dashboard, filtro de pagamento sem início, detalhes, busca, exportação, atraso visual e responsividade. Build e quatro checks CI aprovados. Backup restaurado, estágio com quatro comandas e relatórios conferidos; dashboard público autenticado verificado em desktop e celular, sem gravar pagamentos ou etapas reais.
