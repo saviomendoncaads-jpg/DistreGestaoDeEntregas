@@ -6,6 +6,6 @@ export default function ImplementationCard({token,onLoaded}:{token:string;onLoad
  if(state?.completed===7)return null;
  return <section style={{margin:'16px 0',padding:18,border:'1px solid #bfd1ef',borderRadius:12,background:'#f4f8ff',color:'#243a60'}} aria-label="Continue sua implantação">
   <strong>Continue sua implantação</strong><p>{error||(!state?'Carregando progresso…':`${state.completed} de 7 etapas · ${state.percent}% concluído`)}</p>{state&&<p>Próxima etapa: {state.currentTitle}</p>}
-  <a className="btn btn-primary" href="/implantacao">Continuar implantação</a>
+  <a className="btn btn-primary" href="/area-cliente?secao=implantacao">Continuar implantação</a>
  </section>;
 }

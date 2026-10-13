@@ -28,3 +28,11 @@ Vídeos, modelos e PDF ainda serão produzidos. Sem aula disponível, a confirma
 ## Validação
 
 Testes SQL: isolamento, persistência, concorrência, idempotência, sequência, saldo e imagens reais, suspensão e revalidação do Go-Live. HTTP: sessão, escopo por loja e acesso administrativo. Navegador: primeiro acesso, refresh, tarefa pendente, retorno do cadastro, estoque, finalização, mudança para Ajuda e Treinamentos, acompanhamento administrativo e responsividade.
+
+## Área do Cliente
+
+A rota `/area-cliente` reúne Início, Minha implantação, Treinamentos e manuais, Suporte e Minha conta. `/implantacao` continua abrindo a jornada para preservar links existentes. A página inicial apenas consulta o progresso; a implantação é iniciada ao abrir a jornada. Uma loja nova sem catálogo ou operações chega primeiro à Área do Cliente. Depois de iniciar sua preparação, o acesso normal à operação continua disponível, inclusive após o Go-Live.
+
+O menu operacional apresenta um único acesso à Área do Cliente. As tarefas retornam para a jornada dentro desse espaço. Materiais seguem indisponíveis até serem produzidos; suporte oferece orientação sem simular chamados. Minha conta consulta somente dados reais da loja e não presume plano, assinatura ou permissões para alterações. O Admin Master mantém o acompanhamento sem concluir etapas pela loja. A navegação fica acessível também no celular.
+
+Validação: build de produção, 230 testes (incluindo SQL), fluxo autenticado em banco temporário até Go-Live, páginas da Área do Cliente, persistência, retorno ao cadastro e navegação em 390 px.

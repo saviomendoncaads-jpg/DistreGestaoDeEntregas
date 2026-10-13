@@ -161,7 +161,7 @@ app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', immutable: true }
 
 // APP em /app — SPA: /app e subrotas servem o index.html do app.
 app.get(['/app', '/app/*'], (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
-app.get(['/implantacao', '/implantacao/'], (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
+app.get(['/implantacao', '/implantacao/', '/area-cliente', '/area-cliente/'], (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
 
 // Cardápio público (Painel do Cliente) em /loja/<lojaId> — mesma SPA React;
 // o main.tsx roteia pelo pathname e carrega só o chunk da vitrine.
