@@ -1,34 +1,105 @@
+import { asyncHandler } from './http/asyncHandler';
+import { SESSION_TTL_MS, sessaoExpirada } from './security/sessionPolicy';
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { Sessao } from './types';
 import { lojas, empresas } from './tenants';
-import { verificarAdminNoBanco } from './database';
+import {
+  verificarAdminNoBanco, salvarLoja,
+  salvarSessao, deletarSessao, deletarSessoesPorLoja, deletarSessoesPorEmpresa, obterSessoesValidas
+} from './database';
+import { hashPassword, verifyPassword } from './security/password';
 
-function hashPassword(password: string): string {
-  return crypto.createHash('sha256').update(password).digest('hex');
+export function lojaBloqueadaFinanceiro(loja: typeof lojas[number]) {
+  const empresa=empresas.find(e=>e.id===loja.empresaId);
+  return ['SUSPENSO','CANCELADO'].includes(loja.statusFinanceiro||'') || ['SUSPENSO','CANCELADO'].includes(empresa?.statusFinanceiro||'');
 }
-
 const router = Router();
 
-// Sessões ativas em memória (token → Sessao)
+// Sessões ativas em memória (token → Sessao) — caminho de leitura rápido (socket/middleware).
 export const sessions = new Map<string, Sessao>();
 
-// Senha do administrador master (configurável via variável de ambiente)
-const ADMIN_USUARIO = process.env.ADMIN_USUARIO || 'admin';
-const ADMIN_SENHA_HASH = hashPassword(process.env.ADMIN_SENHA || 'admin@distre2026');
+// TTL da sessão persistida (durável a restart/deploy). 30 dias.
+// Prazo validado também em memória, HTTP e WebSocket.
+
+/** Hidrata o Map a partir do banco no boot (sessões válidas e não expiradas). */
+export async function carregarSessoesDoBanco(): Promise<void> {
+  try {
+    const persistidas = await obterSessoesValidas();
+    let n = 0;
+    for (const s of persistidas) {
+      if (!sessaoExpirada(s)) sessions.set(s.token, s);
+      n++;
+    }
+    console.log(`[Auth] ${n} sessão(ões) restaurada(s) do banco.`);
+  } catch (e) {
+    console.warn('[Auth] Falha ao restaurar sessões do banco (seguindo sem hidratar):', (e as Error)?.message);
+  }
+}
+
+/** Cria a sessão: grava no Map (rápido) e persiste no banco (durável). */
+async function registrarSessao(sessao: Sessao): Promise<void> {
+  sessions.set(sessao.token, sessao);
+  const expiraEm = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+  try { await salvarSessao(sessao, expiraEm); }
+  catch (e) { console.warn('[Auth] Falha ao persistir sessão (mantida em memória):', (e as Error)?.message); }
+}
+
+/** Revoga uma sessão específica (Map + banco). */
+export async function revogarSessao(token: string): Promise<void> {
+  sessions.delete(token);
+  try { await deletarSessao(token); } catch { /* best-effort */ }
+}
+
+/** Revoga todas as sessões de uma LOJA (Map + banco). */
+export async function revogarSessoesDaLoja(lojaId: string): Promise<void> {
+  for (const [token, s] of sessions.entries()) {
+    if (s.tipo === 'loja' && s.lojaId === lojaId) sessions.delete(token);
+  }
+  try { await deletarSessoesPorLoja(lojaId); } catch { /* best-effort */ }
+}
+
+/** Revoga todas as sessões das lojas de uma EMPRESA (Map + banco). */
+export async function revogarSessoesDaEmpresa(empresaId: string): Promise<void> {
+  for (const [token, s] of sessions.entries()) {
+    if (s.tipo === 'loja' && s.lojaId) {
+      const loja = lojas.find(l => l.id === s.lojaId);
+      if (loja && loja.empresaId === empresaId) sessions.delete(token);
+    }
+  }
+  try { await deletarSessoesPorEmpresa(empresaId); } catch { /* best-effort */ }
+}
+
+// Credenciais do administrador master (configuráveis via variável de ambiente).
+const ADMIN_USUARIO = process.env.ADMIN_USUARIO;
+const ADMIN_SENHA = process.env.ADMIN_SENHA;
+// Sem credenciais explícitas, somente administradores cadastrados no banco podem entrar.
 
 // ─── LOGIN DA LOJA ────────────────────────────────────────────────────────────
-router.post('/login', (req: Request, res: Response) => {
+router.post('/login', asyncHandler(async (req: Request, res: Response) => {
   const { usuario, senha } = req.body;
-  if (!usuario || !senha) {
+  if (typeof usuario !== 'string' || !usuario.trim() || typeof senha !== 'string' || !senha || senha.length > 1024) {
     res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
     return;
   }
 
   const loja = lojas.find(l => l.usuario === usuario.trim().toLowerCase() && l.ativo);
-  if (!loja || loja.senhaHash !== hashPassword(senha)) {
+  const verificacao = loja
+    ? await verifyPassword(senha, loja.senhaHash)
+    : { ok: false, needsRehash: false };
+  if (!loja || !verificacao.ok) {
     res.status(401).json({ error: 'Credenciais inválidas ou loja inativa' });
     return;
+  }
+
+  // Migração transparente: credencial legada (SHA-256) é regravada em bcrypt no 1º login válido.
+  if (verificacao.needsRehash) {
+    try {
+      loja.senhaHash = await hashPassword(senha);
+      await salvarLoja(loja);
+    } catch (e) {
+      console.warn('[Auth] Falha ao migrar hash de senha para bcrypt (não bloqueante):', (e as Error)?.message);
+    }
   }
 
   const empresa = empresas.find(e => e.id === loja.empresaId);
@@ -45,9 +116,11 @@ router.post('/login', (req: Request, res: Response) => {
     nomeEmpresa: empresa.nome,
     token,
     criadoEm: new Date().toISOString(),
-    recebePedidos: loja.recebePedidos
+    recebePedidos: loja.recebePedidos,
+    latitude: loja.latitude,
+    longitude: loja.longitude
   };
-  sessions.set(token, sessao);
+  await registrarSessao(sessao);
 
   res.json({
     token,
@@ -55,20 +128,24 @@ router.post('/login', (req: Request, res: Response) => {
     lojaId: loja.id,
     nomeLoja: loja.nome,
     nomeEmpresa: empresa.nome,
-    recebePedidos: loja.recebePedidos
+    recebePedidos: loja.recebePedidos,
+    latitude: loja.latitude,
+    longitude: loja.longitude,
+    operacaoBloqueada: lojaBloqueadaFinanceiro(loja)
   });
-});
+}));
 
 // ─── LOGIN ADMINISTRADOR ──────────────────────────────────────────────────────
-router.post('/admin', async (req: Request, res: Response) => {
+router.post('/admin', asyncHandler(async (req: Request, res: Response) => {
   const { usuario, senha } = req.body;
-  if (!usuario || !senha) {
+  if (typeof usuario !== 'string' || !usuario.trim() || typeof senha !== 'string' || !senha || senha.length > 1024) {
     res.status(400).json({ error: 'Usuário e senha são obrigatórios' });
     return;
   }
 
-  const eValido = await verificarAdminNoBanco(usuario.trim(), hashPassword(senha)) ||
-                  (usuario.trim() === ADMIN_USUARIO && hashPassword(senha) === ADMIN_SENHA_HASH);
+  const usuarioLimpo = usuario.trim();
+  const eValido = (await verificarAdminNoBanco(usuarioLimpo, senha)) ||
+                  (!!ADMIN_USUARIO && !!ADMIN_SENHA && usuarioLimpo === ADMIN_USUARIO && senha === ADMIN_SENHA);
 
   if (!eValido) {
     res.status(401).json({ error: 'Credenciais administrativas incorretas' });
@@ -81,27 +158,28 @@ router.post('/admin', async (req: Request, res: Response) => {
     token,
     criadoEm: new Date().toISOString(),
   };
-  sessions.set(token, sessao);
+  await registrarSessao(sessao);
   res.json({ token, tipo: 'admin' });
-});
+}));
 
 // ─── VERIFICAR SESSÃO ATUAL ───────────────────────────────────────────────────
 router.get('/me', (req: Request, res: Response) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) { res.status(401).json({ error: 'Não autenticado' }); return; }
-  const sessao = sessions.get(token);
+  const sessao = obterSessaoPorToken(token);
   if (!sessao) { res.status(401).json({ error: 'Sessão inválida ou expirada' }); return; }
   // Retorna tudo menos o token interno
   const { token: _t, ...dadosSessao } = sessao;
-  res.json({ ...dadosSessao, token });
+  const loja = sessao.tipo === 'loja' ? lojas.find(l=>l.id===sessao.lojaId) : undefined;
+  res.json({ ...dadosSessao, token, operacaoBloqueada: loja ? lojaBloqueadaFinanceiro(loja) : false });
 });
 
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
-router.post('/logout', (req: Request, res: Response) => {
+router.post('/logout', asyncHandler(async (req: Request, res: Response) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  if (token) sessions.delete(token);
+  if (token) await revogarSessao(token);
   res.json({ success: true });
-});
+}));
 
 // ─── MIDDLEWARE DE AUTENTICAÇÃO ───────────────────────────────────────────────
 
@@ -109,7 +187,22 @@ router.post('/logout', (req: Request, res: Response) => {
 export function obterSessaoDoRequest(req: Request): Sessao | null {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return null;
-  return sessions.get(token) || null;
+  return obterSessaoPorToken(token);
+}
+
+/** O mesmo controle vale para HTTP, conexão e pacotes do WebSocket. */
+export function obterSessaoPorToken(token: unknown): Sessao | null {
+  if (typeof token !== 'string') return null;
+  const sessao = sessions.get(token);
+  if (!sessao) return null;
+  if (sessao.tipo !== 'admin' && sessao.tipo !== 'loja') { sessions.delete(token); return null; }
+  if (sessaoExpirada(sessao)) { sessions.delete(token); return null; }
+  if (sessao.tipo === 'loja') {
+    const loja = lojas.find(l => l.id === sessao.lojaId);
+    const empresa = loja && empresas.find(e => e.id === loja.empresaId);
+    if (!loja || !loja.ativo || !empresa || !empresa.ativo ) { sessions.delete(token); return null; }
+  }
+  return sessao;
 }
 
 /** Middleware que exige autenticação válida */
@@ -123,6 +216,26 @@ export function verificarSessao(req: Request & { sessao?: Sessao }, res: Respons
   next();
 }
 
+/**
+ * Middleware que bloqueia ações de escrita de uma LOJA suspensa/cancelada por
+ * inadimplência após a carência configurada. Cobrança individual de uma loja
+ * não bloqueia as outras filiais; dívida da rede bloqueia sua operação conjunta. Conta e leitura permanecem acessíveis.
+ */
+export function exigirLojaAdimplente(req: Request & { sessao?: Sessao }, res: Response, next: NextFunction) {
+  const sessao = obterSessaoDoRequest(req);
+  if (sessao?.tipo === 'loja' && sessao.lojaId) {
+    const loja = lojas.find(l => l.id === sessao.lojaId);
+    if (loja && (lojaBloqueadaFinanceiro(loja))) {
+      res.status(402).json({
+        error: 'Assinatura desta loja suspensa por inadimplência. Regularize o pagamento para continuar operando.',
+        codigo: 'PAYMENT_REQUIRED'
+      });
+      return;
+    }
+  }
+  next();
+}
+
 /** Middleware que exige perfil de administrador */
 export function verificarAdmin(req: Request & { sessao?: Sessao }, res: Response, next: NextFunction) {
   const sessao = obterSessaoDoRequest(req);
@@ -131,6 +244,49 @@ export function verificarAdmin(req: Request & { sessao?: Sessao }, res: Response
     return;
   }
   req.sessao = sessao;
+  next();
+}
+
+/**
+ * Middleware de autenticação para os endpoints de integração ERP (/api/integracao/*).
+ * Exige o header X-Api-Key com a chaveAcesso da loja identificada por X-Loja-Id.
+ * Usa comparação em tempo constante para evitar timing attacks.
+ */
+export function verificarApiKeyIntegracao(req: Request, res: Response, next: NextFunction) {
+  const apiKey = (req.header('x-api-key') || '').trim();
+  const valorLojaId = req.header('x-loja-id') || req.body?.lojaId;
+  const lojaId = typeof valorLojaId === 'string' ? valorLojaId.trim() : '';
+
+  if (!apiKey) {
+    res.status(401).json({ error: 'Header X-Api-Key é obrigatório.' });
+    return;
+  }
+  if (!lojaId) {
+    res.status(400).json({ error: 'Header X-Loja-Id (ou campo lojaId) é obrigatório.' });
+    return;
+  }
+
+  const loja = lojas.find(l => l.id === lojaId);
+  if (!loja) {
+    res.status(404).json({ error: 'Loja não encontrada.' });
+    return;
+  }
+
+  const empresa = empresas.find(e => e.id === loja.empresaId);
+  if (!loja.ativo || !empresa?.ativo) { res.status(403).json({ error: 'Loja ou empresa inativa.' }); return; }
+  if (lojaBloqueadaFinanceiro(loja)) {
+    res.status(402).json({ error: 'Assinatura da loja suspensa.', codigo: 'PAYMENT_REQUIRED' }); return;
+  }
+  const chave = loja.chaveAcesso || '';
+  const match =
+    Buffer.byteLength(apiKey) === Buffer.byteLength(chave) &&
+    crypto.timingSafeEqual(Buffer.from(apiKey), Buffer.from(chave));
+
+  if (!match) {
+    res.status(403).json({ error: 'API key inválida.' });
+    return;
+  }
+
   next();
 }
 

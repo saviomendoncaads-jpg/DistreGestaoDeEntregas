@@ -1,0 +1,93 @@
+{
+  "slug": "estoque-inicial",
+  "etapa": 3,
+  "titulo": "Gestão de estoque inicial",
+  "resumo": "Entenda como o saldo funciona no Distre e faça o primeiro recebimento de mercadorias de um produto.",
+  "tempo": "10 minutos",
+  "antes": [
+    "Faça a **contagem física** de pelo menos um produto: quantas unidades você tem na prateleira e no estoque hoje.",
+    "O produto precisa estar **cadastrado** em Produtos (etapas 1 e 2). O Estoque só recebe produtos que já existem no catálogo."
+  ],
+  "objetivos": [
+    "Entender a diferença entre produto **controlado** e produto **sem controle**.",
+    "Registrar uma entrada de mercadorias e conferir o saldo e o histórico.",
+    "Saber como o saldo muda com recebimentos, vendas e cancelamentos."
+  ],
+  "passos": [
+    {
+      "titulo": "Entenda o saldo por produto",
+      "texto": "Cada produto só passa a ter saldo depois do **primeiro recebimento**. Até lá ele aparece como **Sem controle**: o catálogo existente continua vendável, mas o Distre ainda não controla as unidades.",
+      "tela": "1b-saldos",
+      "marcas": [
+        { "alvo": "saldos", "texto": "Tabela **Saldo por produto**: unidade, saldo e situação de cada produto." },
+        { "alvo": "semControle", "texto": "**Sem controle**: o produto ainda não recebeu mercadoria no Distre." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Abra Estoque e leia os indicadores",
+      "texto": "No menu lateral, clique em **Estoque**. No alto da janela, três indicadores resumem a situação da loja.",
+      "tela": "1-estoque",
+      "marcas": [
+        { "alvo": "controlados", "texto": "**Produtos controlados**: quantos produtos já têm saldo registrado." },
+        { "alvo": "unidades", "texto": "**Unidades em estoque**: soma dos saldos de todos os produtos controlados." },
+        { "alvo": "semSaldo", "texto": "**Sem saldo**: produtos controlados cujo saldo chegou a zero." }
+      ],
+      "recorte": { "x": 0.2, "y": 0.1, "w": 0.6 }
+    },
+    {
+      "titulo": "Escolha o produto e a quantidade",
+      "texto": "Em **Receber mercadorias**, escolha o produto na lista e informe a quantidade que você contou. A quantidade precisa ser um número inteiro, de 1 a 1.000.000.",
+      "tela": "gravacao:receber1",
+      "posicoes": "1-estoque",
+      "marcas": [
+        { "alvo": "produto", "texto": "**Produto**: a lista traz os produtos cadastrados na loja." },
+        { "alvo": "quantidade", "texto": "**Quantidade**: as unidades contadas, em número inteiro." }
+      ],
+      "dica": "O primeiro recebimento ativa o controle de saldo daquele produto."
+    },
+    {
+      "titulo": "Informe o documento e registre",
+      "texto": "Se quiser, preencha **Documento / fornecedor** com a origem da mercadoria, como \"Saldo inicial\" ou o número da nota de entrada. Depois, clique em **Registrar entrada**.",
+      "tela": "gravacao:receber2",
+      "posicoes": "1-estoque",
+      "marcas": [
+        { "alvo": "documento", "texto": "**Documento / fornecedor** (opcional): fica gravado no histórico." },
+        { "alvo": "registrar", "texto": "**Registrar entrada**: grava o recebimento e soma ao saldo." }
+      ],
+      "atencao": "O recebimento é gravado uma única vez. Se a tela mostrar uma falha de conexão, confira o saldo antes de registrar de novo, para não duplicar a entrada."
+    },
+    {
+      "titulo": "Confira o saldo e o histórico",
+      "texto": "O Distre confirma com a mensagem \"Recebimento registrado. O saldo já está disponível na vitrine.\" O produto passa a mostrar o saldo e a situação **Disponível**, e a movimentação aparece em **Últimas movimentações**.",
+      "tela": "3-saldos-depois",
+      "marcas": [
+        { "alvo": "linhaProduto", "texto": "O produto agora tem saldo e aparece como **Disponível**." }
+      ],
+      "recorte": "inteira",
+      "tabela": {
+        "cabecalho": ["Movimento no histórico", "O que acontece com o saldo"],
+        "linhas": [
+          ["**Recebimento**", "Soma as unidades recebidas ao saldo."],
+          ["**Venda na vitrine**", "Baixa as unidades vendidas no momento do pedido."],
+          ["**Cancelamento / item em falta**", "Devolve ao saldo as unidades que não saíram (pedido cancelado ou item que faltou na separação)."],
+          ["**Ajuste (produto em falta)**", "Zera o saldo restante quando a loja marca que o produto acabou na prateleira."]
+        ]
+      }
+    }
+  ],
+  "problemas": [
+    { "p": "\"Quantidade deve ser inteira entre 1 e 1.000.000.\"", "s": "Digite só números inteiros, sem vírgula nem ponto, de 1 até 1.000.000." },
+    { "p": "\"Selecione o produto e informe uma quantidade inteira positiva.\"", "s": "Escolha um produto na lista antes de clicar em **Registrar entrada** e preencha a quantidade." },
+    { "p": "\"Produto não encontrado nesta loja.\"", "s": "O produto precisa estar cadastrado em **Produtos**. Cadastre-o e tente de novo." },
+    { "p": "Produto que **não aparece** na lista de Receber mercadorias", "s": "Confira se ele foi cadastrado em **Produtos** e se está na mesma loja. Use **Atualizar** na janela de Estoque." },
+    { "p": "Produto aparece como **Esgotado**", "s": "O saldo chegou a zero. Receba mercadoria para ele voltar a ser vendido na vitrine." }
+  ],
+  "checklist": [
+    "Você sabe a diferença entre **Sem controle**, **Disponível** e **Esgotado**.",
+    "Registrou pelo menos uma entrada e viu o saldo aparecer na tabela.",
+    "A movimentação apareceu em **Últimas movimentações**.",
+    "Você já fez (ou vai fazer) a contagem física dos demais produtos."
+  ],
+  "proximo": "Etapa 4 · Importação de estoque"
+}

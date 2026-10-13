@@ -1,0 +1,205 @@
+{
+  "slug": "importacao-produtos",
+  "etapa": 2,
+  "titulo": "Importação de produtos",
+  "resumo": "Traga o catálogo inteiro para o Distre de uma só vez, a partir de uma planilha em formato CSV.",
+  "tempo": "20 minutos",
+  "antes": [
+    "Tenha a lista dos seus produtos em uma planilha (Excel, Google Planilhas ou similar), com **código interno**, **nome**, **preço** e, se possível, **custo**, **categoria** e **EAN**.",
+    "Você precisa ter concluído a etapa 1 (primeiro produto cadastrado) para conhecer os campos do cadastro."
+  ],
+  "objetivos": [
+    "Baixar o modelo e preencher a planilha corretamente.",
+    "Importar até 500 produtos por arquivo, conferindo a prévia antes de salvar.",
+    "Entender como o código interno decide entre criar e atualizar um produto."
+  ],
+  "passos": [
+    {
+      "titulo": "Abra a importação",
+      "texto": "No menu **Produtos**, clique em **Importar**, no alto da página. A janela **Importar produtos** aceita arquivos CSV com até 500 produtos e até 2 MB.",
+      "tela": "2-dialogo",
+      "marcas": [
+        {
+          "alvo": "limite",
+          "texto": "A janela explica o limite de **500 produtos** e que o **código interno** identifica o que será atualizado."
+        },
+        {
+          "alvo": "baixarModelo",
+          "texto": "**Baixar modelo**: entrega a planilha com todas as colunas aceitas."
+        },
+        {
+          "alvo": "selecionar",
+          "texto": "**Selecionar arquivo CSV**: onde você envia a planilha preenchida."
+        }
+      ],
+      "recorte": {
+        "x": 0.2,
+        "y": 0.2,
+        "w": 0.6
+      }
+    },
+    {
+      "titulo": "Baixe o modelo e preencha",
+      "texto": "Clique em **Baixar modelo** e abra o arquivo em sua planilha. Cada linha é um produto. Apenas três colunas são obrigatórias; as demais são opcionais.",
+      "tela": "3b-planilha",
+      "marcas": [
+        {
+          "alvo": "col_codigoInterno",
+          "texto": "**codigoInterno** (obrigatória): o código da loja para o produto. Não repita o mesmo código em duas linhas."
+        },
+        {
+          "alvo": "col_nome",
+          "texto": "**nome** (obrigatória): como o produto aparece no catálogo e na vitrine."
+        },
+        {
+          "alvo": "col_preco",
+          "texto": "**preco** (obrigatória): preço de venda, maior que zero, com vírgula nos centavos."
+        }
+      ],
+      "recorte": "inteira",
+      "tabela": {
+        "cabecalho": [
+          "Coluna",
+          "O que informar"
+        ],
+        "linhas": [
+          [
+            "`codigoInterno`, `nome`, `preco`",
+            "**Obrigatórias.** Sem elas o Distre recusa o arquivo."
+          ],
+          [
+            "`custo`, `precoPromocional`",
+            "Custo de compra e preço promocional (menor que o preço normal)."
+          ],
+          [
+            "`marca`, `fabricante`, `categoria`, `subcategoria`, `descricao`",
+            "Organizam o catálogo e aparecem na vitrine."
+          ],
+          [
+            "`codigoBarras`",
+            "EAN com 8, 12, 13 ou 14 dígitos. **Obrigatório para o produto ficar ativo.**"
+          ],
+          [
+            "`situacao`",
+            "`rascunho`, `ativo` ou `arquivado`. Se ficar vazia, o produto entra como **rascunho**."
+          ],
+          [
+            "`publicado`",
+            "`true` para aparecer na vitrine (só produtos ativos) ou `false`."
+          ],
+          [
+            "`unidade`, `ncm`, `cest`, `cfop`, `icmsSituacao`",
+            "Dados fiscais do produto. Vazios, valem os padrões da loja."
+          ],
+          [
+            "`imagens`, `estoqueMinimo`, `peso`, `altura`, `largura`, `comprimento`, `seoTitulo`, `seoDescricao`",
+            "Opcionais. Várias imagens são separadas por `|`."
+          ]
+        ]
+      },
+      "dica": "Não apague nem renomeie as colunas do modelo. Você pode apagar a linha de exemplo e deixar só as suas."
+    },
+    {
+      "titulo": "Salve como CSV",
+      "texto": "Ao terminar, salve a planilha no formato **CSV**. No Excel, use **Salvar como → CSV UTF-8 (delimitado por vírgulas)**; o arquivo sai com ponto e vírgula entre as colunas no Excel em português, e o Distre reconhece esse formato. O formato UTF-8 mantém os acentos corretos.",
+      "atencao": "Não envie arquivos `.xlsx` nem `.xls`: o Distre lê somente CSV, com no máximo 2 MB e 500 produtos."
+    },
+    {
+      "titulo": "Selecione o arquivo e confira a prévia",
+      "texto": "Volte à janela **Importar produtos**, clique em **Selecionar arquivo CSV** e escolha o arquivo. O Distre valida tudo **antes de salvar qualquer produto** e mostra uma prévia.",
+      "tela": "4-previa",
+      "marcas": [
+        {
+          "alvo": "novos",
+          "texto": "**Novos produtos**: linhas cujo código interno ainda não existe. Serão criados."
+        },
+        {
+          "alvo": "atualizacoes",
+          "texto": "**Atualizações**: linhas cujo código interno já existe. Serão atualizadas."
+        },
+        {
+          "alvo": "lista",
+          "texto": "A lista mostra código, nome e preço de cada linha. Confira se estão corretos."
+        }
+      ],
+      "recorte": {
+        "x": 0.25,
+        "y": 0.35,
+        "w": 0.5
+      }
+    },
+    {
+      "titulo": "Confirme a importação",
+      "texto": "Se a prévia estiver correta, clique em **Confirmar importação**. O Distre salva o arquivo inteiro em uma única operação. Se houver erro, nenhum produto desta importação é salvo.",
+      "tela": "4-previa",
+      "marcas": [
+        {
+          "alvo": "aviso",
+          "texto": "O aviso lembra que a importação é **tudo ou nada**."
+        },
+        {
+          "alvo": "confirmar",
+          "texto": "**Confirmar importação de N produtos**."
+        }
+      ],
+      "recorte": {
+        "x": 0.25,
+        "y": 0.5,
+        "w": 0.5
+      }
+    },
+    {
+      "titulo": "Confira o catálogo",
+      "texto": "A lista de produtos reaparece com a mensagem \"13 produtos importados\" (o número muda conforme o seu arquivo). Os indicadores mostram quantos produtos estão publicados e quantos ainda têm pendências, como **Completar: Foto**.",
+      "tela": "5-lista-importada",
+      "marcas": [
+        {
+          "alvo": "aviso",
+          "texto": "Mensagem de confirmação da importação."
+        },
+        {
+          "alvo": "publicados",
+          "texto": "Indicadores do catálogo: publicados, rascunhos, pendências e produtos sem saldo."
+        }
+      ],
+      "recorte": "inteira"
+    }
+  ],
+  "problemas": [
+    {
+      "p": "\"O arquivo precisa das colunas codigoInterno, nome e preco. Baixe o modelo.\"",
+      "s": "A primeira linha da planilha precisa ter esses três nomes de coluna, escritos exatamente assim. Use o modelo."
+    },
+    {
+      "p": "\"Colunas repetidas ou desconhecidas. Use o modelo de importação.\"",
+      "s": "Remova colunas que não existem no modelo e confira se nenhuma coluna aparece duas vezes."
+    },
+    {
+      "p": "\"Informe um código interno único em cada linha.\"",
+      "s": "Há linha sem código interno ou com código repetido. Corrija na planilha e envie de novo."
+    },
+    {
+      "p": "\"Linha 5: quantidade de colunas incorreta.\"",
+      "s": "A linha indicada tem mais ou menos colunas que o cabeçalho. Procure ponto e vírgula sobrando ou faltando."
+    },
+    {
+      "p": "\"Linha 7: valor inválido em preco.\"",
+      "s": "Use só números e vírgula nos preços (12,90), sem o símbolo R$."
+    },
+    {
+      "p": "\"Importe de 1 a 500 produtos por arquivo.\"",
+      "s": "Divida a planilha em arquivos de até 500 linhas e importe um de cada vez."
+    },
+    {
+      "p": "\"Use um arquivo CSV de até 2 MB.\"",
+      "s": "Reduza o arquivo: remova colunas que você não usa ou divida em partes."
+    }
+  ],
+  "checklist": [
+    "A prévia mostrou os números de novos e atualizados que você esperava.",
+    "Depois de confirmar, a lista de **Produtos** exibe o total de produtos importados.",
+    "Produtos que devem aparecer na loja estão **Ativos** e **Publicados**.",
+    "Você sabe quais produtos ainda precisam de foto (etapa 5)."
+  ],
+  "proximo": "Etapa 3 · Gestão de estoque inicial"
+}

@@ -1,0 +1,397 @@
+{
+  "meta": {
+    "titulo": "Operação e PDV",
+    "fps": 30,
+    "largura": 1920,
+    "altura": 1080,
+    "voz": "pt-BR-ThalitaMultilingualNeural",
+    "velocidade": "-5%",
+    "resumo": "Acompanhe o caminho completo de um pedido: separar, conferir pelo EAN, emitir a nota e despachar.",
+    "capa": {
+      "titulo": "Operação",
+      "destaque": "e PDV",
+      "subtitulo": "Aula 6 da implantação",
+      "selo": "Aula 6",
+      "tela": "7-despacho"
+    },
+    "abertura": {
+      "titulo": "Operação e PDV",
+      "subtitulo": "Aula 6 da implantação ·",
+      "destaque": "Distre"
+    },
+    "fecho": {
+      "itens": [
+        "Separar",
+        "Conferir",
+        "Emitir a nota",
+        "Despachar"
+      ],
+      "frase": "Do pedido à entrega,",
+      "destaque": "tudo no mesmo lugar",
+      "rodape": "Próxima etapa: o Go-Live"
+    }
+  },
+  "cenas": [
+    {
+      "id": "01-abertura",
+      "tipo": "titulo",
+      "titulo": "Operação e PDV",
+      "narracao": "",
+      "duracao_fixa": 3
+    },
+    {
+      "id": "02-novos",
+      "tipo": "tela",
+      "narracao": "Quando o cliente fecha um pedido na vitrine, ele aparece em Novos, em destaque. Clique em Separar para começar.",
+      "visual": {
+        "tela": "1-novos",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "linha",
+            "palavra": "novos",
+            "zoom": 1.6,
+            "etiqueta": "pedido novo",
+            "lado": "acima",
+            "moldura": true
+          },
+          {
+            "alvo": "separar",
+            "palavra": "separar",
+            "zoom": 2.4,
+            "etiqueta": "Separar",
+            "lado": "acima",
+            "cursor": true,
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "03-separacao",
+      "tipo": "tela",
+      "narracao": "O pedido passa para Em separação. Clique em Iniciar separação para abrir a conferência.",
+      "visual": {
+        "tela": "2-separacao",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "iniciar",
+            "palavra": "iniciar",
+            "zoom": 2.4,
+            "etiqueta": "Iniciar separação",
+            "lado": "acima",
+            "cursor": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "04-conferencia",
+      "tipo": "tela",
+      "narracao": "A conferência pede o código de barras de cada unidade. Use o leitor, ou digite o EAN e tecle Enter.",
+      "visual": {
+        "tela": "3-conferencia",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1.05
+        },
+        "pontos": [
+          {
+            "alvo": "itens",
+            "palavra": "código",
+            "zoom": 1.7,
+            "etiqueta": "produtos do pedido",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "campo",
+            "palavra": "leitor",
+            "zoom": 2.2,
+            "etiqueta": "campo do código de barras",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "05-bipar",
+      "tipo": "tela",
+      "narracao": "Cada leitura confere uma unidade. Quando todas forem lidas, a conferência está completa.",
+      "visual": {
+        "gravacao": "bipar",
+        "posicoes": "3-conferencia",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1.15
+        },
+        "pontos": [
+          {
+            "alvo": "progresso",
+            "palavra": "completa",
+            "zoom": 1.9,
+            "etiqueta": "unidades conferidas",
+            "lado": "acima",
+            "cor": "branca",
+            "moldura": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "06-falta",
+      "tipo": "tela",
+      "narracao": "Não encontrou um produto na prateleira? Use Em falta, na linha dele, para retirar o item ou cancelar o pedido.",
+      "visual": {
+        "tela": "3-conferencia",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1.05
+        },
+        "pontos": [
+          {
+            "alvo": "emFalta",
+            "palavra": "falta",
+            "zoom": 2.4,
+            "etiqueta": "Em falta",
+            "lado": "acima"
+          }
+        ]
+      }
+    },
+    {
+      "id": "07-fiscal",
+      "tipo": "tela",
+      "narracao": "Com tudo conferido, clique em Concluir separação e escolha o documento fiscal: NFC-e, NF-e ou sem nota.",
+      "visual": {
+        "segmentos": [
+          {
+            "tela": "4-conferido",
+            "plano0": {
+              "x": 0.5,
+              "y": 0.5,
+              "z": 1.1
+            },
+            "pontos": [
+              {
+                "alvo": "concluir",
+                "palavra": "concluir",
+                "zoom": 2.2,
+                "etiqueta": "Concluir separação",
+                "lado": "acima",
+                "cursor": true
+              }
+            ]
+          },
+          {
+            "tela": "5-fiscal",
+            "palavra": "escolha",
+            "atraso": -6,
+            "plano0": {
+              "x": 0.5,
+              "y": 0.5,
+              "z": 1.2
+            },
+            "pontos": [
+              {
+                "alvo": "nfce",
+                "palavra": "nfc-e",
+                "zoom": 1.8,
+                "etiqueta": "NFC-e: cupom 80 mm",
+                "lado": "acima",
+                "moldura": false
+              },
+              {
+                "alvo": "nfe",
+                "palavra": "nf-e",
+                "zoom": 1.8,
+                "etiqueta": "NF-e: DANFE A4",
+                "lado": "acima",
+                "moldura": false
+              },
+              {
+                "alvo": "sem",
+                "palavra": "sem",
+                "zoom": 1.8,
+                "etiqueta": "Sem nota",
+                "lado": "acima",
+                "cor": "branca",
+                "moldura": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "08-emitir",
+      "tipo": "tela",
+      "narracao": "Clique em Emitir e imprimir. Neste ambiente de demonstração a nota é simulada, sem valor fiscal.",
+      "visual": {
+        "tela": "5-fiscal",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1.15
+        },
+        "pontos": [
+          {
+            "alvo": "emitir",
+            "palavra": "emitir",
+            "zoom": 2.2,
+            "etiqueta": "Emitir e imprimir",
+            "lado": "acima",
+            "cursor": true
+          },
+          {
+            "alvo": "ambiente",
+            "palavra": "simulada",
+            "zoom": 2,
+            "etiqueta": "ambiente de testes",
+            "lado": "abaixo",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "09-pronto",
+      "tipo": "tela",
+      "narracao": "O pedido fica Pronto, com a nota autorizada, e já pode ser despachado.",
+      "visual": {
+        "tela": "6-pronto",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "linha",
+            "palavra": "pronto",
+            "zoom": 1.6,
+            "etiqueta": "Pronto",
+            "lado": "acima",
+            "moldura": true
+          },
+          {
+            "alvo": "despachar",
+            "palavra": "despachado",
+            "zoom": 2.4,
+            "etiqueta": "Despachar",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "10-despacho",
+      "tipo": "tela",
+      "narracao": "Em Despacho, selecione os pedidos prontos, escolha o entregador e clique em Despachar.",
+      "visual": {
+        "tela": "7-despacho",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "pedidos",
+            "palavra": "selecione",
+            "zoom": 1.5,
+            "etiqueta": "pedidos prontos",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "entregador",
+            "palavra": "entregador",
+            "zoom": 2,
+            "etiqueta": "escolha o entregador",
+            "lado": "acima",
+            "moldura": true
+          },
+          {
+            "alvo": "despachar",
+            "palavra": "despachar",
+            "zoom": 2,
+            "etiqueta": "Despachar",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "11-despachar",
+      "tipo": "tela",
+      "narracao": "O pedido sai com o entregador escolhido, e o Distre registra o horário.",
+      "visual": {
+        "gravacao": "despachar",
+        "posicoes": "7-despacho",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.75,
+          "y": 0.6,
+          "z": 1.3
+        },
+        "pontos": [
+          {
+            "alvo": "despachar",
+            "palavra": "sai",
+            "zoom": 1.7,
+            "etiqueta": "Despachar 1 pedido",
+            "lado": "acima",
+            "moldura": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "12-entregas",
+      "tipo": "tela",
+      "narracao": "Acompanhe em Entregas: o pedido aparece Em rota. Quando o entregador conclui, ele segue para Concluídos.",
+      "visual": {
+        "tela": "8-entregas",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.55,
+          "z": 1.05
+        },
+        "pontos": [
+          {
+            "alvo": "linha",
+            "palavra": "rota",
+            "zoom": 1.9,
+            "etiqueta": "Em rota",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "99-fecho",
+      "tipo": "titulo",
+      "narracao": "Agora você conhece o caminho completo de um pedido. Na etapa final, vamos concluir a sua implantação."
+    }
+  ]
+}

@@ -1,12 +1,28 @@
+import { finalizarPedidoParaEntrega, receberRetornoIntegral, pedidoOrigemId, ErroPedido } from './pedidoLifecycle';
+import { asyncHandler } from './http/asyncHandler';
 import { Router, Request, Response } from 'express';
 import { broker } from './broker';
+import { salvarCancelamentoComEstoque } from './estoque';
+import { iniciarConferencia, registrarLeitura, ErroConferencia } from './conferencia';
+import { registrarFalta, validarEntradaFalta } from './faltas';
 import { Entrega, Motorista, StatusEntrega, Prioridade, TipoCarga, FormaPagamento, LogWebhook, Incidente, TipoVeiculo } from './types';
 import { salvarEntrega, obterEntregas, obterMotoristas, salvarMotorista, deletarMotorista, obterTiposVeiculos, salvarTipoVeiculo, obterProdutos } from './database';
-import { obterSessaoDoRequest } from './auth';
+import { obterSessaoDoRequest, exigirLojaAdimplente, verificarSessao, verificarAdmin } from './auth';
+import { podeAcessarLoja, simuladorHabilitado } from './security/sessionPolicy';
 import { lojas, empresas } from './tenants';
 import { autoDispatchSettings } from './config';
+import { geocodificarEndereco } from './geocoding';
+import {
+  verificarLimiteMotoristas,
+  verificarLimiteEntregasMes,
+  obterUsoDaLoja,
+  erroLimite,
+} from './billing/planLimitsService';
 import fs from 'fs';
 import path from 'path';
+import { ErroFiscal, emitirNotaDaVenda, normalizarDestinatario, validarEmissao } from './fiscal/fiscalService';
+import { notaParaImpressao } from './fiscal/notaApresentacao';
+import { ModeloNota } from './fiscal/tipos';
 
 const VEHICLE_TYPES_FILE = path.join(__dirname, '..', 'vehicle_types.json');
 
@@ -139,7 +155,7 @@ export async function carregarMotoristasDoBanco() {
           status: 'ocioso',
           lojaId: '41869dbf-4b09-4933-8bd2-11e60ccc092d',
           codigoVinculo: '433492',
-          dispositivoConectado: false
+          dispositivoConectado: true
         },
         {
           id: 'drv-ezt6',
@@ -148,7 +164,7 @@ export async function carregarMotoristasDoBanco() {
           status: 'ocioso',
           lojaId: '41869dbf-4b09-4933-8bd2-11e60ccc092d',
           codigoVinculo: '226822',
-          dispositivoConectado: false
+          dispositivoConectado: true
         },
         {
           id: 'drv-5xgz',
@@ -157,7 +173,7 @@ export async function carregarMotoristasDoBanco() {
           status: 'ocioso',
           lojaId: '41869dbf-4b09-4933-8bd2-11e60ccc092d',
           codigoVinculo: '222007',
-          dispositivoConectado: false
+          dispositivoConectado: true
         }
       ];
 
@@ -216,12 +232,107 @@ export async function carregarEntregasDoBanco() {
       deliveries.set(d.id, d);
     });
     console.log(`[Gateway] ${lista.length} entregas carregadas do SQL Server.`);
+
+    // Backfill em background: geocodifica entregas antigas que ainda não têm destinoLat/Lng.
+    // Resolve o problema do pino do destino cair no grid sintético em comandas criadas antes
+    // do recurso de geocodificação automática.
+    void backfillCoordenadasDestino();
   } catch (err) {
     console.error('[Gateway] Erro ao alimentar cache em memória com banco de dados:', err);
   }
 }
 
+// Parser simples para endereços formatados em uma única string,
+// extraindo CEP, UF e separando logradouro/número quando possível.
+// Exemplo: "RUA SESSENTA E UM, 36, ABREU E LIMA, PE, CEP 53550811"
+function parseEnderecoTexto(texto: string): {
+  logradouro?: string; numero?: string; cidade?: string; uf?: string; cep?: string;
+} {
+  const out: { logradouro?: string; numero?: string; cidade?: string; uf?: string; cep?: string } = {};
+  let restante = texto;
+  // CEP
+  const cepMatch = restante.match(/(?:CEP\s*)?(\d{5})-?(\d{3})/i);
+  if (cepMatch) {
+    out.cep = `${cepMatch[1]}-${cepMatch[2]}`;
+    restante = restante.replace(cepMatch[0], '').replace(/,\s*,/g, ',').replace(/,\s*$/, '');
+  }
+  // UF (2 letras isoladas entre vírgulas ou no fim)
+  const ufMatch = restante.match(/(?:^|,\s*)([A-Z]{2})(?:\s*,|\s*$)/);
+  if (ufMatch) {
+    out.uf = ufMatch[1];
+    restante = restante.replace(ufMatch[0], ufMatch[0].startsWith(',') ? ',' : '').replace(/,\s*,/g, ',').replace(/,\s*$/, '');
+  }
+  // Quebra o resto por vírgulas
+  const partes = restante.split(',').map(p => p.trim()).filter(Boolean);
+  if (partes.length === 0) return out;
+  // Primeira parte: logradouro. Segunda: número (se numérico). Última: cidade.
+  out.logradouro = partes[0];
+  if (partes.length >= 2 && /^\d+/.test(partes[1])) {
+    out.numero = partes[1].match(/^\d+/)![0];
+    if (partes.length >= 3) out.cidade = partes[partes.length - 1];
+  } else if (partes.length >= 2) {
+    out.cidade = partes[partes.length - 1];
+  }
+  return out;
+}
+
+async function backfillCoordenadasDestino() {
+  const candidatas = Array.from(deliveries.values()).filter(
+    d => (d.destinoLatitude === undefined || d.destinoLongitude === undefined) && d.endereco && d.endereco.trim().length > 0
+  );
+  if (candidatas.length === 0) return;
+  console.log(`[Gateway] Geocodificando destino de ${candidatas.length} entrega(s) antigas em background...`);
+  let ok = 0, fail = 0;
+  for (const d of candidatas) {
+    try {
+      // Parseia o endereço formatado em componentes estruturados (logradouro/número/CEP/UF/cidade)
+      // para alimentar a busca estruturada do Nominatim — muito mais precisa.
+      const parsed = parseEnderecoTexto(d.endereco);
+      const coord = await geocodificarEndereco({
+        endereco: parsed.logradouro || d.endereco,
+        numero: parsed.numero,
+        bairro: d.bairro,
+        cidade: parsed.cidade || d.cidade,
+        uf: parsed.uf,
+        cep: parsed.cep
+      });
+      if (coord) {
+        d.destinoLatitude = coord.latitude;
+        d.destinoLongitude = coord.longitude;
+        await salvarEntrega(d);
+        ok++;
+        console.log(`[Gateway] ✔ ${d.id} ("${d.endereco}") → (${coord.latitude}, ${coord.longitude})`);
+      } else {
+        fail++;
+        console.warn(`[Gateway] ✖ ${d.id} sem coordenadas — endereço "${d.endereco}" não foi resolvido.`);
+      }
+    } catch (err) {
+      fail++;
+      console.error(`[Gateway] ✖ Falha no backfill da entrega ${d.id}:`, err);
+    }
+  }
+  console.log(`[Gateway] Backfill de destinos concluído: ${ok} ok, ${fail} falhas.`);
+}
+
 const router = Router();
+router.use(verificarSessao);
+router.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return exigirLojaAdimplente(req, res, next);
+  next();
+});
+router.use('/simulator', (req, res, next) => {
+  if (!simuladorHabilitado()) { res.status(404).json({ error: 'Simulador desabilitado.' }); return; }
+  verificarAdmin(req, res, next);
+});
+router.use('/deliveries/:id', (req, res, next) => {
+  // A ação de lote possui sua própria validação de loja/entregador e não é um ID de comanda.
+  if (req.params.id === 'dispatch-batch' && req.method === 'POST') { next(); return; }
+  const entrega = deliveries.get(req.params.id);
+  if (!entrega || !podeAcessarLoja(obterSessaoDoRequest(req), entrega.lojaId)) {
+    res.status(404).json({ error: 'Entrega não encontrada.' }); return;
+  }
+  next();
+});
 
 // Obter configurações de despacho
 router.get('/config', (req: Request, res: Response) => {
@@ -251,7 +362,7 @@ router.post('/config', (req: Request, res: Response) => {
 });
 
 // Despachar comandas manualmente em lote
-router.post('/deliveries/dispatch-batch', async (req: Request, res: Response) => {
+router.post('/deliveries/dispatch-batch', asyncHandler(async (req: Request, res: Response) => {
   const sessao = obterSessaoDoRequest(req);
   if (!sessao) {
     res.status(401).json({ error: 'Não autenticado' });
@@ -263,6 +374,11 @@ router.post('/deliveries/dispatch-batch', async (req: Request, res: Response) =>
     return;
   }
 
+  const motorista = drivers.find(d => d.id === driverId);
+  const comandas = deliveryIds.map(id => typeof id === 'string' ? deliveries.get(id) : undefined);
+  if (!motorista || !podeAcessarLoja(sessao, motorista.lojaId) || comandas.some(d => !d || !podeAcessarLoja(sessao, d.lojaId) || d.lojaId !== motorista.lojaId || d.tipoComanda === 'pedido')) {
+    res.status(404).json({ error: 'Entregas ou motoboy não encontrados nesta loja.' }); return;
+  }
   try {
     const { dispatcherAgent } = require('./dispatcher');
     await dispatcherAgent.manualDispatch(deliveryIds, driverId, romaneioId);
@@ -271,10 +387,10 @@ router.post('/deliveries/dispatch-batch', async (req: Request, res: Response) =>
     console.error('[Gateway] Erro no despacho manual:', err);
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
 // 1. Ingestar nova entrega
-router.post('/deliveries', async (req: Request, res: Response) => {
+router.post('/deliveries', exigirLojaAdimplente, asyncHandler(async (req: Request, res: Response) => {
   const { clientName, clienteDocumento, address, items, priority, cargoType, webhookUrl, formaPagamento, bairro, cidade, referencia, valor, driverId, x, y } = req.body;
 
   if (!clientName || !address || !priority || !cargoType) {
@@ -298,6 +414,22 @@ router.post('/deliveries', async (req: Request, res: Response) => {
     recebePedidos = lojaObj ? (lojaObj.recebePedidos || false) : false;
   }
 
+  // Enforcement de plano: bloqueia ingestão acima do teto mensal de entregas do tier da loja.
+  if (lojaId) {
+    const limite = await verificarLimiteEntregasMes(lojaId);
+    if (!limite.permitido) {
+      res.status(403).json(erroLimite(limite));
+      return;
+    }
+  }
+
+  // Geocodifica o endereço do cliente para que o pino caia no lugar real no mapa.
+  const destinoCoord = await geocodificarEndereco({
+    endereco: address,
+    bairro: bairro || undefined,
+    cidade: cidade || undefined
+  });
+
   const newDelivery: Entrega = {
     id,
     nomeCliente: clientName,
@@ -320,13 +452,13 @@ router.post('/deliveries', async (req: Request, res: Response) => {
     lojaId,
     nomeLoja,
     nomeEmpresa,
-    tipoComanda: req.body.tipoComanda || (recebePedidos ? 'pedido' : 'entrega')
+    tipoComanda: req.body.tipoComanda ?? 'entrega',
+    destinoLatitude: destinoCoord?.latitude,
+    destinoLongitude: destinoCoord?.longitude
   };
 
-  deliveries.set(id, newDelivery);
-
-  // Persiste no SQL Server
   await salvarEntrega(newDelivery);
+  deliveries.set(id, newDelivery);
 
   // Publica o evento se não for do tipo pedido
   if (newDelivery.tipoComanda !== 'pedido') {
@@ -343,7 +475,7 @@ router.post('/deliveries', async (req: Request, res: Response) => {
   }
 
   res.status(201).json(newDelivery);
-});
+}));
 
 // 2. Obter entregas (filtrado por loja se sessão de loja)
 router.get('/deliveries', (req: Request, res: Response) => {
@@ -373,7 +505,7 @@ router.get('/deliveries/:id', (req: Request, res: Response) => {
 });
 
 // 4. Injetar incidente para simulação
-router.post('/deliveries/:id/incident', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/incident', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -411,7 +543,7 @@ router.post('/deliveries/:id/incident', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 5. Obter motoristas disponíveis (filtrado por loja se sessão de loja)
 router.get('/drivers', (req: Request, res: Response) => {
@@ -429,8 +561,25 @@ router.get('/drivers', (req: Request, res: Response) => {
   }
 });
 
+// 5.0. Consumo do plano da loja autenticada (motoristas e entregas do mês) —
+// alimenta a barra de uso e o nudge de upgrade no painel.
+router.get('/loja-atual/uso', asyncHandler(async (req: Request, res: Response) => {
+  const sessao = obterSessaoDoRequest(req);
+  if (sessao?.tipo !== 'loja' || !sessao.lojaId) {
+    res.status(403).json({ error: 'Apenas sessões de loja têm consumo de plano.' });
+    return;
+  }
+  try {
+    const uso = await obterUsoDaLoja(sessao.lojaId);
+    res.json(uso);
+  } catch (err: any) {
+    console.error('[Gateway] Erro ao obter uso do plano da loja:', err);
+    res.status(500).json({ error: 'Erro ao calcular consumo do plano.' });
+  }
+}));
+
 // 5.1. Cadastrar novo motorista (vinculado à loja da sessão)
-router.post('/drivers', async (req: Request, res: Response) => {
+router.post('/drivers', asyncHandler(async (req: Request, res: Response) => {
   const { name, vehicleType } = req.body;
   if (!name || !vehicleType) {
     res.status(400).json({ error: 'Nome e tipo de veículo são obrigatórios' });
@@ -440,6 +589,16 @@ router.post('/drivers', async (req: Request, res: Response) => {
   // Vincula o motorista à loja da sessão
   const sessao = obterSessaoDoRequest(req);
   const lojaId = sessao?.tipo === 'loja' ? sessao.lojaId : undefined;
+
+  // Enforcement de plano: bloqueia cadastro acima do limite de motoristas do tier da loja.
+  // Admin (sem lojaId) não é limitado — cria motoristas globais.
+  if (lojaId) {
+    const limite = await verificarLimiteMotoristas(lojaId);
+    if (!limite.permitido) {
+      res.status(403).json(erroLimite(limite));
+      return;
+    }
+  }
 
   // Gera código de 6 dígitos único para o pareamento do motoboy
   let codigoVinculo = '';
@@ -455,49 +614,20 @@ router.post('/drivers', async (req: Request, res: Response) => {
     status: 'ocioso',
     lojaId,
     codigoVinculo,
-    dispositivoConectado: false
+    dispositivoConectado: true
   };
 
   drivers.push(newDriver);
   await salvarMotorista(newDriver);
   res.status(201).json(newDriver);
-});
+}));
 
 // 5.1.0. Vincular dispositivo móvel do entregador por código
-router.post('/drivers/vincular', (req: Request, res: Response) => {
-  const { codigoVinculo } = req.body;
-  if (!codigoVinculo) {
-    res.status(400).json({ error: 'Código de vinculação é obrigatório' });
-    return;
-  }
-
-  const codeStr = codigoVinculo.toString().replace('-', '').trim();
-  const driver = drivers.find(d => d.codigoVinculo === codeStr);
-  if (!driver) {
-    res.status(404).json({ error: 'Código de pareamento inválido ou motoboy não cadastrado' });
-    return;
-  }
-
-  // Se houver uma sessão de loja, garante que o motorista pertence a essa loja
-  const sessao = obterSessaoDoRequest(req);
-  if (sessao?.tipo === 'loja' && sessao.lojaId !== driver.lojaId) {
-    res.status(403).json({ error: 'Este motoboy pertence a outra loja e não pode ser vinculado a esta sessão.' });
-    return;
-  }
-
-  res.json({
-    success: true,
-    driver: {
-      id: driver.id,
-      name: driver.name,
-      vehicleType: driver.vehicleType,
-      lojaId: driver.lojaId
-    }
-  });
+router.post('/drivers/vincular', (_req: Request, res: Response) => {
+  res.status(410).json({ error: 'Aplicativo do entregador e telemetria estão desativados nesta etapa. Use o painel operacional.' });
 });
-
 // 5.1.1. Remover motorista (respeitando isolamento por loja)
-router.delete('/drivers/:id', async (req: Request, res: Response) => {
+router.delete('/drivers/:id', asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   const sessao = obterSessaoDoRequest(req);
   const index = drivers.findIndex(d => {
@@ -519,7 +649,7 @@ router.delete('/drivers/:id', async (req: Request, res: Response) => {
   drivers.splice(index, 1);
   await deletarMotorista(id as string);
   res.json({ success: true, message: 'Motoboy removido com sucesso' });
-});
+}));
 
 // 5.2. Obter tipos de veículos
 router.get('/vehicle-types', (req: Request, res: Response) => {
@@ -527,7 +657,7 @@ router.get('/vehicle-types', (req: Request, res: Response) => {
 });
 
 // 5.3. Cadastrar novo tipo de veículo
-router.post('/vehicle-types', async (req: Request, res: Response) => {
+router.post('/vehicle-types', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const { name } = req.body;
   if (!name) {
     res.status(400).json({ error: 'Nome do tipo de veículo é obrigatório' });
@@ -552,7 +682,7 @@ router.post('/vehicle-types', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao salvar tipo de veículo no banco de dados', details: err.message });
   }
-});
+}));
 
 // 6. Receptor de webhooks do simulador externo
 router.post('/simulator/webhook', (req: Request, res: Response) => {
@@ -596,7 +726,7 @@ router.post('/simulator/clear', (req: Request, res: Response) => {
 });
 
 // 9. Resolver incidentes
-router.post('/deliveries/:id/resolve', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/resolve', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -636,17 +766,25 @@ router.post('/deliveries/:id/resolve', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 10. Confirmar conclusão da entrega (ENTREGUE - Com critérios POD)
-router.post('/deliveries/:id/complete', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
     return;
   }
 
+  if (delivery.tipoComanda === 'pedido') { res.status(409).json({ error: 'Conclua a entrega vinculada, não o pedido de separação.' }); return; }
+  if (delivery.status === 'ENTREGUE') { res.json(delivery); return; }
+  if (!['DESPACHADO','EM_TRANSITO','NO_LOCAL','ALERTA_INCIDENTE','SLA_ALERTA'].includes(delivery.status)) {
+    res.status(409).json({ error: 'Somente entregas despachadas em andamento podem ser concluídas.' }); return;
+  }
   const { recebedorNome, recebedorCPF, comprovanteFotoUrl, assinaturaBase64, justificativaDesvioCoordenada } = req.body;
+  if (typeof recebedorNome !== 'string' || !recebedorNome.trim()) {
+    res.status(400).json({ error: 'Informe o nome do recebedor.' }); return;
+  }
 
   // Libera o motorista
   if (delivery.motorista) {
@@ -656,10 +794,10 @@ router.post('/deliveries/:id/complete', async (req: Request, res: Response) => {
   }
 
   delivery.status = 'ENTREGUE';
-  delivery.recebedorNome = recebedorNome || 'Recebedor Não Informado';
-  delivery.recebedorCPF = recebedorCPF || '000.000.000-00';
-  delivery.comprovanteFotoUrl = comprovanteFotoUrl || 'mock_canhoto_foto.png';
-  delivery.assinaturaBase64 = assinaturaBase64 || 'mock_assinatura';
+  delivery.recebedorNome = recebedorNome.trim();
+  delivery.recebedorCPF = recebedorCPF || undefined;
+  delivery.comprovanteFotoUrl = comprovanteFotoUrl || undefined;
+  delivery.assinaturaBase64 = assinaturaBase64 || undefined;
   delivery.justificativaDesvioCoordenada = justificativaDesvioCoordenada;
   delivery.dataHoraConclusao = new Date().toISOString();
   delivery.atualizadoEm = new Date().toISOString();
@@ -697,16 +835,21 @@ router.post('/deliveries/:id/complete', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 11. Registrar insucesso/devolução (AGUARDANDO_RETORNO_CD)
-router.post('/deliveries/:id/fail', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/fail', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
     return;
   }
 
+  if (delivery.tipoComanda === 'pedido') { res.status(409).json({ error: 'Registre insucesso na entrega vinculada ao pedido.' }); return; }
+  if (delivery.status === 'AGUARDANDO_RETORNO_CD') { res.json(delivery); return; }
+  if (!['DESPACHADO','EM_TRANSITO','NO_LOCAL','ALERTA_INCIDENTE','SLA_ALERTA'].includes(delivery.status)) {
+    res.status(409).json({ error: 'Somente entregas despachadas em andamento podem ter insucesso registrado.' }); return;
+  }
   const { motivoInsucesso } = req.body;
 
   // O motorista permanece ocupado para custódia temporária
@@ -747,17 +890,17 @@ router.post('/deliveries/:id/fail', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 11.0. Confirmar chegada ao local de destino (NO_LOCAL)
-router.post('/deliveries/:id/arrive', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/arrive', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
     return;
   }
 
-  const statusValidos = ['EM_TRANSITO', 'ALERTA_INCIDENTE', 'SLA_ALERTA'];
+  const statusValidos = ['DESPACHADO', 'EM_TRANSITO', 'ALERTA_INCIDENTE', 'SLA_ALERTA'];
   if (!statusValidos.includes(delivery.status)) {
     res.status(400).json({ error: 'A entrega não está em rota de trânsito.' });
     return;
@@ -778,10 +921,10 @@ router.post('/deliveries/:id/arrive', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 11.1. Estornar última ação (Rollback de Status)
-router.post('/deliveries/:id/rollback', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/rollback', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -824,33 +967,38 @@ router.post('/deliveries/:id/rollback', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 11.2. Receber devolução do estoque no CD Central
-router.post('/deliveries/:id/return-stock', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/return-stock', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
     return;
   }
 
-  if (delivery.status !== 'AGUARDANDO_RETORNO_CD') {
-    res.status(400).json({ error: 'Entrega não está aguardando retorno a Loja.' });
-    return;
+  if (req.body?.confirmacaoIntegral !== true) {
+    res.status(400).json({ error: 'Confirme o recebimento físico integral dos produtos em condições de revenda.' }); return;
   }
-
-  // Libera o motorista
+  const origemId = pedidoOrigemId(delivery);
+  let resultado;
+  try {
+    resultado = await receberRetornoIntegral(delivery, origemId ? deliveries.get(origemId) : undefined);
+  } catch (error) {
+    if (error instanceof ErroPedido) { res.status(error.status).json({ error: error.message }); return; }
+    throw error;
+  }
+  Object.assign(delivery, resultado.entrega);
+  if (resultado.pedido) deliveries.set(resultado.pedido.id, resultado.pedido);
   if (delivery.motorista) {
-    const motoristaFrota = drivers.find(d => d.id === delivery.motorista!.id);
-    if (motoristaFrota) motoristaFrota.status = 'ocioso';
-    delivery.motorista.status = 'ocioso';
+    const motorista = drivers.find(d => d.id === delivery.motorista!.id);
+    if (motorista) {
+      const outrasAtivas = Array.from(deliveries.values()).some(d => d.id !== delivery.id && d.motorista?.id === motorista.id
+        && ['DESPACHADO','EM_TRANSITO','NO_LOCAL','ALERTA_INCIDENTE','SLA_ALERTA','AGUARDANDO_RETORNO_CD'].includes(d.status));
+      motorista.status = outrasAtivas ? 'ocupado' : 'ocioso'; await salvarMotorista(motorista);
+    }
   }
-
-  delivery.status = 'PRODUTO_RETORNADO_ESTOQUE';
-  delivery.atualizadoEm = new Date().toISOString();
-
-  // Persiste no SQL Server
-  await salvarEntrega(delivery);
+  if (resultado.repetido) { res.json(delivery); return; }
 
   // Publica evento final
   broker.publish('entrega.monitorada', delivery.id, {
@@ -861,57 +1009,12 @@ router.post('/deliveries/:id/return-stock', async (req: Request, res: Response) 
   });
 
   res.json(delivery);
-});
+}));
 
 // 12. Receber coordenadas em lote acumuladas offline
-router.post('/deliveries/:id/telemetria-bulk', async (req: Request, res: Response) => {
-  const delivery = deliveries.get(req.params.id as string);
-  if (!delivery) {
-    res.status(404).json({ error: 'Entrega não encontrada' });
-    return;
-  }
-
-  const { coordenadas } = req.body;
-  if (Array.isArray(coordenadas) && coordenadas.length > 0) {
-    const lastCoord = coordenadas[coordenadas.length - 1];
-    
-    // ... rest of logic stays identical ...
-    delivery.telemetria = {
-      velocidadeKmh: lastCoord.velocidade !== undefined ? lastCoord.velocidade : 45,
-      combustivelBateriaPct: lastCoord.bateria !== undefined ? lastCoord.bateria : 90,
-      localizacaoAtual: {
-        x: lastCoord.x !== undefined ? lastCoord.x : 10,
-        y: lastCoord.y !== undefined ? lastCoord.y : 10
-      },
-      timestamp: lastCoord.timestamp || new Date().toISOString()
-    };
-
-    if (delivery.rota) {
-      coordenadas.forEach((c: any) => {
-        if (c.x !== undefined && c.y !== undefined) {
-          delivery.rota!.path.push({
-            x: c.x,
-            y: c.y,
-            name: 'Ponto Sincronizado Offline'
-          });
-        }
-      });
-    }
-
-    await salvarEntrega(delivery);
-
-    broker.publish('entrega.monitorada', delivery.id, {
-      deliveryId: delivery.id,
-      status: delivery.status,
-      telemetria: delivery.telemetria,
-      incidents: delivery.incidentes,
-      bulkUpdate: true
-    });
-  }
-
-  res.json({ success: true, message: 'Coordenadas offline sincronizadas' });
+router.post('/deliveries/:id/telemetria-bulk', (_req: Request, res: Response) => {
+  res.status(410).json({ error: 'Aplicativo do entregador e telemetria estão desativados nesta etapa. Use o painel operacional.' });
 });
-
 // 12.1. Simulação da API de Pedidos Externos (iFood/VTEX mock)
 router.get('/simulator/external-orders-api', (req: Request, res: Response) => {
   const mockOrders = [
@@ -953,7 +1056,7 @@ router.get('/simulator/external-orders-api', (req: Request, res: Response) => {
 });
 
 // 12.2. Importador de Pedidos Externos
-router.post('/simulator/import-external', async (req: Request, res: Response) => {
+router.post('/simulator/import-external', asyncHandler(async (req: Request, res: Response) => {
   const { url } = req.body;
   if (!url) {
     res.status(400).json({ error: 'URL da API externa não informada' });
@@ -1019,8 +1122,8 @@ router.post('/simulator/import-external', async (req: Request, res: Response) =>
         tipoComanda: recebePedidos ? 'pedido' : 'entrega'
       };
 
-      deliveries.set(id, newDelivery);
       await salvarEntrega(newDelivery);
+    deliveries.set(id, newDelivery);
 
       if (!recebePedidos) {
         broker.publish('entrega.recebida', id, {
@@ -1040,7 +1143,7 @@ router.post('/simulator/import-external', async (req: Request, res: Response) =>
     console.error('[Simulator] Erro ao sincronizar pedidos da API externa:', err);
     res.status(500).json({ error: `Falha na conexão com a API externa: ${err.message}` });
   }
-});
+}));
 
 export async function checarDesvioSequencia(e: Entrega) {
   if (!e.motorista || !e.sequenciaEsperada) return;
@@ -1088,17 +1191,18 @@ export async function checarDesvioSequencia(e: Entrega) {
   }
 }
 
-router.get('/produtos', async (req: Request, res: Response) => {
+router.get('/produtos', asyncHandler(async (req: Request, res: Response) => {
   try {
-    const { lojaId } = req.query;
+    const sessao = obterSessaoDoRequest(req)!;
+    const lojaId = sessao.tipo === 'loja' ? sessao.lojaId : req.query.lojaId;
     const produtos = await obterProdutos(lojaId as string);
     res.json(produtos);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
-router.post('/pedidos-whatsapp', async (req: Request, res: Response) => {
+router.post('/pedidos-whatsapp', asyncHandler(async (req: Request, res: Response) => {
   try {
     const { lojaId, cliente, pedido, entrega, pagamento } = req.body;
     if (!lojaId || !cliente?.nome || !pedido?.itens || !entrega?.endereco) {
@@ -1106,8 +1210,16 @@ router.post('/pedidos-whatsapp', async (req: Request, res: Response) => {
       return;
     }
 
+    if (!podeAcessarLoja(obterSessaoDoRequest(req), lojaId)) { res.status(403).json({ error: 'Loja não autorizada.' }); return; }
     const lojaObj = lojas.find(l => l.id === lojaId);
     const recebePedidos = lojaObj ? lojaObj.recebePedidos : false;
+
+    // Enforcement de plano: a via WhatsApp Bot também respeita o teto mensal de entregas.
+    const limiteWa = await verificarLimiteEntregasMes(lojaId);
+    if (!limiteWa.permitido) {
+      res.status(403).json(erroLimite(limiteWa));
+      return;
+    }
 
     const id = gerarIdComanda();
     const newDelivery: Entrega = {
@@ -1132,8 +1244,8 @@ router.post('/pedidos-whatsapp', async (req: Request, res: Response) => {
       tipoComanda: recebePedidos ? 'pedido' : 'entrega'
     };
 
-    deliveries.set(id, newDelivery);
     await salvarEntrega(newDelivery);
+    deliveries.set(id, newDelivery);
 
     if (!recebePedidos) {
       broker.publish('entrega.recebida', id, {
@@ -1152,9 +1264,9 @@ router.post('/pedidos-whatsapp', async (req: Request, res: Response) => {
     console.error('[Gateway] Erro ao processar pedido recebido do WhatsApp:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
-router.post('/deliveries/:id/prepare', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/prepare', asyncHandler(async (req: Request, res: Response) => {
   try {
     const order = deliveries.get(req.params.id as string);
     if (!order) {
@@ -1186,12 +1298,86 @@ router.post('/deliveries/:id/prepare', async (req: Request, res: Response) => {
     console.error('[Gateway] Erro ao mover comanda de pedido para preparo:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
-router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/cancel', asyncHandler(async (req: Request, res: Response) => {
   try {
+    const sessao = obterSessaoDoRequest(req);
+    if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
     const order = deliveries.get(req.params.id as string);
-    if (!order) {
+    if (!order || (sessao.tipo === 'loja' && order.lojaId !== sessao.lojaId)) {
+      res.status(404).json({ error: 'Pedido não encontrado.' });
+      return;
+    }
+    // Cancelamento só permitido antes do despacho — depois disso o fluxo é AGUARDANDO_RETORNO_CD
+    const statusCanceláveis = ['RECEBIDO', 'EM_PREPARO'];
+    if (!statusCanceláveis.includes(order.status)) {
+      res.status(400).json({ error: `Só é possível cancelar comandas em RECEBIDO ou EM_PREPARO. Status atual: ${order.status}.` });
+      return;
+    }
+
+    const { motivo } = req.body || {};
+    const cancelado = { ...order, status: 'CANCELADO' as StatusEntrega, atualizadoEm: new Date().toISOString() };
+    cancelado.dataHoraConclusao = cancelado.atualizadoEm;
+    if (motivo && typeof motivo === 'string' && motivo.trim()) {
+      cancelado.referencia = [order.referencia, `Cancelamento: ${motivo.trim()}`].filter(Boolean).join(' | ');
+    }
+    await salvarCancelamentoComEstoque(cancelado);
+    Object.assign(order, cancelado);
+
+    broker.publish('entrega.monitorada', order.id, {
+      deliveryId: order.id,
+      status: 'CANCELADO',
+      telemetria: order.telemetria,
+      incidents: order.incidentes,
+      motivo: motivo || undefined
+    });
+
+    res.json({ success: true, message: 'Comanda cancelada.', order });
+  } catch (err: any) {
+    console.error('[Gateway] Erro ao cancelar comanda:', err);
+    res.status(500).json({ error: err.message });
+  }
+}));
+
+router.post('/deliveries/:id/conferencia/:acao', asyncHandler(async (req: Request, res: Response) => {
+  const sessao = obterSessaoDoRequest(req);
+  if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
+  const order = deliveries.get(String(req.params.id));
+  if (!order || !order.lojaId || (sessao.tipo === 'loja' && sessao.lojaId !== order.lojaId)) {
+    res.status(404).json({ error: 'Pedido não encontrado.' }); return;
+  }
+  // Dados do pedido que a tela de conferência exibe (total atual e contato para avisar o cliente).
+  const contexto = () => ({
+    valor: order.valor ?? null,
+    cliente: order.nomeCliente,
+    telefone: (order.referencia || '').match(/Tel:\s*([^|]+)/)?.[1]?.trim() || null,
+    status: order.status,
+  });
+  try {
+    if (req.params.acao === 'iniciar') res.json({ ...(await iniciarConferencia(order)), pedido: contexto() });
+    else if (req.params.acao === 'ler') res.json({ ...(await registrarLeitura(order.id, order.lojaId, String(req.body?.ean || '').trim(), String(req.body?.chave || ''))), pedido: contexto() });
+    else if (req.params.acao === 'falta') {
+      const r = await registrarFalta(order, validarEntradaFalta(req.body || {}));
+      if (r.pedido) {
+        Object.assign(order, r.pedido);
+        broker.publish('entrega.monitorada', order.id, {
+          deliveryId: order.id, status: order.status, telemetria: order.telemetria, incidents: order.incidentes,
+          motivo: r.cancelado ? 'Produto em falta na separação' : undefined,
+        });
+      }
+      res.json({ itens: r.itens, faltas: r.faltas, cancelado: r.cancelado, repetido: r.repetido, pedido: contexto() });
+    }
+    else res.status(404).json({ error: 'Ação não encontrada.' });
+  } catch (e) { res.status(e instanceof ErroConferencia ? e.status : 500).json({ error: e instanceof Error ? e.message : 'Erro na conferência.' }); }
+}));
+
+router.post('/deliveries/:id/finalize-order', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const sessao = obterSessaoDoRequest(req);
+    if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
+    const order = deliveries.get(req.params.id as string);
+    if (!order || (sessao.tipo === 'loja' && sessao.lojaId !== order.lojaId)) {
       res.status(404).json({ error: 'Pedido não encontrado.' });
       return;
     }
@@ -1200,49 +1386,58 @@ router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response
       return;
     }
 
-    // 1. Atualiza o status do pedido para finalizado (usamos status ENTREGUE/sucesso para controle interno)
-    order.status = 'ENTREGUE';
-    order.atualizadoEm = new Date().toISOString();
-    await salvarEntrega(order);
 
-    // 2. Cria uma nova comanda de entrega vinculada
-    const deliveryId = gerarIdComanda();
-    const newDelivery: Entrega = {
-      ...order,
-      id: deliveryId,
-      tipoComanda: 'entrega',
-      status: 'RECEBIDO',
-      criadoEm: new Date().toISOString(),
-      atualizadoEm: new Date().toISOString(),
-      referencia: `Origem: Pedido ${order.id}`
-    };
+    // Documento fiscal escolhido no painel ao concluir a separação (NFC-e, NF-e ou nenhum).
+    // Valida ANTES de mexer no status: dado fiscal faltando não pode deixar a comanda pela metade.
+    const modeloFiscal = req.body?.fiscal?.modelo as ModeloNota | undefined;
+    const destinatarioFiscal = normalizarDestinatario(req.body?.fiscal?.destinatario);
+    const emitirFiscal = modeloFiscal === 'NFCE' || modeloFiscal === 'NFE';
+    if (emitirFiscal && !order.entregaVinculadaId) {
+      if (!order.lojaId) {
+        res.status(400).json({ error: 'Comanda sem loja vinculada — não é possível emitir nota fiscal.' });
+        return;
+      }
+      try {
+        await validarEmissao(order.lojaId, modeloFiscal!, destinatarioFiscal);
+      } catch (err: any) {
+        res.status(err instanceof ErroFiscal ? err.httpStatus : 500).json({ error: err.message, codigo: 'FISCAL_INVALIDO' });
+        return;
+      }
+    }
 
-    // Remove referências a rotas antigas
-    newDelivery.motorista = undefined;
-    newDelivery.rota = undefined;
-    newDelivery.telemetria = undefined;
-    newDelivery.incidentes = [];
-
-    deliveries.set(deliveryId, newDelivery);
-    await salvarEntrega(newDelivery);
-
-    // 3. Publica no Broker de Eventos para que o Dispatcher Agende a Entrega
-    broker.publish('entrega.recebida', deliveryId, {
-      deliveryId: deliveryId,
-      cargoType: newDelivery.tipoCarga,
-      priority: newDelivery.prioridade,
-      clientName: newDelivery.nomeCliente,
-      address: newDelivery.endereco,
-      x: 40 + Math.floor(Math.random() * 55),
-      y: 40 + Math.floor(Math.random() * 55)
+    const resultado = await finalizarPedidoParaEntrega(order, gerarIdComanda());
+    Object.assign(order, resultado.pedido);
+    const newDelivery = resultado.repetido ? (deliveries.get(resultado.entrega.id) || resultado.entrega) : resultado.entrega;
+    deliveries.set(newDelivery.id, newDelivery);
+    if (!resultado.repetido) broker.publish('entrega.recebida', newDelivery.id, {
+      deliveryId: newDelivery.id, cargoType: newDelivery.tipoCarga, priority: newDelivery.prioridade,
+      clientName: newDelivery.nomeCliente, address: newDelivery.endereco
     });
 
-    res.json({ success: true, message: 'Pedido finalizado e enviado para entrega.', order, delivery: newDelivery });
+    // 4. Emite a nota fiscal da venda. Falha de SEFAZ/provedor NÃO desfaz a separação:
+    //    a comanda segue para despacho e a nota pode ser reemitida pelo card do Kanban.
+    let fiscal: { nota?: unknown; erro?: string } | undefined;
+    if (emitirFiscal && !resultado.repetido) {
+      try {
+        const nota = await emitirNotaDaVenda({
+          lojaId: order.lojaId!,
+          entrega: newDelivery,
+          vendaId: order.id,
+          modelo: modeloFiscal!,
+          destinatario: destinatarioFiscal,
+        });
+        fiscal = { nota: await notaParaImpressao(nota), erro: nota.status === 'ERRO' || nota.status === 'REJEITADA' ? nota.mensagem : undefined };
+      } catch (err: any) {
+        fiscal = { erro: err?.message || String(err) };
+      }
+    }
+
+    res.json({ success: true, message: 'Pedido finalizado e enviado para entrega.', order, delivery: newDelivery, fiscal });
   } catch (err: any) {
     console.error('[Gateway] Erro ao finalizar comanda de pedido:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err instanceof ErroConferencia || err instanceof ErroPedido ? err.status : 500).json({ error: err.message });
   }
-});
+}));
 
 export default router;
 

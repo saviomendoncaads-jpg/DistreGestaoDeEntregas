@@ -1,0 +1,67 @@
+{
+  "slug": "go-live",
+  "etapa": 7,
+  "titulo": "Go-Live: concluindo a implantação",
+  "resumo": "A conferência final e o aceite que encerram a implantação e deixam a loja pronta para operar.",
+  "tempo": "5 minutos",
+  "antes": [
+    "As etapas 1 a 6 precisam estar concluídas.",
+    "Todos os produtos ativos devem ter **saldo** registrado em Estoque e, se a loja recebe pedidos pelo e-commerce, **imagem principal**.",
+    "A situação de acesso da loja precisa estar regular. Se a operação estiver suspensa por cobrança, regularize antes em **Cobranças e pagamentos**."
+  ],
+  "objetivos": [
+    "Entender o que o Distre confere no Go-Live.",
+    "Dar o aceite e concluir a implantação.",
+    "Saber onde rever aulas e manuais depois."
+  ],
+  "passos": [
+    {
+      "titulo": "Abra o Go-Live",
+      "texto": "Em **Minha implantação**, a etapa 7 aparece como **Sua próxima etapa** quando as seis anteriores estão concluídas. O quadro mostra o progresso (6 de 7 etapas) e a etapa atual.",
+      "tela": "1-golive",
+      "marcas": [
+        { "alvo": "cartao", "texto": "Cartão da etapa 7 · Go-Live." },
+        { "alvo": "verificacao", "texto": "O texto explica a nova verificação: **produtos, saldos e imagens**." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Confirme e inicie",
+      "texto": "Marque **Revisei os dados e confirmo que a loja está pronta para iniciar a operação** e clique em **Iniciar Utilização do ERP**. O Distre confere de novo, no servidor, produtos ativos, saldos e imagens (quando a loja recebe pedidos online).",
+      "tela": "1-golive",
+      "marcas": [
+        { "alvo": "confirmar", "texto": "Caixa de confirmação da loja." },
+        { "alvo": "botao", "texto": "**Iniciar Utilização do ERP**: só é liberado depois de marcar a confirmação." }
+      ],
+      "recorte": { "x": 0.2, "y": 0.45, "w": 0.7 },
+      "atencao": "O Go-Live não gera pedidos, notas fiscais, cobranças nem alterações de plano. Ele não certifica a homologação fiscal ou financeira: apenas registra o aceite da loja."
+    },
+    {
+      "titulo": "Implantação concluída",
+      "texto": "Quando tudo está certo, o quadro mostra **7 de 7 etapas concluídas · 100%**, a mensagem **Implantação concluída!** e a data do aceite. Use **Acessar Operação** para voltar ao painel.",
+      "tela": "2-concluido",
+      "marcas": [
+        { "alvo": "barra", "texto": "Barra de progresso em 100%." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Revise quando precisar",
+      "texto": "As aulas em vídeo e os manuais em PDF continuam disponíveis em **Treinamentos e manuais**, na Área do Cliente. Eles servem também para treinar novos operadores da loja."
+    }
+  ],
+  "problemas": [
+    { "p": "\"Falta registrar o saldo inicial de N produto(s).\"", "s": "Há produtos ativos sem saldo. Registre a entrada em **Estoque** (etapa 4) ou deixe-os como **Rascunho**." },
+    { "p": "\"Falta cadastrar a imagem principal de N produto(s).\"", "s": "A loja recebe pedidos online e há produtos ativos sem foto. Envie a imagem em **Produtos** (etapa 5)." },
+    { "p": "\"Cadastre ou importe os produtos da loja antes de continuar.\"", "s": "Não há produto ativo. Volte às etapas 1 e 2." },
+    { "p": "\"Regularize o acesso da loja antes de confirmar o início da operação.\"", "s": "O acesso está suspenso ou cancelado por cobrança. Abra **Cobranças e pagamentos**, regularize e tente de novo." },
+    { "p": "\"Conclua a etapa anterior primeiro.\"", "s": "As etapas são sequenciais. Conclua a etapa pendente e volte ao Go-Live." }
+  ],
+  "checklist": [
+    "As 7 etapas aparecem como **Concluído**.",
+    "O progresso mostra **100%** e a data da conclusão.",
+    "Você sabe onde rever aulas e manuais.",
+    "A equipe da loja já sabe separar, conferir, emitir a nota e despachar."
+  ],
+  "proximo": "Operação: bom trabalho e boas vendas!"
+}

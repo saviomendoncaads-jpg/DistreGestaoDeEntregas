@@ -1,0 +1,39 @@
+.conference-panel { width: min(800px, 100%); }
+.conference-scanner { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
+.conference-scanner label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 9px; }.conference-scanner > div { display: flex; gap: 10px; }.conference-scanner input { flex: 1; min-width: 0; }.conference-scanner button { flex-shrink: 0; }
+.conference-progress { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin: 20px 0 14px; font-size: 13px; }.conference-progress span { color: #64748b; }
+.conference-done { background: #ecfdf5; }.conference-done td:nth-child(3) { color: #15803d; }
+.conference-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 22px; }
+.conference-actions--end { justify-content: flex-end; }
+
+/* Produto em falta */
+.conference-panel .conference-fault-btn { color: #b45309; border-color: #fcd34d; background: #fffbeb; padding: 6px 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.conference-panel .conference-fault-btn:hover { background: #fef3c7; }
+.conference-hint { margin: 12px 2px 0; font-size: 12.5px; color: #64748b; }
+.conference-panel input[type="checkbox"], .conference-panel input[type="radio"] { width: auto; min-height: 0; margin: 3px 0 0; flex-shrink: 0; accent-color: #2563eb; }
+.fault-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 14px; margin-bottom: 16px; }
+.fault-field { display: grid; gap: 7px; font-size: 13px; font-weight: 600; align-content: start; }
+.fault-field small { font-size: 12px; font-weight: 400; color: #64748b; }
+.fault-field--wide { grid-column: 1 / -1; }
+.fault-check { display: flex; gap: 12px; align-items: flex-start; padding: 14px; margin-bottom: 16px; border: 1px solid #e2e8f0; border-radius: 10px; background: white; cursor: pointer; }
+.fault-check span, .fault-option span { display: grid; gap: 3px; font-size: 13px; }
+.fault-check small, .fault-option small { font-size: 12px; color: #64748b; line-height: 1.45; }
+.fault-choice { border: 0; margin: 0 0 16px; padding: 0; display: grid; gap: 10px; }
+.fault-choice legend { font-size: 13px; font-weight: 600; margin-bottom: 8px; padding: 0; }
+.fault-option { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border: 1.5px solid #e2e8f0; border-radius: 10px; background: white; cursor: pointer; }
+.fault-option:hover:not(.is-off) { border-color: #93c5fd; }
+.fault-option.is-on { border-color: #2563eb; background: #eff6ff; }
+.fault-option.is-off { opacity: .55; cursor: not-allowed; }
+.fault-summary { padding: 13px 15px; border-radius: 9px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; font-size: 13px; line-height: 1.55; }
+.fault-summary--danger { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.fault-contact { margin: 12px 2px 0; font-size: 13px; color: #475569; }
+.fault-contact a { color: #1d4ed8; }
+.conference-faults { margin-top: 18px; padding: 14px 16px; border-radius: 10px; background: #fffbeb; border: 1px solid #fde68a; }
+.conference-faults h3 { margin: 0 0 8px; font-size: 13px; color: #92400e; }
+.conference-faults ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.conference-faults li { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; }
+.conference-faults li span { color: #92400e; }
+.conference-panel .conference-danger { background: #dc2626; color: white; border-color: #dc2626; min-height: 42px; font-weight: 600; }
+.conference-panel .conference-danger:hover { background: #b91c1c; }
+
+@media (max-width: 480px) { .conference-scanner > div { flex-direction: column; }.conference-actions { flex-wrap: wrap; }.conference-panel td { font-size: 12px; padding: 10px; } .fault-grid { grid-template-columns: 1fr; } .conference-actions > button { flex: 1 1 100%; } }

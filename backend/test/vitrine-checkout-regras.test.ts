@@ -1,0 +1,18 @@
+import { afterAll,beforeAll,beforeEach,describe,it,expect,vi } from 'vitest'; import express from 'express'; import type { Server } from 'http';
+vi.mock('../src/broker',()=>({broker:{emit:vi.fn()}})); vi.mock('../src/database',()=>({obterProdutos:vi.fn()}));
+vi.mock('../src/estoque',()=>({saldosPublicos:vi.fn(),salvarVendaComEstoque:vi.fn(),ErroEstoque:class extends Error {}}));
+vi.mock('../src/tenants',()=>({lojas:[{id:'l1',nome:'Loja',ativo:true,statusFinanceiro:'REGULAR',empresaId:'e1'}],empresas:[{id:'e1',nome:'Empresa',telefone:'81999999999'}]}));
+vi.mock('../src/gateway',()=>({deliveries:new Map(),gerarIdComanda:vi.fn()})); vi.mock('../src/geocoding',()=>({geocodificarEndereco:vi.fn()}));
+vi.mock('../src/billing/planLimitsService',()=>({verificarLimiteEntregasMes:vi.fn(),erroLimite:vi.fn()}));
+import router from '../src/vitrine'; import {lojas} from '../src/tenants'; import {obterProdutos} from '../src/database'; import {saldosPublicos,salvarVendaComEstoque} from '../src/estoque'; import {verificarLimiteEntregasMes} from '../src/billing/planLimitsService'; import {configPadrao} from '../src/configVitrine';
+let server:Server; let base:string;
+beforeAll(async()=>{const app=express();app.use(express.json());app.use(router);server=await new Promise<Server>(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});base=`http://127.0.0.1:${(server.address() as {port:number}).port}`;});afterAll(()=>new Promise<void>((resolve,reject)=>server.close(e=>e?reject(e):resolve())));
+beforeEach(()=>{vi.clearAllMocks();lojas[0].configVitrine=configPadrao();vi.mocked(obterProdutos).mockResolvedValue([{id:'p1',nome:'Produto',preco:10,ativo:true,publicado:true,lojaId:'l1'}]);vi.mocked(saldosPublicos).mockResolvedValue(new Map());vi.mocked(verificarLimiteEntregasMes).mockResolvedValue({permitido:true} as Awaited<ReturnType<typeof verificarLimiteEntregasMes>>);});
+const payload={cliente:{nome:'Teste',cpf:'52998224725'},endereco:{logradouro:'Rua teste'},itens:[{produtoId:'p1',quantidade:1}],pagamento:{forma:'pix'}};
+async function pedido(){const r=await fetch(`${base}/l1/pedidos`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});return {status:r.status,body:await r.json()};}
+describe('regras de atendimento na API pública',()=>{
+ it('mantém o catálogo visível ao pausar e bloqueia novos pedidos',async()=>{lojas[0].configVitrine={...configPadrao(),pausada:true,mensagemPausa:'Voltamos às 8h'};const b=await (await fetch(`${base}/l1`)).json();expect(b.loja.aceitandoPedidos).toBe(false);expect(b.produtos).toHaveLength(1);expect((await pedido()).body.error).toBe('Voltamos às 8h');expect(salvarVendaComEstoque).not.toHaveBeenCalled();});
+ it('aplica pedido mínimo sobre preços do banco',async()=>{lojas[0].configVitrine={...configPadrao(),pedidoMinimo:20};const r=await pedido();expect(r.status).toBe(400);expect(r.body.error).toContain('mínimo');expect(salvarVendaComEstoque).not.toHaveBeenCalled();});
+ it('bloqueia pagamento removido da configuração',async()=>{lojas[0].configVitrine={...configPadrao(),pagamentos:['dinheiro']};const r=await pedido();expect(r.status).toBe(400);expect(r.body.error).toContain('pagamento');expect(salvarVendaComEstoque).not.toHaveBeenCalled();});
+ it('publica o nome e contato configurados sem credenciais',async()=>{lojas[0].configVitrine={...configPadrao(),nomePublico:'Minha loja online',whatsapp:'81988888888'};const b=await (await fetch(`${base}/l1`)).json();expect(b.loja.nome).toBe('Minha loja online');expect(b.loja.telefone).toBe('81988888888');expect(b.loja.configVitrine.secoes).toEqual(configPadrao().secoes);expect(b.loja.senhaHash).toBeUndefined();});
+});

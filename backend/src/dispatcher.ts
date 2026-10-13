@@ -1,6 +1,6 @@
 import { broker } from './broker';
 import { deliveries, drivers } from './gateway';
-import { MensagemEvento, EstadoAgente, Motorista, Rota, NoRota, Entrega } from './types';
+import { MensagemEvento, EstadoAgente, Motorista, Entrega } from './types';
 import { salvarEntrega } from './database';
 import { autoDispatchSettings } from './config';
 
@@ -14,9 +14,8 @@ export class DispatcherAgent {
     latencyMs: 0
   };
 
-  private activeAssignments = new Map<string, NodeJS.Timeout>();
   private batchTimer: NodeJS.Timeout | null = null;
-  private pendingToProcess: { deliveryId: string; preferredDriverId?: string; x?: number; y?: number }[] = [];
+  private pendingToProcess: { deliveryId: string; preferredDriverId?: string }[] = [];
 
   constructor() {
     this.init();
@@ -42,9 +41,7 @@ export class DispatcherAgent {
 
       this.pendingToProcess.push({
         deliveryId: event.deliveryId,
-        preferredDriverId: event.payload?.driverId,
-        x: event.payload?.x,
-        y: event.payload?.y
+        preferredDriverId: event.payload?.driverId
       });
 
       if (!this.batchTimer) {
@@ -61,7 +58,7 @@ export class DispatcherAgent {
             // Pode ter sido agrupada por uma iteração anterior do loop
             const del = deliveries.get(item.deliveryId);
             if (del && del.status === 'RECEBIDO') {
-              await this.processDelivery(item.deliveryId, item.preferredDriverId, item.x, item.y);
+              await this.processDelivery(item.deliveryId, item.preferredDriverId);
             }
           }
 
@@ -73,145 +70,17 @@ export class DispatcherAgent {
     });
   }
 
-  private async processDelivery(deliveryId: string, preferredDriverId?: string, x?: number, y?: number) {
+  private async processDelivery(deliveryId: string, preferredDriverId?: string) {
     const delivery = deliveries.get(deliveryId);
-    if (!delivery) {
-      console.error(`[Dispatcher] Entrega ${deliveryId} não encontrada no gateway.`);
-      return;
-    }
-
-    if (delivery.status !== 'RECEBIDO') return; // Pode já ter sido agrupada por outro evento
-
-    console.log(`[Dispatcher] Processando agrupamento/atribuição para Entrega ${deliveryId}...`);
-
-    const lojaId = delivery.lojaId;
-
-    // 1. Gera coordenadas de destino se não existirem
-    if (!delivery.destino) {
-      delivery.destino = {
-        x: x !== undefined ? x : 40 + Math.floor(Math.random() * 55),
-        y: y !== undefined ? y : 40 + Math.floor(Math.random() * 55)
-      };
-    }
-
-    // 2. Agrupamento (Clustering)
-    const pendingDeliveries = Array.from(deliveries.values())
-      .filter(d => d.status === 'RECEBIDO' && d.tipoComanda !== 'pedido' && d.lojaId === lojaId && d.tipoCarga === delivery.tipoCarga && d.id !== deliveryId);
-
-    pendingDeliveries.forEach(d => {
-      if (!d.destino) {
-        d.destino = {
-          x: 40 + Math.floor(Math.random() * 55),
-          y: 40 + Math.floor(Math.random() * 55)
-        };
-      }
-    });
-
-    const batch = [delivery];
-    
-    // Procura entregas próximas (raio 50) limitando a 3 por lote
-    for (const d of pendingDeliveries) {
-      if (batch.length >= 3) break;
-      const dist = Math.sqrt(Math.pow(d.destino!.x - delivery.destino!.x, 2) + Math.pow(d.destino!.y - delivery.destino!.y, 2));
-      if (dist <= 50) {
-        batch.push(d);
-      }
-    }
-
-    // Ordena o lote com lógica Nearest Neighbor partindo do CD (10, 10)
-    let currentX = 10;
-    let currentY = 10;
-    const orderedBatch = [];
-    while (batch.length > 0) {
-      let closestIdx = 0;
-      let minDst = Infinity;
-      for (let i = 0; i < batch.length; i++) {
-        const dst = Math.sqrt(Math.pow(batch[i].destino!.x - currentX, 2) + Math.pow(batch[i].destino!.y - currentY, 2));
-        if (dst < minDst) {
-          minDst = dst;
-          closestIdx = i;
-        }
-      }
-      const next = batch.splice(closestIdx, 1)[0];
-      orderedBatch.push(next);
-      currentX = next.destino!.x;
-      currentY = next.destino!.y;
-    }
-
-    console.log(`[Dispatcher] Lote gerado: ${orderedBatch.length} entrega(s) agrupada(s).`);
-
-    // 3. Encontra um motorista disponível
-    let motorista: Motorista | null = null;
-    if (preferredDriverId) {
-      motorista = drivers.find(d =>
-        d.id === preferredDriverId &&
-        d.status === 'ocioso' &&
-        d.dispositivoConectado === true &&
-        (!lojaId || d.lojaId === lojaId)
-      ) || null;
-    }
-
-    if (!motorista) {
-      motorista = this.findDriverForCargo(delivery.tipoCarga, lojaId);
-    }
-
-    if (!motorista) {
-      console.log(`[Dispatcher] Nenhum motorista disponível. Tentando novamente lote do ${deliveryId} em 5 segundos...`);
-      const timeout = setTimeout(() => {
-        this.processDelivery(deliveryId, preferredDriverId, x, y);
-      }, 5000);
-      this.activeAssignments.set(deliveryId, timeout);
-      return;
-    }
-
-    motorista.status = 'ocupado';
-
-    const activeCount = Array.from(deliveries.values()).filter(d => 
-      d.motorista?.id === motorista!.id && 
-      (d.status === 'DESPACHADO' || d.status === 'EM_TRANSITO' || d.status === 'NO_LOCAL' || d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA')
-    ).length;
-
-    // 4. Gera Rotas e Despacha o Lote
-    let seqStartX = 10; // Começa do CD
-    let seqStartY = 10;
-
-    for (let i = 0; i < orderedBatch.length; i++) {
-      const d = orderedBatch[i];
-      d.motorista = motorista;
-      d.sequenciaEsperada = activeCount + i + 1;
-      
-      const destX = d.destino!.x;
-      const destY = d.destino!.y;
-      
-      const rota = this.generateRoute(d.tipoCarga, seqStartX, seqStartY, destX, destY);
-      d.rota = rota;
-      d.status = 'DESPACHADO';
-      d.atualizadoEm = new Date().toISOString();
-      await salvarEntrega(d);
-      
-      console.log(`[Dispatcher] Motorista ${motorista.name} atribuído à entrega ${d.id} (Sequência Esperada: ${d.sequenciaEsperada}).`);
-      
-      broker.publish('entrega.despachada', d.id, {
-        deliveryId: d.id,
-        driverId: motorista.id,
-        route: rota,
-        priority: d.prioridade
-      });
-
-      // A próxima perna da rota sairá de onde esta entrega terminou
-      seqStartX = destX;
-      seqStartY = destY;
-    }
-
-    if (this.activeAssignments.has(deliveryId)) {
-      this.activeAssignments.delete(deliveryId);
-    }
+    if (!delivery || delivery.status !== 'RECEBIDO') return;
+    const preferred = drivers.find(d => d.id === preferredDriverId && d.lojaId === delivery.lojaId);
+    const driver = preferred || this.findDriverForCargo(delivery.tipoCarga, delivery.lojaId);
+    if (driver) await this.manualDispatch([deliveryId], driver.id);
   }
 
   private findDriverForCargo(tipoCarga: string, lojaId?: string): Motorista | null {
-    // Filtra motoristas pelo contexto de tenant (loja) e garante que estão online
-    const frotas = (lojaId ? drivers.filter(d => d.lojaId === lojaId) : drivers)
-      .filter(d => d.dispositivoConectado === true);
+    // Todo motorista cadastrado está online; mantém o contexto da loja.
+    const frotas = lojaId ? drivers.filter(d => d.lojaId === lojaId) : drivers;
 
     // Tenta encontrar um veículo preferencial
     let tiposPreferenciais: string[] = [];
@@ -250,154 +119,28 @@ export class DispatcherAgent {
     return motoristasFallback.length > 0 ? motoristasFallback[0].d : null;
   }
 
-  private generateRoute(tipoCarga: string, startX: number, startY: number, destX: number, destY: number): Rota {
-    // Usa coords de destino informadas
-    const endX = destX;
-    const endY = destY;
-
-    // Cria pontos intermediários (ex. 6 waypoints para fluxo visual)
-    const passos = 6;
-    const path: NoRota[] = [];
-    
-    path.push({ x: startX, y: startY, name: 'Ponto de Partida' });
-    
-    for (let i = 1; i < passos; i++) {
-      const ratio = i / passos;
-      // Adiciona distorção na rota para ficar curvilíneo
-      const jitterX = (Math.random() - 0.5) * 15;
-      const jitterY = (Math.random() - 0.5) * 15;
-      
-      const x = Math.min(95, Math.max(5, Math.round(startX + (endX - startX) * ratio + jitterX)));
-      const y = Math.min(95, Math.max(5, Math.round(startY + (endY - startY) * ratio + jitterY)));
-      path.push({ x, y, name: `Ponto de Rota ${i}` });
-    }
-    
-    path.push({ x: endX, y: endY, name: `Destino Final: Cliente` });
-
-    // Calcula métricas
-    const dx = endX - startX;
-    const dy = endY - startY;
-    const distanceKm = Math.round(Math.sqrt(dx * dx + dy * dy) * 0.25 * 10) / 10; // escala
-    
-    // Duração básica em segundos
-    const durationSec = Math.round(distanceKm * 4); // cada km leva 4s na escala da simulação
-    const cost = Math.round(distanceKm * 1.5 * 100) / 100;
-
-    return {
-      distanceKm,
-      durationSec,
-      cost,
-      path
-    };
-  }
-
   public async manualDispatch(deliveryIds: string[], driverId: string, romaneioId?: string) {
-    const batch: Entrega[] = [];
-    for (const id of deliveryIds) {
-      const del = deliveries.get(id);
-      if (del && del.status === 'RECEBIDO') {
-        if (!del.destino) {
-          del.destino = {
-            x: 40 + Math.floor(Math.random() * 55),
-            y: 40 + Math.floor(Math.random() * 55)
-          };
-        }
-        batch.push(del);
-      }
-    }
-
-    if (batch.length === 0) {
-      throw new Error("Nenhuma entrega válida em estado RECEBIDO encontrada.");
-    }
-
     const motorista = drivers.find(d => d.id === driverId);
-    if (!motorista) {
-      throw new Error("Motorista não encontrado.");
+    if (!motorista) throw new Error('Motorista não encontrado.');
+    const ids = [...new Set(deliveryIds)];
+    const batch = ids.map(id => deliveries.get(id));
+    if (!batch.length || batch.some(d => !d || d.status !== 'RECEBIDO' || d.tipoComanda === 'pedido' || d.lojaId !== motorista.lojaId)) {
+      throw new Error('Selecione somente entregas prontas da mesma loja.');
     }
-
-    if (!motorista.dispositivoConectado) {
-      throw new Error("Não é possível atribuir entregas a um motorista offline.");
-    }
-
-    motorista.status = 'ocupado';
-
-    const activeCount = Array.from(deliveries.values()).filter(d => 
-      d.motorista?.id === motorista.id && 
-      (d.status === 'DESPACHADO' || d.status === 'EM_TRANSITO' || d.status === 'NO_LOCAL' || d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA')
-    ).length;
-
-    // Começa do CD (10,10) ou do último destino ativo do motorista
-    let currentX = 10;
-    let currentY = 10;
-
-    const activeDels = Array.from(deliveries.values())
-      .filter(d => d.motorista?.id === motorista.id && (d.status === 'DESPACHADO' || d.status === 'EM_TRANSITO' || d.status === 'NO_LOCAL' || d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA'))
-      .sort((a, b) => (a.sequenciaEsperada || 0) - (b.sequenciaEsperada || 0));
-
-    if (activeDels.length > 0) {
-      const lastActive = activeDels[activeDels.length - 1];
-      if (lastActive.destino) {
-        currentX = lastActive.destino.x;
-        currentY = lastActive.destino.y;
-      }
-    }
-
-    const orderedBatch = [];
-    while (batch.length > 0) {
-      let closestIdx = 0;
-      let minDst = Infinity;
-      for (let i = 0; i < batch.length; i++) {
-        const dst = Math.sqrt(Math.pow(batch[i].destino!.x - currentX, 2) + Math.pow(batch[i].destino!.y - currentY, 2));
-        if (dst < minDst) {
-          minDst = dst;
-          closestIdx = i;
-        }
-      }
-      const next = batch.splice(closestIdx, 1)[0];
-      orderedBatch.push(next);
-      currentX = next.destino!.x;
-      currentY = next.destino!.y;
-    }
-
-    let seqStartX = 10;
-    let seqStartY = 10;
-    if (activeDels.length > 0) {
-      const lastActive = activeDels[activeDels.length - 1];
-      if (lastActive.destino) {
-        seqStartX = lastActive.destino.x;
-        seqStartY = lastActive.destino.y;
-      }
-    }
-
-    for (let i = 0; i < orderedBatch.length; i++) {
-      const d = orderedBatch[i];
-      d.motorista = motorista;
-      d.sequenciaEsperada = activeCount + i + 1;
-      if (romaneioId) {
-        d.romaneioId = romaneioId;
-      }
-      d.despachadoEm = new Date().toISOString();
-      
-      const destX = d.destino!.x;
-      const destY = d.destino!.y;
-      
-      const rota = this.generateRoute(d.tipoCarga, seqStartX, seqStartY, destX, destY);
-      d.rota = rota;
-      d.status = 'DESPACHADO';
-      d.atualizadoEm = new Date().toISOString();
-      await salvarEntrega(d);
-      
-      console.log(`[Dispatcher - Manual] Motorista ${motorista.name} atribuído à entrega ${d.id} (Sequência Esperada: ${d.sequenciaEsperada}).`);
-      
-      broker.publish('entrega.despachada', d.id, {
-        deliveryId: d.id,
-        driverId: motorista.id,
-        route: rota,
-        priority: d.prioridade
-      });
-      
-      seqStartX = destX;
-      seqStartY = destY;
+    // Preserva a ordem selecionada no romaneio; não inventa distância, GPS ou ETA.
+    const existentes = Array.from(deliveries.values()).filter(d => d.motorista?.id === motorista.id
+      && ['DESPACHADO','EM_TRANSITO','NO_LOCAL','ALERTA_INCIDENTE','SLA_ALERTA','AGUARDANDO_RETORNO_CD'].includes(d.status));
+    const sequencia = Math.max(0, ...existentes.map(d => d.sequenciaEsperada || 0));
+    for (let i = 0; i < batch.length; i++) {
+      const delivery = batch[i]!;
+      const agora = new Date().toISOString();
+      const updated: Entrega = { ...delivery, motorista: { ...motorista, status: 'ocupado' },
+        sequenciaEsperada: sequencia + i + 1, romaneioId: romaneioId || delivery.romaneioId,
+        despachadoEm: agora, atualizadoEm: agora, status: 'DESPACHADO', rota: undefined, telemetria: undefined };
+      await salvarEntrega(updated);
+      Object.assign(delivery, updated);
+      motorista.status = 'ocupado';
+      broker.publish('entrega.despachada', delivery.id, { deliveryId: delivery.id, driverId: motorista.id, priority: delivery.prioridade });
     }
   }
 

@@ -1,0 +1,116 @@
+{
+  "slug": "operacao-pdv",
+  "etapa": 6,
+  "titulo": "Guia da operação e PDV",
+  "resumo": "O passo a passo do dia a dia: receber o pedido, separar, conferir pelo código de barras, emitir a nota e despachar.",
+  "tempo": "15 minutos de leitura",
+  "quem": "Balcão, separação e despacho",
+  "antes": [
+    "Cadastre ao menos um **motoboy** (menu **Cadastrar Motoboy**) para poder despachar.",
+    "Preencha os **Dados fiscais** da loja (menu **Configurações**): CNPJ, inscrição estadual e endereço. Sem eles, o Distre não emite a nota ao concluir a separação.",
+    "Se o leitor de código de barras funciona como teclado, deixe-o pronto: ele digita o EAN e envia Enter."
+  ],
+  "objetivos": [
+    "Acompanhar o caminho de um pedido: Novo, Em separação, Pronto, Em rota e Concluído.",
+    "Conferir cada unidade pelo EAN e tratar produto em falta.",
+    "Emitir a nota fiscal e despachar o pedido a um entregador."
+  ],
+  "passos": [
+    {
+      "titulo": "Receba o pedido novo",
+      "texto": "Quando o cliente fecha um pedido na vitrine, ele entra em **Novos**, com a situação **Novo** e o botão **Separar**. Os indicadores do alto contam os pedidos por etapa: Novos, Em separação, Prontos, Atrasados e Concluídos.",
+      "tela": "1-novos",
+      "marcas": [
+        { "alvo": "linha", "texto": "Linha do pedido: cliente, valor, horário e situação." },
+        { "alvo": "separar", "texto": "**Separar**: aceita o pedido e o move para a etapa de separação." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Inicie a separação",
+      "texto": "Depois de **Separar**, o pedido passa para **Em separação**. Clique em **Iniciar separação** para abrir a conferência dos produtos.",
+      "tela": "2-separacao",
+      "marcas": [
+        { "alvo": "iniciar", "texto": "**Iniciar separação**: abre a conferência pelo código de barras." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Confira cada unidade pelo EAN",
+      "texto": "A janela **Conferir produtos pelo EAN** lista o que o pedido pede. Leia o código de barras de **cada unidade** com o leitor, ou digite o EAN e tecle **Enter**. Cada leitura confere uma unidade, e a conferência só fecha quando todas forem lidas.",
+      "tela": "3-conferencia",
+      "marcas": [
+        { "alvo": "campo", "texto": "Campo do **código de barras (EAN / GTIN)**." },
+        { "alvo": "itens", "texto": "Produtos do pedido, com o EAN e a quantidade conferida (por exemplo, 0 / 2)." }
+      ],
+      "recorte": "inteira",
+      "atencao": "O Distre recusa código de outro produto, produto já completo e leitura a mais. Não é possível finalizar sem conferir todas as unidades."
+    },
+    {
+      "titulo": "Produto em falta",
+      "texto": "Não achou o produto na prateleira? Clique em **Em falta**, na linha dele. Informe a quantidade que faltou e o motivo e escolha: **retirar só este item** (o pedido segue sem ele, com o valor recalculado) ou **cancelar o pedido inteiro**. As unidades que faltaram voltam ao saldo, e você pode zerar o saldo do produto para ele sair da vitrine até a próxima entrada.",
+      "tela": "3-conferencia",
+      "marcas": [
+        { "alvo": "emFalta", "texto": "**Em falta**: abre as opções de retirar o item ou cancelar o pedido." }
+      ],
+      "recorte": { "x": 0.2, "y": 0.35, "w": 0.6 },
+      "dica": "Se o cliente já pagou online, a devolução do valor é feita por fora do Distre. O sistema avisa isso ao cancelar."
+    },
+    {
+      "titulo": "Conclua a separação e escolha a nota",
+      "texto": "Com todas as unidades conferidas, clique em **Concluir separação**. Escolha o **documento fiscal da venda**: **NFC-e** (cupom de 80 mm para consumidor final), **NF-e** (DANFE em A4; exige CPF ou CNPJ e endereço) ou **Sem nota**. O CPF/CNPJ na nota é opcional na NFC-e.",
+      "tela": "5-fiscal",
+      "marcas": [
+        { "alvo": "nfce", "texto": "**NFC-e**: cupom fiscal para o consumidor final." },
+        { "alvo": "nfe", "texto": "**NF-e**: DANFE em A4, com CPF/CNPJ e endereço do cliente." },
+        { "alvo": "emitir", "texto": "**Emitir NFC-e e imprimir**: emite o documento e abre a impressão." }
+      ],
+      "recorte": "inteira",
+      "atencao": "Se aparecer \"Dados fiscais da loja não configurados\", abra **Configurações → Dados fiscais** e preencha CNPJ, IE e endereço. O aviso \"Ambiente de testes\" indica que a nota é simulada e sem valor fiscal; para valer, a loja ativa o ambiente de **Produção** em Dados fiscais."
+    },
+    {
+      "titulo": "O pedido fica pronto",
+      "texto": "Depois de emitir, o pedido passa para **Pronto**, com a nota **autorizada**, e o botão da linha vira **Despachar**.",
+      "tela": "6-pronto",
+      "marcas": [
+        { "alvo": "linha", "texto": "Situação **Pronto** e nota autorizada." },
+        { "alvo": "despachar", "texto": "**Despachar**: leva o pedido para o Despacho." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Despache para o entregador",
+      "texto": "Em **Despacho**, marque os pedidos prontos, escolha o **entregador** (ou use o **Despacho automático**, que seleciona o primeiro entregador disponível) e clique em **Despachar**. O Distre registra o horário e o pedido sai para a rota.",
+      "tela": "7-despacho",
+      "marcas": [
+        { "alvo": "pedidos", "texto": "**Pedidos prontos**: selecione um ou vários." },
+        { "alvo": "entregador", "texto": "**Escolher entregador**: lista dos motoboys cadastrados." },
+        { "alvo": "despachar", "texto": "**Despachar N pedidos**: confirma a saída." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Acompanhe as entregas",
+      "texto": "Em **Entregas**, o pedido aparece **Em rota**, com o botão **Acompanhar**. Quando o entregador conclui, o pedido segue para **Concluídos**, onde fica o histórico.",
+      "tela": "8-entregas",
+      "marcas": [
+        { "alvo": "linha", "texto": "Pedido **Em rota**, com a nota autorizada." }
+      ],
+      "recorte": "inteira"
+    }
+  ],
+  "problemas": [
+    { "p": "\"Dados fiscais da loja não configurados. Abra \"Dados fiscais\" no painel e preencha CNPJ, IE e endereço.\"", "s": "Preencha **Configurações → Dados fiscais** (CNPJ, inscrição estadual e endereço) e tente concluir a separação de novo." },
+    { "p": "\"O pedido precisa estar em separação.\"", "s": "Clique em **Separar** no pedido novo antes de concluir a separação." },
+    { "p": "A conferência não deixa concluir", "s": "Ainda há unidades sem leitura. Leia o EAN de cada unidade restante ou use **Em falta** para o que não foi encontrado." },
+    { "p": "Código lido não é aceito", "s": "O EAN pertence a outro produto, o produto já está completo ou o produto está sem EAN no cadastro. Corrija o cadastro e use **Atualizar produtos** na conferência." },
+    { "p": "Não há entregador para escolher no Despacho", "s": "Cadastre um motoboy em **Cadastrar Motoboy**." }
+  ],
+  "checklist": [
+    "Você sabe o caminho: Novo → Em separação → Pronto → Em rota → Concluído.",
+    "A conferência por EAN funciona com o leitor ou digitando.",
+    "Os **Dados fiscais** da loja estão preenchidos.",
+    "Há pelo menos um entregador cadastrado."
+  ],
+  "proximo": "Etapa 7 · Go-Live"
+}

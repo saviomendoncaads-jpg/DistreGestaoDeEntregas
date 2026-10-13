@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+import { destinoWebhookPermitido, assinaturaWebhook } from './security/webhookPolicy';
 import { broker } from './broker';
 import { deliveries } from './gateway';
 import { MensagemEvento, EstadoAgente, LogWebhook, StatusEntrega } from './types';
@@ -77,13 +79,18 @@ export class IntegratorAgent {
     if (!delivery || !delivery.urlWebhook) return;
 
     const url = delivery.urlWebhook;
+    // O callback antigo do simulador não representa integração de uma loja real.
+    if (url === 'http://localhost:5000/api/simulator/webhook') return;
+    if (!destinoWebhookPermitido(url, process.env.DELIVERY_WEBHOOK_ALLOWED_HOSTS || '')) {
+      console.warn('[Integrator] Destino de webhook não autorizado.'); return;
+    }
+    const segredo = process.env.DELIVERY_WEBHOOK_SECRET || '';
+    if (Buffer.byteLength(segredo) < 32) { console.warn('[Integrator] Segredo de assinatura não configurado.'); return; }
     
     // Constrói payload do webhook padrão com a estrutura do Módulo 4
-    const x = delivery.telemetria?.localizacaoAtual.x || 10;
-    const y = delivery.telemetria?.localizacaoAtual.y || 10;
     
-    const webhookPayload = {
-      event_id: `EVT_${Math.random().toString(36).substring(2, 8).toUpperCase()}_${Math.random().toString(36).substring(2, 5).toUpperCase()}`,
+    const webhookPayload = attempt > 1 ? payload : {
+      event_id: crypto.randomUUID(),
       event_type: status === 'ENTREGUE' ? 'delivery.completed' : 
                   status === 'PRODUTO_RETORNADO_ESTOQUE' ? 'delivery.canceled' : 
                   `delivery.${status.toLowerCase()}`,
@@ -96,14 +103,10 @@ export class IntegratorAgent {
           nome: delivery.motorista.name
         } : null,
         conclusao: status === 'ENTREGUE' ? {
-          coordenadas_entrega: {
-            lat: -23.55052 + (y * 0.0001),
-            lng: -46.63330 + (x * 0.0001)
-          },
-          recebedor_nome: delivery.recebedorNome || 'Recebedor Não Informado',
-          recebedor_documento: delivery.recebedorCPF || '000.000.000-00',
-          assinatura_url: `https://storage.sistema.com/signatures/${deliveryId}.png`,
-          foto_fachada_url: `https://storage.sistema.com/photos/${deliveryId}.jpg`
+          recebedor_nome: delivery.recebedorNome,
+          recebedor_documento: delivery.recebedorCPF,
+          assinatura_base64: delivery.assinaturaBase64,
+          foto_fachada_url: delivery.comprovanteFotoUrl
         } : undefined
       }
     };
@@ -111,13 +114,15 @@ export class IntegratorAgent {
     console.log(`[Integrator] Disparando webhook para ${deliveryId} (${status}), Tentativa ${attempt}...`);
 
     try {
+      const corpo = JSON.stringify(webhookPayload);
       const response = await fetch(url, {
+        redirect: 'error',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Delivery-Engine-Signature': `sha256=${crypto.randomUUID()}`
+          'X-Delivery-Engine-Signature': assinaturaWebhook(corpo, segredo)
         },
-        body: JSON.stringify(webhookPayload),
+        body: corpo,
         signal: AbortSignal.timeout(4000) // 4 segundos de timeout
       });
 
@@ -140,7 +145,7 @@ export class IntegratorAgent {
         console.log(`[Integrator] Webhook enviado com sucesso para ${url}`);
       } else {
         console.warn(`[Integrator] Webhook falhou com status ${response.status}.`);
-        this.scheduleRetry(deliveryId, status, payload, attempt);
+        this.scheduleRetry(deliveryId, status, webhookPayload, attempt);
       }
     } catch (err: any) {
       console.error(`[Integrator] Erro ao disparar webhook para ${url}:`, err.message);
@@ -155,7 +160,7 @@ export class IntegratorAgent {
       };
       
       delivery.logsWebhook.push(logEntry);
-      this.scheduleRetry(deliveryId, status, payload, attempt);
+      this.scheduleRetry(deliveryId, status, webhookPayload, attempt);
     }
   }
 
@@ -197,7 +202,7 @@ export class IntegratorAgent {
     }
 
     setTimeout(() => {
-      this.dispatchWebhook(deliveryId, status, payload, nextAttempt);
+      void this.dispatchWebhook(deliveryId, status, payload, nextAttempt).catch(error => console.error('[Integrator] Falha na retentativa:', error?.message));
     }, delay);
   }
 

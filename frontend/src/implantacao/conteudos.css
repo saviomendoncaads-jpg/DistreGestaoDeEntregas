@@ -1,0 +1,21 @@
+.imp-materiais{display:grid;gap:12px;min-width:0}
+.imp-aula{margin:0;min-width:0}
+.imp-aula video{display:block;width:100%;aspect-ratio:16/9;max-height:420px;border-radius:8px;background:#071323;object-fit:contain}
+.imp-aula figcaption{display:flex;flex-direction:column;gap:2px;margin-top:8px}
+.imp-aula figcaption strong{font-size:12px;color:#17243b}
+.imp-aula figcaption span{font-size:10px;color:#8390a3}
+.imp-aulas-abas{display:flex;flex-wrap:wrap;gap:6px}
+.imp-aulas-abas button{border:1px solid #d5deec;background:white;color:#42536f;border-radius:999px;padding:7px 12px;font-size:10px;font-weight:600}
+.imp-aulas-abas button.on{background:#3067e8;border-color:#3067e8;color:white}
+.imp-materiais-acoes{display:flex;flex-wrap:wrap;gap:10px}
+.imp-materiais-acoes .imp-button small{font-weight:500;color:#8390a3;font-size:9px}
+.imp-biblioteca{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:20px}
+.imp-biblioteca .client-card{margin:0;display:flex;flex-direction:column;gap:6px}
+.imp-biblioteca h2{font-size:15px}
+.imp-biblioteca .imp-etapa{font-size:9px;letter-spacing:1.4px;font-weight:700;color:#3067e8}
+.imp-capa-aula{position:relative;display:block;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#071323;border:0;padding:0;width:100%}
+.imp-capa-aula img{display:block;width:100%;height:100%;object-fit:cover}
+.imp-capa-aula .imp-play{position:absolute;inset:auto auto 10px 10px;width:36px;height:36px;border-radius:50%;background:#3067e8;color:white;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 16px rgba(7,19,35,.35)}
+.imp-capa-aula .imp-duracao{position:absolute;right:10px;bottom:10px;background:rgba(7,19,35,.82);color:white;border-radius:5px;padding:2px 7px;font-size:10px;font-weight:600}
+.imp-biblioteca-acoes{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+@media (max-width:760px){.imp-biblioteca{grid-template-columns:1fr}.imp-aula video{max-height:none}}
