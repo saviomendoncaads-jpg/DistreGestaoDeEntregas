@@ -4,6 +4,6 @@ export function getSession():ImplementationSession|null {try{return JSON.parse(l
 const base=import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:5000';
 export async function implementationRequest<T>(token:string,path='',method='GET',lojaId?:string):Promise<T>{
  const response=await fetch(`${base}/api/implantacao${path}${lojaId?`?lojaId=${encodeURIComponent(lojaId)}`:''}`,{method,headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(method==='POST'?{body:JSON.stringify({confirmacao:true})}:{})});
- const data=await response.json();if(response.status===401){localStorage.removeItem('distre_sessao');localStorage.removeItem('distre_token');location.replace('/app?next=implantacao');}
+ const data=await response.json();if(response.status===401){localStorage.removeItem('distre_sessao');localStorage.removeItem('distre_token');location.replace('/app?next=area-cliente');}
  if(!response.ok)throw new Error(data.error||'Não foi possível carregar a implantação.');return data;
 }

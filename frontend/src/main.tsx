@@ -13,7 +13,7 @@ const PainelCliente = lazy(() => import('./cliente/PainelCliente.tsx'))
 const App = lazy(() => import('./App.tsx'))
 const Implantacao = lazy(() => import('./implantacao/ImplementationPanel.tsx'))
 const ehVitrine = /^\/loja(\/|$)/.test(window.location.pathname)
-const ehImplantacao = /^\/implantacao\/?$/.test(window.location.pathname)
+const ehImplantacao = /^\/(implantacao|area-cliente)\/?$/.test(window.location.pathname)
 const Raiz = ehImplantacao ? Implantacao : ehVitrine ? PainelCliente : App
 
 createRoot(document.getElementById('root')!).render(

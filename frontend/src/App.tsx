@@ -342,7 +342,8 @@ export default function App() {
       setSessao(novaSessao);
       localStorage.setItem('distre_sessao', JSON.stringify(novaSessao));
       localStorage.setItem('distre_token', data.token);
-      if (new URLSearchParams(location.search).get('next') === 'implantacao') location.assign('/implantacao');
+      const next = new URLSearchParams(location.search).get('next');
+      if (next === 'implantacao' || next === 'area-cliente') location.assign(next === 'implantacao' ? '/area-cliente?secao=implantacao' : '/area-cliente');
       setLoginUsuario('');
       setLoginSenha('');
     } catch (err: any) {
@@ -962,7 +963,7 @@ export default function App() {
   },[sessao?.tipo,sessao?.lojaId]);
   useEffect(()=>{
     if(sessao?.tipo==='loja'&&implementationState?.lojaId===sessao.lojaId&&implementationState?.needsWelcome
-      &&!new URLSearchParams(location.search).has('area'))location.replace('/implantacao');
+      &&!new URLSearchParams(location.search).has('area'))location.replace('/area-cliente');
   },[sessao,implementationState]);
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverVehicleType, setNewDriverVehicleType] = useState('motorcycle');
@@ -2428,7 +2429,7 @@ export default function App() {
 
         {/* Kanban de Controle de Comandas — substitui as 2 filas verticais antigas */}
         {sessao?.tipo==='loja'&&<ImplementationCard key={sessao.token} token={sessao.token} onLoaded={setImplementationState}/>}
-        {new URLSearchParams(location.search).get('retorno')==='implantacao'&&<a className="btn btn-secondary" href="/implantacao">Voltar à implantação e verificar a tarefa</a>}
+        {new URLSearchParams(location.search).get('retorno')==='implantacao'&&<a className="btn btn-secondary" href="/area-cliente?secao=implantacao">Voltar à implantação e verificar a tarefa</a>}
         <OperationsWorkspace
           activeMenuKey={showVitrineModal ? 'vitrine' : showProdutosModal ? 'produtos' : undefined}
           onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return false; setShowProdutosModal(false); setShowVitrineModal(false); setCatalogoAlterado(false); return true; }}
@@ -2443,7 +2444,7 @@ export default function App() {
               { key: 'estoque', label: 'Estoque', icon: 'stock' as const, onClick: () => setShowEstoqueModal(true) },
             ] : []),
             { key: 'relatorios', label: 'Relatórios', icon: 'reports', onClick: () => { setReportPhase('filters'); setReportModalOpen(true); } },
-            { key: 'implantacao', label: implementationState?.completed===7?'Ajuda e Treinamentos':'Implantação', icon: 'settings', onClick: () => window.location.assign(sessao?.tipo==='admin'&&tenantLojaId?`/implantacao?lojaId=${encodeURIComponent(tenantLojaId)}`:'/implantacao') },
+            { key: 'area-cliente', label: 'Área do Cliente', icon: 'settings', onClick: () => window.location.assign(sessao?.tipo==='admin'&&tenantLojaId?`/area-cliente?lojaId=${encodeURIComponent(tenantLojaId)}`:'/area-cliente') },
             { key: 'motoristas', label: 'Cadastrar Motoboy', icon: 'drivers', onClick: () => setShowDriverModal(true) },
             { key: 'veiculos', label: 'Tipos de veículo', icon: 'vehicles', onClick: () => setShowVehicleModal(true) },
           ]}
