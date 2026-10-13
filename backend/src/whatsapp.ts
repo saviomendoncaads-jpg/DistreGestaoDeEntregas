@@ -1,3 +1,6 @@
+import { asyncHandler } from './http/asyncHandler';
+import { verificarSessao, obterSessaoDoRequest } from './auth';
+import { podeAcessarLoja } from './security/sessionPolicy';
 import { Router, Request, Response } from 'express';
 import { deliveries, gerarIdComanda } from './gateway';
 import { salvarEntrega, obterProdutos } from './database';
@@ -29,13 +32,15 @@ export interface WhatsappSession {
 }
 
 export const whatsappSessions = new Map<string, WhatsappSession>();
+export const chaveSessaoWhatsapp = (lojaId: string, phone: string) => JSON.stringify([lojaId, phone]);
+export const obterSessaoWhatsapp = (lojaId: string, phone: string) => whatsappSessions.get(chaveSessaoWhatsapp(lojaId, phone));
 
 class WhatsappBotService {
   public async processMessage(phone: string, text: string, lojaId: string): Promise<string> {
-    let session = whatsappSessions.get(phone);
+    let session = obterSessaoWhatsapp(lojaId, phone);
     if (!session) {
       session = { phone, state: 'WELCOME', lojaId };
-      whatsappSessions.set(phone, session);
+      whatsappSessions.set(chaveSessaoWhatsapp(lojaId, phone), session);
     }
     if (!session.messages) {
       session.messages = [];
@@ -275,24 +280,27 @@ class WhatsappBotService {
 export const whatsappBotService = new WhatsappBotService();
 
 const router = Router();
+router.use(verificarSessao);
 
-router.post('/message', async (req: Request, res: Response) => {
+router.post('/message', asyncHandler(async (req: Request, res: Response) => {
   const { phone, text, lojaId } = req.body;
-  if (!phone || !text || !lojaId) {
+  if (typeof phone !== 'string' || !phone || typeof text !== 'string' || !text || typeof lojaId !== 'string' || !lojaId) {
     res.status(400).json({ error: 'Campos phone, text e lojaId são obrigatórios.' });
     return;
   }
 
+  if (!podeAcessarLoja(obterSessaoDoRequest(req), lojaId)) { res.status(403).json({ error: 'Loja não autorizada.' }); return; }
   try {
     const reply = await whatsappBotService.processMessage(phone, text, lojaId);
     res.json({ reply });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 router.get('/sessions', (req: Request, res: Response) => {
-  res.json(Array.from(whatsappSessions.entries()));
+  const sessao = obterSessaoDoRequest(req)!;
+  res.json(Array.from(whatsappSessions.entries()).filter(([, conversa]) => podeAcessarLoja(sessao, conversa.lojaId)));
 });
 
 export default router;

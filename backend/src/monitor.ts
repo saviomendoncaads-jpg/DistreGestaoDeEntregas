@@ -1,3 +1,4 @@
+import { simuladorHabilitado } from './security/sessionPolicy';
 import { broker } from './broker';
 import { deliveries, drivers } from './gateway';
 import { MensagemEvento, EstadoAgente, Telemetria, Localizacao, Incidente } from './types';
@@ -117,6 +118,8 @@ export class MonitorAgent {
   }
 
   private startTelemetryLoop(deliveryId: string) {
+    // GPS e chegada nunca são fabricados na operação real.
+    if (!simuladorHabilitado()) return;
     const delivery = deliveries.get(deliveryId);
     if (!delivery || !delivery.rota) return;
 

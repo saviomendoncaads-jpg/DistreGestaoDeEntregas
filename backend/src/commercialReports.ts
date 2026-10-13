@@ -1,3 +1,4 @@
+import { asyncHandler } from './http/asyncHandler';
 import { Router, Request, Response } from 'express';
 import mssql from './db';
 import { pool } from './database';
@@ -43,10 +44,10 @@ export async function readCommercialReport(query: Record<string, unknown>) {
   });
   return buildCommercialReport(filter,orders.map(row=>({...row,value:row.value==null?null:Number(row.value)})),items.map(row=>({...row,price:row.price==null?null:Number(row.price),quantity:Number(row.quantity)})),normalizedCatalog,movements,stores);
 }
-router.get('/comercial',async(req:Request,res:Response)=>{
+router.get('/comercial',asyncHandler(async(req:Request,res:Response)=>{
   try { parseReportFilter(req.query); }
   catch(error) {res.status(400).json({error:(error as Error).message});return;}
   try {res.setHeader('Cache-Control','no-store');res.json(await readCommercialReport(req.query));}
   catch(error) {console.error('[Relatórios comerciais]',(error as Error).message);res.status(503).json({error:'Não foi possível consultar o relatório. Tente novamente ou reduza o período e filtre uma loja.'});}
-});
+}));
 export default router;

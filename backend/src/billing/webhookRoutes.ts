@@ -1,3 +1,4 @@
+import { asyncHandler } from '../http/asyncHandler';
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import mssql from '../db';
@@ -18,7 +19,7 @@ import { processarFilaWebhooks } from './webhookProcessor';
 
 const router = Router();
 
-router.post('/pagamento', async (req: Request, res: Response) => {
+router.post('/pagamento', asyncHandler(async (req: Request, res: Response) => {
   if (!pool) {
     res.status(503).json({ error: 'banco indisponivel, retentar' });
     return;
@@ -79,6 +80,6 @@ router.post('/pagamento', async (req: Request, res: Response) => {
   });
 
   res.status(200).json({ recebido: true });
-});
+}));
 
 export default router;

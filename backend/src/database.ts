@@ -1,3 +1,4 @@
+import { demoHabilitada } from './security/sessionPolicy';
 import { lerConfigVitrine } from './configVitrine';
 import mssql, { ConnectionPool, Transaction } from './db';
 import { Entrega, Motorista, Empresa, Loja, TipoVeiculo, Produto, Sessao } from './types';
@@ -56,30 +57,22 @@ export async function conectarBanco() {
     await inicializarBanco();
   } catch (err) {
     console.error('[Banco de Dados] Erro ao conectar ao SQL Server:', err);
+    await pool?.close().catch(() => {});
+    throw err;
   }
 }
 
 async function inicializarBanco() {
   const query = `
-    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'nomeCliente')
-    BEGIN
-      DROP TABLE ENTREGAS;
-    END
-
-    IF OBJECT_ID('ENTREGAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'DATA_HORA_CONCLUSAO')
-    BEGIN
-      DROP TABLE ENTREGAS;
-    END
-
-    IF OBJECT_ID('ENTREGAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'VALOR')
-    BEGIN
-      DROP TABLE ENTREGAS;
-    END
-
-    IF OBJECT_ID('ENTREGAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'LOJA_ID')
-    BEGIN
-      DROP TABLE ENTREGAS;
-    END
+    -- Nunca apagar dados operacionais durante o boot.
+    IF OBJECT_ID('ENTREGAS', 'U') IS NOT NULL AND COL_LENGTH('ENTREGAS', 'nomeCliente') IS NOT NULL
+      THROW 50001, 'Schema legado de ENTREGAS: execute uma migracao revisada antes de iniciar. Os dados foram preservados.', 1;
+    IF OBJECT_ID('ENTREGAS', 'U') IS NOT NULL AND COL_LENGTH('ENTREGAS', 'DATA_HORA_CONCLUSAO') IS NULL
+      ALTER TABLE ENTREGAS ADD DATA_HORA_CONCLUSAO VARCHAR(100) NULL;
+    IF OBJECT_ID('ENTREGAS', 'U') IS NOT NULL AND COL_LENGTH('ENTREGAS', 'VALOR') IS NULL
+      ALTER TABLE ENTREGAS ADD VALOR DECIMAL(10,2) NULL;
+    IF OBJECT_ID('ENTREGAS', 'U') IS NOT NULL AND COL_LENGTH('ENTREGAS', 'LOJA_ID') IS NULL
+      ALTER TABLE ENTREGAS ADD LOJA_ID VARCHAR(100) NULL;
 
     IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ENTREGAS' AND xtype='U')
     CREATE TABLE ENTREGAS (
@@ -566,7 +559,7 @@ async function inicializarBanco() {
 
     // Seed dos produtos padrão (demo — pulado em produção via SEED_DEMO=false)
     const prodCount = await pool.request().query('SELECT COUNT(*) as qtd FROM PRODUTOS');
-    if (prodCount.recordset[0].qtd === 0 && process.env.SEED_DEMO !== 'false') {
+    if (prodCount.recordset[0].qtd === 0 && demoHabilitada()) {
       const defaultProducts = [
         { id: 'prod-1', nome: 'Pizza Margherita', preco: 42.90, imagemUrl: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=500', descricao: 'Molho de tomate italiano, mussarela fresca e manjericão.' },
         { id: 'prod-2', nome: 'Pizza Calabresa', preco: 45.90, imagemUrl: 'https://images.unsplash.com/photo-1534308983496-4fabb1a015ee?w=500', descricao: 'Calabresa artesanal fatiada, cebola roxa e orégano.' },
@@ -588,15 +581,17 @@ async function inicializarBanco() {
       console.log('[Banco de Dados] Produtos padrão cadastrados com sucesso.');
     }
     
-    // Seed do administrador master
-    const countRes = await pool.request().query('SELECT COUNT(*) as qtd FROM ADMINISTRADORES WHERE USUARIO = \'admin\'');
-    if (countRes.recordset[0].qtd === 0) {
-      const hash = await hashPassword('@Shaythresh666');
-      await pool.request()
-        .input('usuario', mssql.VarChar, 'admin')
-        .input('senhaHash', mssql.VarChar, hash)
-        .query('INSERT INTO ADMINISTRADORES (USUARIO, SENHA_HASH) VALUES (@usuario, @senhaHash)');
-      console.log('[Banco de Dados] Administrador padrão "admin" cadastrado no banco de dados com a senha criptografada.');
+    // Provisionamento explícito: nenhuma senha administrativa fixa entra no banco.
+    const adminUsuario = process.env.ADMIN_USUARIO;
+    const adminSenha = process.env.ADMIN_SENHA;
+    if (adminUsuario && adminSenha) {
+      const countRes = await pool.request().input('usuario', mssql.VarChar, adminUsuario)
+        .query('SELECT COUNT(*) as qtd FROM ADMINISTRADORES WHERE USUARIO = @usuario');
+      if (countRes.recordset[0].qtd === 0) {
+        const hash = await hashPassword(adminSenha);
+        await pool.request().input('usuario', mssql.VarChar, adminUsuario).input('senhaHash', mssql.VarChar, hash)
+          .query('INSERT INTO ADMINISTRADORES (USUARIO, SENHA_HASH) VALUES (@usuario, @senhaHash)');
+      }
     }
 
     // Seed dos planos padrão
@@ -632,6 +627,7 @@ async function inicializarBanco() {
     }
   } catch (err) {
     console.error('[Banco de Dados] Erro ao inicializar tabelas:', err);
+    throw err;
   }
 }
 
@@ -705,7 +701,7 @@ export async function obterEntregas(): Promise<Entrega[]> {
 
 export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
   try {
-    if (!pool) { if (transaction) throw new Error('Banco de dados indisponível.'); return; }
+    if (!pool) throw new Error('Banco de dados indisponível.');
     const query = `
       MERGE INTO ENTREGAS AS target
       USING (SELECT @id AS ID) AS source
@@ -793,7 +789,7 @@ export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
       .query(query);
   } catch (err) {
     console.error(`[Banco de Dados] Erro ao salvar entrega ${e.id}:`, err);
-    if (transaction) throw err;
+    throw err;
   }
 }
 
@@ -879,6 +875,7 @@ export async function obterSessoesValidas(): Promise<Sessao[]> {
     nomeEmpresa: row.NOME_EMPRESA ?? undefined,
     token: row.TOKEN,
     criadoEm: row.CRIADO_EM,
+    expiraEm: row.EXPIRA_EM,
     recebePedidos: row.RECEBE_PEDIDOS == null ? undefined : !!row.RECEBE_PEDIDOS,
     latitude: row.LATITUDE ?? undefined,
     longitude: row.LONGITUDE ?? undefined,
