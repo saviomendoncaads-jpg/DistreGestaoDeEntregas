@@ -1,0 +1,65 @@
+.distre-access { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); min-height: 100dvh; background: #fff; color: #182334; font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.distre-access *, .distre-access *::before, .distre-access *::after { box-sizing: border-box; }
+.distre-access a { text-decoration: none; }
+.distre-access button, .distre-access input { font-family: inherit; }
+.access-main { display: flex; flex-direction: column; min-width: 0; }
+.access-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 36px 48px; }
+.access-brand { display: inline-flex; align-items: center; gap: 10px; color: #152238; }
+.access-brand svg { width: 30px; height: 26px; color: #2563eb; }
+.access-brand span { font-size: 19px; font-weight: 650; letter-spacing: 3px; }
+.access-home { font-size: 12px; color: #64748b; }
+.access-home span { margin-left: 6px; }
+.access-form-region { flex: 1; display: flex; align-items: center; justify-content: center; padding: 56px 40px 72px; }
+.access-form-content { width: 100%; max-width: 380px; }
+.access-eyebrow { display: block; font-size: 10px; letter-spacing: 1.4px; font-weight: 600; color: #64748b; margin-bottom: 12px; }
+.access-form-content h1 { margin: 0 0 12px; color: #152238; font-size: 30px; font-weight: 650; line-height: 1.2; letter-spacing: -.9px; }
+.access-description { color: #697586; font-size: 14px; line-height: 1.7; margin: 0 0 32px; }
+.access-form { display: flex; flex-direction: column; gap: 22px; }
+.access-field { display: flex; flex-direction: column; gap: 8px; }
+.access-field label { color: #344054; font-size: 13px; font-weight: 500; }
+.access-field input { width: 100%; height: 48px; border: 1px solid #ced5df; border-radius: 6px; color: #182334; background: #fff; font-size: 14px; padding: 0 14px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.access-field input::placeholder { color: #8993a2; }
+.access-field input:hover { border-color: #9ca9b9; }
+.access-field input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px #2563eb17; }
+.access-password { position: relative; }
+.access-password input { padding-right: 54px; }
+.access-reveal { position: absolute; right: 4px; top: 4px; width: 40px; height: 40px; border: 0; border-radius: 4px; background: transparent; color: #697586; display: grid; place-items: center; cursor: pointer; }
+.access-reveal svg { width: 20px; height: 20px; }
+.access-reveal:hover { color: #2563eb; background: #f3f6fa; }
+.access-submit { min-height: 48px; padding: 12px 18px; background: #2563eb; color: #fff; border: 1px solid #2563eb; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 2px; }
+.access-submit:hover { background: #1d4ed8; border-color: #1d4ed8; }
+.access-submit:disabled { background: #477be4; cursor: wait; }
+.access-field input:disabled { background: #f8fafc; }
+.access-help { color: #7b8593; font-size: 11px; line-height: 1.7; text-align: center; margin-top: -8px; }
+.access-error { color: #a82121; background: #fef3f2; border: 1px solid #f4d4d0; border-radius: 6px; padding: 12px 14px; font-size: 12px; line-height: 1.6; }
+.access-mode-switch { display: flex; flex-direction: column; gap: 7px; border-top: 1px solid #e8ecf1; padding-top: 24px; margin-top: 30px; font-size: 12px; color: #7b8593; }
+.access-mode-switch button { border: 0; padding: 0; color: #385b91; background: transparent; width: fit-content; font-size: 12px; cursor: pointer; font-weight: 500; }
+.access-mode-switch button:hover { text-decoration: underline; }
+.access-mode-switch button span { margin-left: 5px; }
+.access-footer { display: flex; justify-content: space-between; gap: 20px; padding: 24px 48px; color: #8b95a3; font-size: 11px; }
+.access-footer a { color: #64748b; }
+.access-product { display: flex; flex-direction: column; justify-content: center; position: relative; background: #101e34; color: #fff; padding: 90px clamp(36px, 5vw, 84px); }
+.access-product-content { max-width: 430px; }
+.access-product-eyebrow { display: block; color: #92abc9; font-size: 10px; font-weight: 500; letter-spacing: 1.5px; margin-bottom: 24px; }
+.access-product h2 { color: #f7f9fc; font-size: clamp(30px, 3vw, 43px); font-weight: 550; line-height: 1.2; letter-spacing: -1.1px; margin: 0 0 20px; }
+.access-product-content > p { color: #9fb1cb; font-size: 14px; line-height: 1.8; max-width: 350px; }
+.access-product-flow { display: flex; flex-direction: column; margin-top: 44px; }
+.access-product-flow > div { display: flex; gap: 16px; padding: 20px 0; border-top: 1px solid #2a3850; align-items: center; }
+.access-product-icon { display: grid; place-items: center; color: #97b7e2; width: 38px; height: 38px; flex-shrink: 0; }
+.access-product-icon svg { width: 24px; height: 24px; }
+.access-product-flow h3 { font-size: 13px; line-height: 1.4; font-weight: 550; color: #edf2fa; margin: 0 0 5px; letter-spacing: 0; }
+.access-product-flow p { font-size: 11px; line-height: 1.6; color: #92a6c1; margin: 0; }
+.access-product-foot { position: absolute; bottom: 26px; left: clamp(36px, 5vw, 84px); color: #7188a6; font-size: 10px; }
+.distre-access a:focus-visible, .distre-access button:focus-visible { outline: 2px solid #2563eb; outline-offset: 4px; }
+@media (max-width: 1000px) { .access-header { padding: 28px; } .access-footer { padding: 24px 28px; } .access-product { padding: 70px 36px; } .access-product h2 { font-size: 31px; } }
+@media (max-width: 760px) {
+  .distre-access { grid-template-columns: 1fr; }
+  .access-product { display: none; }
+  .access-form-region { padding: 48px 28px 64px; }
+  .access-header { padding: 26px 28px; }
+  .access-form-content { max-width: 390px; }
+  .access-field input { font-size: 16px; }
+  .access-footer { padding: 22px 28px; }
+}
+@media (max-width: 390px) { .access-header { padding: 24px; } .access-form-region { padding-inline: 24px; } .access-footer { padding-inline: 24px; } .access-form-content h1 { font-size: 28px; } .access-home { font-size: 11px; } }
+@media (prefers-reduced-motion: reduce) { .distre-access * { transition: none !important; } }

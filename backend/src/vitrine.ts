@@ -1,3 +1,4 @@
+import { lerConfigVitrine, erroRegraCompra } from './configVitrine';
 import { Router, Request, Response } from 'express';
 import { broker } from './broker';
 import { obterProdutos } from './database';
@@ -109,6 +110,7 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
       return;
     }
 
+    const config = lerConfigVitrine(loja.configVitrine);
     const suspensa = loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO';
     const produtos = suspensa ? [] : (await obterProdutos(loja.id)).filter(publicadoNaVitrine);
     const saldos = suspensa ? new Map<string, number>() : await saldosPublicos(loja.id);
@@ -117,14 +119,15 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
     res.json({
       loja: {
         id: loja.id,
-        nome: loja.nome,
+        nome: config.nomePublico || loja.nome,
         bairro: loja.bairro || undefined,
         cidade: loja.cidade || undefined,
         uf: loja.uf || undefined,
         logoUrl: loja.logoUrl || undefined,
-        aceitandoPedidos: !suspensa,
+        configVitrine: config,
+        aceitandoPedidos: !suspensa && !config.pausada,
         // Contato público da rede (WhatsApp/telefone na vitrine).
-        telefone: (empresa?.telefone || '').replace(/\D/g, '') || undefined,
+        telefone: (config.whatsapp || empresa?.telefone || '').replace(/\D/g, '') || undefined,
         nomeEmpresa: empresa?.nome || undefined
       },
       // "Trocar loja": outras lojas ativas da mesma rede.
@@ -141,6 +144,10 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
         preco: precoVenda(p),
         precoOriginal: p.precoPromocional ? p.preco : undefined,
         marca: p.marca,
+        fabricante: p.fabricante,
+        codigoInterno: p.codigoInterno,
+        codigoBarras: p.codigoBarras,
+        unidade: p.unidade,
         imagens: p.imagens,
         imagemUrl: p.imagemUrl || undefined,
         categoria: p.categoria || undefined,
@@ -165,6 +172,9 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
       res.status(503).json({ error: 'Esta loja não está aceitando pedidos no momento.' });
       return;
     }
+
+    const config = lerConfigVitrine(loja.configVitrine);
+    if (config.pausada) { res.status(503).json({ error: config.mensagemPausa }); return; }
 
     // Enforcement de plano: respeita o teto mensal de entregas do tier da loja.
     const limite = await verificarLimiteEntregasMes(loja.id);
@@ -236,6 +246,8 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
     }
 
     const subtotal = itensValidados.reduce((acc, it) => acc + precoVenda(it.produto) * it.quantidade, 0);
+    const erroRegra = erroRegraCompra(config, subtotal, forma);
+    if (erroRegra) { res.status(400).json({ error: erroRegra }); return; }
     const taxaEntrega = 0; // v1: frete definido pela loja na comanda; campo reservado
     const total = Number((subtotal + taxaEntrega).toFixed(2));
 
