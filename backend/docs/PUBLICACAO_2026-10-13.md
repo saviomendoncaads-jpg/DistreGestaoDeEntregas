@@ -88,3 +88,10 @@ Recorrência mensal idempotente recupera competências vencidas sem duplicação
 A inadimplência restringe operações, nunca o login da conta: sessão continua válida, Área do Cliente e cobranças permanecem disponíveis. Operação fica cinza, inerte, com aviso e acesso direto às cobranças. Escritas HTTP, integrações e pacotes operacionais Socket continuam protegidos no servidor. Cobranças são filtradas pela empresa/loja da sessão, incluindo rede e excluindo faturas individuais de outras filiais. Pix/boleto simulados, links sem HTTPS e meios de fatura paga/cancelada não são oferecidos. Produção ainda exige configuração do provedor real para disponibilizar pagamento online; sem meios reais a fatura orienta regularização com a administração. Cliente não confirma a própria baixa.
 
 247 testes passaram, incluindo 45 SQL. Navegador com banco exclusivo verificou contrato único para três filiais, login suspenso, cobrança acessível, escrita 402, operação inerte, ausência de Pix fictício, baixa administrativa em fixture e liberação na mesma sessão. Smoke SQL/HTTP completo: 11 cenários aprovados.
+
+
+## Pix direto da plataforma — 13/10/2026
+
+Cobranças abertas passam a oferecer exclusivamente Pagar com Pix. A chave aleatória fornecida pela administração fica na configuração privada PIX_PLATAFORMA_CHAVE, sem fixação no código. O cliente vê valor, referência e chave selecionável, pode copiar a chave e recebe confirmação visual da cópia. A atualização de situação informa quando ainda existem pendências. Não há boleto, cartão, QR/Pix fictício nem baixa ao clicar: recebimento é conferido e baixado no Master, mantendo a regra de liberação por todas as obrigações impeditivas. Faturas pagas/canceladas e valores inválidos não oferecem pagamento.
+
+249 testes aprovados, incluindo 45 SQL. Navegador verificou abertura dos dados Pix, chave exata, conteúdo da área de transferência, ausência de boleto, resposta de atualização, celular, ausência de baixa automática e liberação após confirmação administrativa em banco temporário.
