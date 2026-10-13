@@ -9,7 +9,7 @@ Textos (roteiro da narração e manual em PDF) de cada aula. Os vídeos e PDFs p
 | 3 · Gestão de estoque inicial | `estoque-inicial` | vídeo + manual |
 | 4 · Importação de estoque | `saldo-inicial` | vídeo + manual + planilha de contagem |
 | 5 · Imagens | `imagens-produtos` | vídeo + manual |
-| 6 · Operação e PDV | — | em produção |
-| 7 · Go-Live | — | em produção |
+| 6 · Operação e PDV | `operacao-pdv` | vídeo + manual (guia do dia a dia) |
+| 7 · Go-Live | `go-live` | vídeo + manual |
 
 Produção: Remotion + voz neural pt-BR + capturas reais do Distre de demonstração, em projeto à parte (fora deste repositório).
