@@ -63,3 +63,10 @@ Código `03c7bd2c6025ca782dfb8036e91c4d474254f357` publicado: botão Área do Cl
 Código `14efd742d0f5e68d8e92cb3dfc8c6d375b91f368` publicado. A central ganhou a quinta opção Concluídos e acesso lateral correspondente. A lista inicial mantém somente comandas em andamento; concluídos agrupam ENTREGUE, CANCELADO, RECUSADO_INSUCESSO e PRODUTO_RETORNADO_ESTOQUE, preservando resultado original, consulta e histórico. AGUARDANDO_RETORNO_CD e pedidos antigos em andamento permanecem na fila. Nenhum cancelamento automático ou alteração de registros foi adicionado.
 
 Build completo e quatro checks CI aprovados. Navegador com conjunto de oito comandas verificou cinco cartões, quatro pendências anteriores (incluindo retorno), quatro encerradas, busca, retorno à fila e celular. Backup SQL restaurado; estágio confirmou quatro comandas e relatório sem vínculos ambíguos; publicação e endereço público conferidos.
+
+
+## Títulos por área — 13/10/2026
+
+Código `78dc122ea094951a91d52abaabb8d0f8cabd802d` publicado. Títulos de abas: Distre - Operação na sessão da loja e visualização administrativa de loja; Distre - Painel Administrador no Master; Distre - Área do Cliente na jornada e portal; Distre - Acesso ao ERP no login. Distre - Loja, Pedidos e Logística fica na página inicial institucional. Vitrine pública preserva título configurado pela loja.
+
+Build e quatro checks CI aprovados; navegador autenticado conferiu transição entre operação, portal e Master. Backup SQL restaurado, estágio saudável e quatro comandas preservadas; checagem pública verificou títulos do login, Master, portal e HTML institucional.
