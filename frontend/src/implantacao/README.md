@@ -1,20 +1,30 @@
-# Painel de implantação — estrutura demonstrativa
+# Implantação integrada por loja
 
-Rota `/implantacao`, também acessível pela ação **Implantação** do painel da loja.
+Rota `/implantacao` autenticada, no menu lateral da loja. Sem sessão, segue para login. Admin sem loja selecionada abre o acompanhamento no Admin Master; com `?lojaId=...`, vê a jornada em modo de acompanhamento.
 
-Componentes: `Sidebar`, `Timeline`, `TimelineItem`, `VideoStep`, `UploadStep` e `ImplementationPanel`. Os sete passos são definidos em `types.ts`; `useState` controla o avanço sequencial. O passo ativo expande, os próximos ficam bloqueados e o trecho da linha de um passo concluído fica verde. Layout responsivo em Tailwind e CSS isolado.
+- Loja nova, sem catálogo ou operação anterior, recebe a jornada no primeiro acesso. Lojas já operando mantêm o painel operacional.
+- Cartão no painel mostra progresso e próxima etapa; o acesso ao painel operacional permanece disponível durante a implantação.
+- Ao concluir, o cartão sai do painel e o menu passa a **Ajuda e Treinamentos**.
+- Admin Master possui área de implantação e link de progresso na ficha de cada loja, com etapa, registros pendentes e data de conclusão.
 
-## Limites definidos para esta entrega
+## Persistência e critérios
 
-- Vídeos, planilhas modelo e manual PDF serão produzidos em etapa posterior; não há arquivos de conteúdo nesta entrega. Os botões de download estão desabilitados com explicação.
-- Os arquivos selecionados ficam apenas no navegador. Upload/importação e associação de imagens a produtos são simulados; não processam Excel nem alteram catálogo, estoque ou e-commerce.
-- Go-Live conclui a demonstração, sem ativar serviços ou mudar dados da loja.
-- Progresso temporário, reiniciado ao recarregar a página; não está vinculado à sessão da loja nem persistido no servidor.
+`IMPLANTACAO_LOJAS` mantém progresso e datas. `IMPLANTACAO_ETAPAS` mantém modalidade, identificação da sessão por papel/loja, evidência e horário. Não armazena tokens. Uma transação serializável valida sequência e grava avanço + histórico. Retry é idempotente, sem duplicar eventos. A sessão de loja ignora IDs externos; admin pode consultar uma loja explicitamente.
 
-## Próxima integração
+1. Conhecimento prévio de organização do catálogo confirmado pela loja.
+2. Pelo menos um produto ativo cadastrado/importado. Rascunhos não contam.
+3. Conhecimento prévio de estoque inicial confirmado pela loja.
+4. Todos os produtos ativos possuem registro de saldo na loja.
+5. Para loja que recebe pedidos por e-commerce, todos os produtos ativos têm imagem principal cadastrada. Para loja sem esse canal, imagens são opcionais.
+6. Conhecimento prévio de operação e PDV confirmado pela loja.
+7. Aceite de Go-Live, revalidando catálogo, saldos, imagens quando necessárias e situação de acesso da loja.
 
-Adicionar aulas próprias, modelos versionados e guia de operação. Implementar progresso por loja/usuário, importações com prévia/validação/erros e autorização no servidor, associação de imagens por código e aceite de Go-Live. Não transformar a conclusão simulada em autorização operacional sem essas validações.
+Go-Live registra preparação/aceite; não cria pedidos, documentos fiscais, cobranças ou alterações de plano. Não certifica homologação fiscal/financeira. A identificação individual de operadores depende da evolução de usuários e permissões documentada na auditoria.
+
+## Conteúdo futuro
+
+Vídeos, modelos e PDF ainda serão produzidos. Sem aula disponível, a confirmação é expressamente **conhecimento prévio**, sem registro de aula assistida. Downloads permanecem desabilitados. As tarefas abrem cadastro/importação de produtos e gestão de estoque existentes, com retorno à implantação; não usam uploads fictícios para avançar. Os componentes VideoStep/UploadStep do protótipo ficam reservados para a futura integração dos conteúdos.
 
 ## Validação
 
-Build completo. Jornada em navegador: ordem e bloqueio dos sete passos; linha verde; formatos inválidos; planilha de produtos/estoque; várias imagens; bloqueio dos downloads sem conteúdo; Go-Live e reinício. Desktop e celular sem rolagem horizontal ou erros de JavaScript.
+Testes SQL: isolamento, persistência, concorrência, idempotência, sequência, saldo e imagens reais, suspensão e revalidação do Go-Live. HTTP: sessão, escopo por loja e acesso administrativo. Navegador: primeiro acesso, refresh, tarefa pendente, retorno do cadastro, estoque, finalização, mudança para Ajuda e Treinamentos, acompanhamento administrativo e responsividade.

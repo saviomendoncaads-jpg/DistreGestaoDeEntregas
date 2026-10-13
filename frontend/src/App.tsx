@@ -1,4 +1,6 @@
 import ManualDeliveryActions from './components/ManualDeliveryActions';
+import ImplementationCard from './implantacao/ImplementationCard';
+import type { ImplementationState } from './implantacao/api';
 import ReturnStockAction from './components/ReturnStockAction';
 import { comandasOperacionais } from './operationOrders';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
@@ -340,6 +342,7 @@ export default function App() {
       setSessao(novaSessao);
       localStorage.setItem('distre_sessao', JSON.stringify(novaSessao));
       localStorage.setItem('distre_token', data.token);
+      if (new URLSearchParams(location.search).get('next') === 'implantacao') location.assign('/implantacao');
       setLoginUsuario('');
       setLoginSenha('');
     } catch (err: any) {
@@ -949,6 +952,18 @@ export default function App() {
   const [catalogoRefresh, setCatalogoRefresh] = useState(0);
   const [showProdutosModal, setShowProdutosModal] = useState(false);
   const [showVitrineModal, setShowVitrineModal] = useState(false);
+  const [implementationState,setImplementationState]=useState<ImplementationState|null>(null);
+  useEffect(()=>{
+    if(sessao?.tipo!=='loja')return;
+    const area=new URLSearchParams(location.search).get('area');
+    if(area==='produtos')setShowProdutosModal(true);
+    if(area==='estoque'){setShowProdutosModal(true);setShowEstoqueModal(true);}
+    if(area==='vitrine')setShowVitrineModal(true);
+  },[sessao?.tipo,sessao?.lojaId]);
+  useEffect(()=>{
+    if(sessao?.tipo==='loja'&&implementationState?.lojaId===sessao.lojaId&&implementationState?.needsWelcome
+      &&!new URLSearchParams(location.search).has('area'))location.replace('/implantacao');
+  },[sessao,implementationState]);
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverVehicleType, setNewDriverVehicleType] = useState('motorcycle');
   const [newVehicleName, setNewVehicleName] = useState('');
@@ -2412,6 +2427,8 @@ export default function App() {
         )}
 
         {/* Kanban de Controle de Comandas — substitui as 2 filas verticais antigas */}
+        {sessao?.tipo==='loja'&&<ImplementationCard key={sessao.token} token={sessao.token} onLoaded={setImplementationState}/>}
+        {new URLSearchParams(location.search).get('retorno')==='implantacao'&&<a className="btn btn-secondary" href="/implantacao">Voltar à implantação e verificar a tarefa</a>}
         <OperationsWorkspace
           activeMenuKey={showVitrineModal ? 'vitrine' : showProdutosModal ? 'produtos' : undefined}
           onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return false; setShowProdutosModal(false); setShowVitrineModal(false); setCatalogoAlterado(false); return true; }}
@@ -2426,7 +2443,7 @@ export default function App() {
               { key: 'estoque', label: 'Estoque', icon: 'stock' as const, onClick: () => setShowEstoqueModal(true) },
             ] : []),
             { key: 'relatorios', label: 'Relatórios', icon: 'reports', onClick: () => { setReportPhase('filters'); setReportModalOpen(true); } },
-            { key: 'implantacao', label: 'Implantação', icon: 'settings', onClick: () => window.location.assign('/implantacao') },
+            { key: 'implantacao', label: implementationState?.completed===7?'Ajuda e Treinamentos':'Implantação', icon: 'settings', onClick: () => window.location.assign(sessao?.tipo==='admin'&&tenantLojaId?`/implantacao?lojaId=${encodeURIComponent(tenantLojaId)}`:'/implantacao') },
             { key: 'motoristas', label: 'Cadastrar Motoboy', icon: 'drivers', onClick: () => setShowDriverModal(true) },
             { key: 'veiculos', label: 'Tipos de veículo', icon: 'vehicles', onClick: () => setShowVehicleModal(true) },
           ]}

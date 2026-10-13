@@ -4,14 +4,15 @@ import AdminCompanies from './AdminCompanies';
 import AdminFinance from './AdminFinance';
 import AdminDialogs from './AdminDialogs';
 import { useState } from 'react';
+import AdminImplementation from './AdminImplementation';
 import AdminOverview from './AdminOverview';
 import AdminReports from './AdminReports';
 export default function AdminMaster(props: AdminMasterProps) {
   const {setAdminSubView, setFinSubTab, isConnected, handleLogout, adminDataState, refreshAdminData} = props;
-  const [section, setSection] = useState<MasterSection>('overview');
+  const [section, setSection] = useState<MasterSection>(()=>new URLSearchParams(location.search).get('adminArea')==='implantacao'?'implantacao':'overview');
   const navigate = (next: MasterSection) => {
     setSection(next);
-    if (next === 'overview') return;
+    if (next === 'overview' || next === 'implantacao') return;
     setAdminSubView(next === 'empresas' ? 'operacional' : 'financeiro');
     if (next !== 'empresas') setFinSubTab(['planos', 'assinaturas', 'configuracoes'].includes(next) ? 'planos_config' : next as 'faturas' | 'relatorios');
   };
@@ -25,8 +26,8 @@ export default function AdminMaster(props: AdminMasterProps) {
     navigate('faturas');
   };
   return <AdminMasterLayout section={section} onNavigate={navigate} connected={isConnected} onLogout={handleLogout}>
-    {section !== 'relatorios' && <div className="master-data-toolbar"><span role="status">{loading ? 'Carregando dados da plataforma…' : refreshing ? 'Atualizando dados da plataforma…' : failed ? 'Não foi possível atualizar os dados desta área.' : 'Dados carregados da plataforma'}</span><button type="button" className="btn btn-secondary" disabled={loading || refreshing} onClick={() => void refreshAdminData()}>Atualizar dados</button></div>}
-    {section === 'relatorios' ? <AdminReports {...props}/> : failed ? <div className="master-data-error" role="alert"><strong>Não foi possível carregar esta área.</strong><p>Confira a conexão e tente atualizar os dados. Os indicadores serão exibidos após uma consulta bem-sucedida.</p></div> : loading ? <div className="master-loading" aria-busy="true"><div/><div/><div/><span>Preparando {section === 'overview' ? 'a visão geral' : 'os dados desta área'}…</span></div> : section === 'overview' ? <AdminOverview {...props} onNavigate={navigate} onOverdue={overdue}/> : section === 'empresas' ? <AdminCompanies {...props} /> : <AdminFinance {...props} section={section} />}
+    {section !== 'relatorios' && section !== 'implantacao' && <div className="master-data-toolbar"><span role="status">{loading ? 'Carregando dados da plataforma…' : refreshing ? 'Atualizando dados da plataforma…' : failed ? 'Não foi possível atualizar os dados desta área.' : 'Dados carregados da plataforma'}</span><button type="button" className="btn btn-secondary" disabled={loading || refreshing} onClick={() => void refreshAdminData()}>Atualizar dados</button></div>}
+    {section === 'implantacao' ? <AdminImplementation token={props.reportAccess.token}/> : section === 'relatorios' ? <AdminReports {...props}/> : failed ? <div className="master-data-error" role="alert"><strong>Não foi possível carregar esta área.</strong><p>Confira a conexão e tente atualizar os dados. Os indicadores serão exibidos após uma consulta bem-sucedida.</p></div> : loading ? <div className="master-loading" aria-busy="true"><div/><div/><div/><span>Preparando {section === 'overview' ? 'a visão geral' : 'os dados desta área'}…</span></div> : section === 'overview' ? <AdminOverview {...props} onNavigate={navigate} onOverdue={overdue}/> : section === 'empresas' ? <AdminCompanies {...props} /> : <AdminFinance {...props} section={section} />}
     <AdminDialogs {...props} />
   </AdminMasterLayout>;
 }

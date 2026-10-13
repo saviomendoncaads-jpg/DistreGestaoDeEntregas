@@ -1,9 +1,10 @@
+import StoreImplementationBadge from './StoreImplementationBadge';
 import AdminForm from './AdminForm';
 import { useState } from 'react';
 import AccessKey from './AccessKey';
 import { downloadCsv } from './admin-utils';
 import type { AdminMasterProps } from './admin-props';
-type Props = Pick<AdminMasterProps, 'adminDataState' | 'refreshAdminData' | 'empresas' | 'setShowNovaEmpresaForm' | 'showNovaEmpresaForm' | 'handleCadastrarEmpresa' | 'novaEmpresaNome' | 'setNovaEmpresaNome' | 'novaEmpresaCnpj' | 'setNovaEmpresaCnpj' | 'novaEmpresaTelefone' | 'setNovaEmpresaTelefone' | 'novaEmpresaEmail' | 'setNovaEmpresaEmail' | 'expandedEmpresas' | 'lojasDaEmpresa' | 'showNovaLojaForm' | 'toggleEmpresaExpandida' | 'handleToggleEmpresa' | 'handleDeleteEmpresa' | 'setShowNovaLojaForm' | 'finPlanos' | 'carregarFinanceiroPlanos' | 'handleCadastrarLoja' | 'novaLojaNome' | 'setNovaLojaNome' | 'novaLojaCnpj' | 'setNovaLojaCnpj' | 'novaLojaUsuario' | 'setNovaLojaUsuario' | 'novaLojaSenha' | 'setNovaLojaSenha' | 'novaLojaPlanoId' | 'setNovaLojaPlanoId' | 'novaLojaCep' | 'setNovaLojaCep' | 'novaLojaEndereco' | 'setNovaLojaEndereco' | 'novaLojaNumero' | 'setNovaLojaNumero' | 'novaLojaBairro' | 'setNovaLojaBairro' | 'novaLojaCidade' | 'setNovaLojaCidade' | 'novaLojaUf' | 'setNovaLojaUf' | 'novaLojaRecebePedidos' | 'setNovaLojaRecebePedidos' | 'handleRegenerarChaveLoja' | 'handleToggleRecebePedidos' | 'setLojaVisualizada' | 'startEditLoja' | 'handleToggleLoja' | 'handleDeleteLoja'>;
+type Props = Pick<AdminMasterProps, 'reportAccess' | 'adminDataState' | 'refreshAdminData' | 'empresas' | 'setShowNovaEmpresaForm' | 'showNovaEmpresaForm' | 'handleCadastrarEmpresa' | 'novaEmpresaNome' | 'setNovaEmpresaNome' | 'novaEmpresaCnpj' | 'setNovaEmpresaCnpj' | 'novaEmpresaTelefone' | 'setNovaEmpresaTelefone' | 'novaEmpresaEmail' | 'setNovaEmpresaEmail' | 'expandedEmpresas' | 'lojasDaEmpresa' | 'showNovaLojaForm' | 'toggleEmpresaExpandida' | 'handleToggleEmpresa' | 'handleDeleteEmpresa' | 'setShowNovaLojaForm' | 'finPlanos' | 'carregarFinanceiroPlanos' | 'handleCadastrarLoja' | 'novaLojaNome' | 'setNovaLojaNome' | 'novaLojaCnpj' | 'setNovaLojaCnpj' | 'novaLojaUsuario' | 'setNovaLojaUsuario' | 'novaLojaSenha' | 'setNovaLojaSenha' | 'novaLojaPlanoId' | 'setNovaLojaPlanoId' | 'novaLojaCep' | 'setNovaLojaCep' | 'novaLojaEndereco' | 'setNovaLojaEndereco' | 'novaLojaNumero' | 'setNovaLojaNumero' | 'novaLojaBairro' | 'setNovaLojaBairro' | 'novaLojaCidade' | 'setNovaLojaCidade' | 'novaLojaUf' | 'setNovaLojaUf' | 'novaLojaRecebePedidos' | 'setNovaLojaRecebePedidos' | 'handleRegenerarChaveLoja' | 'handleToggleRecebePedidos' | 'setLojaVisualizada' | 'startEditLoja' | 'handleToggleLoja' | 'handleDeleteLoja'>;
 export default function AdminCompanies(props:Props) {
 const {
   empresas,
@@ -401,7 +402,7 @@ return (
                             <tbody>
                               {lojas.map(loja => (
                                 <tr key={loja.id}>
-                                  <td><strong>{loja.nome}</strong><a className="master-store-link" href={`/loja/${encodeURIComponent(loja.id)}`} target="_blank" rel="noreferrer">Abrir loja online ↗</a></td>
+                                  <td><strong>{loja.nome}</strong><StoreImplementationBadge token={props.reportAccess.token} lojaId={loja.id}/><a className="master-store-link" href={`/loja/${encodeURIComponent(loja.id)}`} target="_blank" rel="noreferrer">Abrir loja online ↗</a></td>
                                   <td className="font-mono master-surface-22" >
                                     {loja.cnpj || <em className="master-surface-23" >Não informado</em>}
                                   </td>
