@@ -11,8 +11,10 @@ import './index.css'
 // aos dois ramos — a vitrine carregava o App.css e ficava sem o cliente.css.
 const PainelCliente = lazy(() => import('./cliente/PainelCliente.tsx'))
 const App = lazy(() => import('./App.tsx'))
+const Implantacao = lazy(() => import('./implantacao/ImplementationPanel.tsx'))
 const ehVitrine = /^\/loja(\/|$)/.test(window.location.pathname)
-const Raiz = ehVitrine ? PainelCliente : App
+const ehImplantacao = /^\/implantacao\/?$/.test(window.location.pathname)
+const Raiz = ehImplantacao ? Implantacao : ehVitrine ? PainelCliente : App
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
