@@ -1,0 +1,89 @@
+{
+  "slug": "imagens-produtos",
+  "etapa": 5,
+  "titulo": "Imagens para o e-commerce",
+  "resumo": "Prepare e envie a foto principal de cada produto para que a vitrine da loja online fique completa.",
+  "tempo": "1 a 2 minutos por produto",
+  "antes": [
+    "Separe uma foto de cada produto. Prefira imagem **quadrada**, com **fundo claro** e o produto inteiro, em **PNG, JPG ou WEBP** com até **3 MB**.",
+    "Nomeie os arquivos com o código interno do produto (por exemplo, `MED-001.png`). Isso evita trocar a foto de um produto pela de outro.",
+    "Esta etapa é obrigatória para lojas que **recebem pedidos pelo e-commerce**. Para lojas sem esse canal, as imagens são opcionais."
+  ],
+  "objetivos": [
+    "Enviar a imagem principal de um produto pela tela de edição.",
+    "Conferir como o produto aparece na vitrine.",
+    "Acompanhar as pendências de foto até chegarem a zero."
+  ],
+  "passos": [
+    {
+      "titulo": "Encontre os produtos sem foto",
+      "texto": "Em **Produtos**, os itens sem imagem mostram o aviso **Completar: Foto**, e o indicador **Com pendências** conta quantos produtos ainda precisam de ajuste.",
+      "tela": "1-lista",
+      "marcas": [
+        { "alvo": "pendencias", "texto": "**Com pendências**: produtos com foto, EAN ou categoria por completar." },
+        { "alvo": "primeiraPendencia", "texto": "**Completar: Foto** aparece em cada produto sem imagem principal." },
+        { "alvo": "editar", "texto": "**Editar**: abre o cadastro do produto." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Abra a seção Imagens",
+      "texto": "Clique em **Editar** no produto. No menu à esquerda do formulário, escolha **Imagens**. O número ao lado mostra quantas imagens o produto já tem.",
+      "tela": "2-imagens",
+      "marcas": [
+        { "alvo": "secao", "texto": "Seção **Imagens** do cadastro." },
+        { "alvo": "dropzone", "texto": "Área **Selecionar imagens**: clique para escolher os arquivos." }
+      ],
+      "recorte": { "x": 0.2, "y": 0.35, "w": 0.6 }
+    },
+    {
+      "titulo": "Selecione o arquivo",
+      "texto": "Clique em **Selecionar imagens** e escolha a foto no computador. Cada imagem pode ter até **3 MB**, nos formatos **PNG, JPG ou WEBP**, e cada produto aceita até **8 imagens**.",
+      "tela": "gravacao:enviar",
+      "posicoes": "2-imagens",
+      "marcas": [
+        { "alvo": "dropzone", "texto": "A foto enviada aparece logo abaixo, com a etiqueta **Principal**." },
+        { "alvo": "previa", "texto": "A **Prévia do produto** já mostra a imagem." }
+      ],
+      "atencao": "Se a imagem tiver mais de 3 MB ou formato diferente, o Distre recusa o envio. Reduza o arquivo e tente de novo."
+    },
+    {
+      "titulo": "Confira a imagem principal",
+      "texto": "A **primeira** imagem é a **principal**: é a que aparece na lista e na vitrine. Para trocar a ordem ou tirar uma imagem, use **Remover** e envie de novo.",
+      "tela": "3-enviada",
+      "marcas": [
+        { "alvo": "principal", "texto": "Etiqueta **Principal** na primeira imagem." },
+        { "alvo": "previa", "texto": "Prévia: é assim que o produto aparece para o cliente." }
+      ],
+      "recorte": "inteira",
+      "dica": "Use imagens quadradas, com fundo claro, o produto inteiro e nítido, e sem texto ou marca d'água. Elas ficam melhor nos cartões da vitrine."
+    },
+    {
+      "titulo": "Salve as alterações",
+      "texto": "Clique em **Salvar alterações**, na barra inferior. O Distre volta para a lista, e o produto deixa de mostrar o aviso **Completar: Foto**.",
+      "tela": "4-lista-final",
+      "marcas": [
+        { "alvo": "primeiraLinha", "texto": "O produto aparece na lista com a foto." },
+        { "alvo": "pendencias", "texto": "O indicador **Com pendências** diminui a cada produto concluído." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Repita para todos os produtos",
+      "texto": "Faça o mesmo para cada produto ativo. Quando todos tiverem imagem principal, volte à implantação, marque a confirmação e clique em **Verificar dados e concluir**: o Distre confere, no servidor, se cada produto ativo tem imagem."
+    }
+  ],
+  "problemas": [
+    { "p": "\"Imagem deve ter entre 1 byte e 3 MB.\"", "s": "O arquivo é grande demais. Reduza o tamanho (exportando em JPG ou WEBP) e envie de novo." },
+    { "p": "\"Envie uma imagem PNG, JPG ou WEBP.\"", "s": "O formato não é aceito. Converta a foto para PNG, JPG ou WEBP." },
+    { "p": "\"Use até 8 imagens com endereço válido.\"", "s": "Cada produto aceita no máximo 8 imagens. Remova as que não usa." },
+    { "p": "\"Falta cadastrar a imagem principal de N produto(s).\"", "s": "Há produtos ativos sem foto. Use o aviso **Completar: Foto** na lista para encontrá-los." }
+  ],
+  "checklist": [
+    "Cada produto ativo tem imagem principal.",
+    "O indicador **Com pendências** não mostra mais **Foto** pendente.",
+    "A vitrine da loja mostra as fotos nos cartões dos produtos.",
+    "Você clicou em **Verificar dados e concluir** na etapa 5."
+  ],
+  "proximo": "Etapa 6 · Operação e PDV"
+}

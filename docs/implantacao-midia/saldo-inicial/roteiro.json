@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "titulo": "Importação de estoque", "fps": 30, "largura": 1920, "altura": 1080,
+    "voz": "pt-BR-ThalitaMultilingualNeural", "velocidade": "-5%",
+    "resumo": "Registre o saldo inicial de todos os produtos e deixe o estoque pronto para vender.",
+    "capa": { "titulo": "Saldo de", "destaque": "todos os produtos", "subtitulo": "Aula 4 da implantação", "selo": "Aula 4", "tela": "3-completo-topo" },
+    "abertura": { "titulo": "Importação de estoque", "subtitulo": "Aula 4 da implantação ·", "destaque": "Distre" },
+    "fecho": { "itens": ["Contar", "Registrar", "Conferir", "Concluir"], "frase": "Todos os produtos", "destaque": "com saldo", "rodape": "Próxima etapa: as imagens da loja online" }
+  },
+  "cenas": [
+    { "id": "01-abertura", "tipo": "titulo", "titulo": "Importação de estoque", "narracao": "", "duracao_fixa": 3 },
+    { "id": "02-objetivo", "tipo": "tela", "narracao": "Agora vamos registrar o saldo de todos os produtos. Esta etapa só termina quando cada produto ativo tiver saldo.",
+      "visual": { "tela": "1b-parcial-saldos", "plano0": { "x": 0.5, "y": 0.5, "z": 1.0 },
+        "pontos": [ { "alvo": "saldos", "palavra": "produtos", "zoom": 1.25, "etiqueta": "só o primeiro tem saldo", "lado": "acima", "moldura": false },
+                    { "alvo": "semControle", "palavra": "ativo", "zoom": 2.2, "etiqueta": "estes ainda precisam", "lado": "acima", "cor": "branca" } ] } },
+    { "id": "03-contagem", "tipo": "tela", "narracao": "Antes, faça a contagem física. Anote a quantidade de cada produto em uma planilha, como esta, para não esquecer nenhum.",
+      "visual": { "tela": "2-contagem", "plano0": { "x": 0.5, "y": 0.4, "z": 1.0 },
+        "pontos": [ { "alvo": "col_quantidade_contada", "palavra": "quantidade", "zoom": 1.8, "foco": [0.5, 0.12], "etiqueta": "quantidade contada", "lado": "acima" },
+                    { "alvo": "tabela", "palavra": "nenhum", "zoom": 1.15, "etiqueta": "uma linha por produto", "lado": "acima", "cor": "branca", "moldura": false } ] } },
+    { "id": "04-primeiro", "tipo": "tela", "narracao": "Na tela Estoque, escolha o produto, informe a quantidade contada e clique em Registrar entrada.",
+      "visual": { "gravacao": "primeiro", "posicoes": "1-parcial-topo", "gravacaoPasso": "auto", "gravacaoAtraso": 6, "ate": "clique", "plano0": { "x": 0.5, "y": 0.45, "z": 1.25 },
+        "pontos": [ { "alvo": "produto", "palavra": "produto", "zoom": 1.6, "etiqueta": "Produto", "lado": "acima", "moldura": false },
+                    { "alvo": "quantidade", "palavra": "quantidade", "zoom": 1.6, "etiqueta": "Quantidade contada", "lado": "acima", "moldura": false },
+                    { "alvo": "registrar", "palavra": "registrar", "zoom": 1.9, "etiqueta": "Registrar entrada", "lado": "acima", "cor": "branca" } ] } },
+    { "id": "05-repetir", "tipo": "tela", "narracao": "Repita para o próximo produto, e assim por diante, até acabar a lista.",
+      "visual": { "gravacao": "segundo", "posicoes": "1-parcial-topo", "gravacaoPasso": "auto", "gravacaoAtraso": 6, "plano0": { "x": 0.5, "y": 0.45, "z": 1.25 },
+        "pontos": [ { "alvo": "receber", "palavra": "repita", "zoom": 1.4, "etiqueta": "mesmo caminho, outro produto", "lado": "acima", "moldura": false } ] } },
+    { "id": "06-sem-unidades", "tipo": "quadro", "narracao": "Se um produto não tem unidades agora, deixe-o como rascunho até a mercadoria chegar.",
+      "visual": { "quadro": { "titulo": "Produto sem unidades hoje", "itens": ["Situação: Rascunho", "Quando a mercadoria chegar: receba e ative"], "palavras": ["rascunho", "chegar"] } } },
+    { "id": "07-completo", "tipo": "tela", "narracao": "Quando todos tiverem saldo, os indicadores mostram treze produtos controlados e nenhum sem saldo.",
+      "visual": { "tela": "3-completo-topo", "plano0": { "x": 0.5, "y": 0.5, "z": 1.0 },
+        "pontos": [ { "alvo": "controlados", "palavra": "treze", "zoom": 2.2, "etiqueta": "13 produtos controlados", "lado": "acima" },
+                    { "alvo": "semSaldo", "palavra": "nenhum", "zoom": 2.2, "etiqueta": "nenhum sem saldo", "lado": "acima", "cor": "branca" } ] } },
+    { "id": "08-concluir", "tipo": "quadro", "narracao": "Volte à implantação e clique em Verificar dados e concluir. O Distre confere, no servidor, se todos os produtos têm saldo.",
+      "visual": { "quadro": { "titulo": "Para concluir a etapa", "itens": ["Voltar à implantação", "Verificar dados e concluir", "O servidor confere cada produto"], "palavras": ["volte", "verificar", "confere"] } } },
+    { "id": "99-fecho", "tipo": "titulo", "narracao": "Estoque inicial completo. Na próxima etapa, vamos preparar as imagens da loja online." }
+  ]
+}

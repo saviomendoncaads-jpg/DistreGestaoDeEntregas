@@ -31,7 +31,7 @@ export async function lerImplantacao(lojaId:string){
  const loja=lojas.find(l=>l.id===lojaId);
  return {lojaId,nomeLoja:loja?.nome,recebePedidos:!!loja?.recebePedidos,completed,percent:Math.round(completed/7*100),
  currentTitle:completed===7?'Implantação concluída':titles[completed],startedAt:row?.ACOLHIDO_EM||null,completedAt:row?.CONCLUIDO_EM||null,
- needsWelcome:!row&&stats.produtos===0&&stats.operacoes===0,stats,history:sets[1],conteudosDisponiveis:false};
+ needsWelcome:!row&&stats.produtos===0&&stats.operacoes===0,stats,history:sets[1],conteudosDisponiveis:true};
 }
 export async function iniciarImplantacao(lojaId:string){
  await transacao(async tx=>{await new mssql.Request(tx).input('loja',mssql.VarChar(100),lojaId).query(`

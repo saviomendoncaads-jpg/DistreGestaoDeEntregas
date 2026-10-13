@@ -1,0 +1,351 @@
+{
+  "meta": {
+    "titulo": "Como cadastrar e estruturar produtos",
+    "fps": 30,
+    "largura": 1920,
+    "altura": 1080,
+    "voz": "pt-BR-ThalitaMultilingualNeural",
+    "velocidade": "-5%",
+    "capa": {
+      "titulo": "Cadastrar",
+      "destaque": "produtos",
+      "subtitulo": "Aula 1 da implantação",
+      "selo": "Aula 1",
+      "tela": "2-form"
+    },
+    "abertura": {
+      "titulo": "Cadastro de produtos",
+      "subtitulo": "Aula 1 da implantação ·",
+      "destaque": "Distre"
+    },
+    "fecho": {
+      "itens": [
+        "Nome e EAN",
+        "Marca e categoria",
+        "Preço e custo",
+        "Publicação"
+      ],
+      "frase": "Produto cadastrado,",
+      "destaque": "catálogo no ar",
+      "rodape": "Próxima etapa: importar vários produtos de uma vez"
+    },
+    "resumo": "Cadastre seu primeiro produto, com nome, EAN, categoria, preço e publicação."
+  },
+  "cenas": [
+    {
+      "id": "01-abertura",
+      "tipo": "titulo",
+      "titulo": "Cadastro de produtos",
+      "narracao": "",
+      "duracao_fixa": 3
+    },
+    {
+      "id": "02-menu",
+      "tipo": "tela",
+      "narracao": "Tudo começa em Produtos, no menu lateral. É aqui que fica o catálogo da sua loja.",
+      "visual": {
+        "tela": "1-lista",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.45,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "menuProdutos",
+            "palavra": "produtos",
+            "zoom": 1.9,
+            "etiqueta": "Menu Produtos",
+            "lado": "direita"
+          },
+          {
+            "alvo": "catalogo",
+            "palavra": "catálogo",
+            "zoom": 1.5
+          }
+        ]
+      }
+    },
+    {
+      "id": "03-novo",
+      "tipo": "tela",
+      "narracao": "Para cadastrar, clique em Novo produto.",
+      "visual": {
+        "tela": "1-lista",
+        "plano0": {
+          "x": 0.75,
+          "y": 0.4,
+          "z": 1.25
+        },
+        "pontos": [
+          {
+            "alvo": "botaoNovo",
+            "palavra": "novo",
+            "zoom": 2.4,
+            "etiqueta": "Novo produto",
+            "lado": "abaixo",
+            "cursor": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "04-identificacao",
+      "tipo": "tela",
+      "narracao": "Primeiro, digite o nome do produto, o código interno e o EAN, o código de barras, que é obrigatório para ativar o produto.",
+      "visual": {
+        "gravacao": "identificacao",
+        "posicoes": "2-form",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.55,
+          "y": 0.5,
+          "z": 1.3
+        },
+        "pontos": [
+          {
+            "alvo": "nome",
+            "palavra": "nome",
+            "zoom": 1.5,
+            "etiqueta": "Nome do produto",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "sku",
+            "palavra": "código",
+            "zoom": 1.5,
+            "etiqueta": "Código interno",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "ean",
+            "palavra": "ean",
+            "zoom": 1.5,
+            "etiqueta": "EAN, o código de barras",
+            "lado": "acima",
+            "moldura": false,
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "05-organizacao",
+      "tipo": "tela",
+      "narracao": "Depois, informe marca, categoria e subcategoria. É isso que organiza o seu catálogo e ajuda o cliente a encontrar o produto.",
+      "visual": {
+        "gravacao": "organizacao",
+        "posicoes": "2-form",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.55,
+          "y": 0.62,
+          "z": 1.3
+        },
+        "pontos": [
+          {
+            "alvo": "marca",
+            "palavra": "marca",
+            "zoom": 1.5,
+            "etiqueta": "Marca",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "categoria",
+            "palavra": "categoria",
+            "zoom": 1.5,
+            "etiqueta": "Categoria",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "subcategoria",
+            "palavra": "subcategoria",
+            "zoom": 1.5,
+            "etiqueta": "Subcategoria",
+            "lado": "acima",
+            "moldura": false,
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "06-precos",
+      "tipo": "tela",
+      "narracao": "Em Preços e custos, informe o preço de venda e o custo de aquisição. O Distre mostra a margem estimada.",
+      "visual": {
+        "gravacao": "precos",
+        "posicoes": "3-precos",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1.2
+        },
+        "pontos": [
+          {
+            "alvo": "secPrecos",
+            "palavra": "preços",
+            "zoom": 1.6,
+            "etiqueta": "Preços e custos",
+            "lado": "direita",
+            "moldura": false
+          },
+          {
+            "alvo": "preco",
+            "palavra": "venda",
+            "zoom": 1.5,
+            "etiqueta": "Preço de venda",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "custo",
+            "palavra": "custo",
+            "zoom": 1.5,
+            "etiqueta": "Custo de aquisição",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "margem",
+            "palavra": "margem",
+            "zoom": 1.5,
+            "etiqueta": "Margem estimada",
+            "lado": "acima",
+            "moldura": true,
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "07-publicacao",
+      "tipo": "tela",
+      "narracao": "Em Publicação e busca, escolha a situação. Só produto ativo pode aparecer na vitrine; como rascunho, ele fica guardado e invisível para o cliente.",
+      "visual": {
+        "gravacao": "publicacao",
+        "posicoes": "4-publicacao",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1.2
+        },
+        "pontos": [
+          {
+            "alvo": "situacao",
+            "palavra": "situação",
+            "zoom": 1.5,
+            "etiqueta": "Situação do cadastro",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "publicar",
+            "palavra": "vitrine",
+            "zoom": 1.7,
+            "etiqueta": "Publicar na vitrine",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "situacao",
+            "palavra": "rascunho",
+            "zoom": 1.5,
+            "etiqueta": "rascunho = invisível",
+            "lado": "abaixo",
+            "moldura": false,
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "08-salvar",
+      "tipo": "tela",
+      "narracao": "Para terminar, clique em Salvar produto. Pronto: ele já está no catálogo.",
+      "visual": {
+        "segmentos": [
+          {
+            "gravacao": "salvar",
+            "posicoes": "5-salvar",
+            "gravacaoPasso": "auto",
+            "gravacaoAtraso": 6,
+            "ate": "clique",
+            "plano0": {
+              "x": 0.6,
+              "y": 0.7,
+              "z": 1.2
+            },
+            "pontos": [
+              {
+                "alvo": "salvar",
+                "palavra": "salvar",
+                "zoom": 1.7,
+                "etiqueta": "Salvar produto",
+                "lado": "acima",
+                "moldura": true
+              }
+            ]
+          },
+          {
+            "tela": "6-lista-final",
+            "palavra": "pronto",
+            "atraso": -6,
+            "plano0": {
+              "x": 0.5,
+              "y": 0.55,
+              "z": 1.15
+            },
+            "pontos": [
+              {
+                "alvo": "linha",
+                "palavra": "catálogo",
+                "zoom": 1.5,
+                "etiqueta": "já está no catálogo",
+                "lado": "acima",
+                "cor": "branca"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "09-padrao",
+      "tipo": "quadro",
+      "narracao": "Antes de cadastrar os outros, defina um padrão. Código interno único, EAN conferido, categorias claras e preço sempre com o custo.",
+      "visual": {
+        "quadro": {
+          "titulo": "Um padrão para o catálogo",
+          "itens": [
+            "Código interno único",
+            "EAN conferido",
+            "Categorias claras",
+            "Preço sempre com o custo"
+          ],
+          "palavras": [
+            "código",
+            "ean",
+            "categorias",
+            "preço"
+          ]
+        }
+      }
+    },
+    {
+      "id": "99-fecho",
+      "tipo": "titulo",
+      "narracao": "Agora você já sabe cadastrar um produto. Na próxima etapa, vamos importar vários de uma vez."
+    }
+  ]
+}

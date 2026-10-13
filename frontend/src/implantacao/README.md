@@ -21,9 +21,14 @@ Rota `/implantacao` autenticada, no menu lateral da loja. Sem sessão, segue par
 
 Go-Live registra preparação/aceite; não cria pedidos, documentos fiscais, cobranças ou alterações de plano. Não certifica homologação fiscal/financeira. A identificação individual de operadores depende da evolução de usuários e permissões documentada na auditoria.
 
-## Conteúdo futuro
+## Aulas, manuais e modelos
 
-Vídeos, modelos e PDF ainda serão produzidos. Sem aula disponível, a confirmação é expressamente **conhecimento prévio**, sem registro de aula assistida. Downloads permanecem desabilitados. As tarefas abrem cadastro/importação de produtos e gestão de estoque existentes, com retorno à implantação; não usam uploads fictícios para avançar. Os componentes VideoStep/UploadStep do protótipo ficam reservados para a futura integração dos conteúdos.
+Cada etapa tem uma aula em vídeo e um manual em PDF, produzidos com as telas reais do Distre (loja fictícia de demonstração) e a identidade visual do produto. Arquivos em `frontend/public/treinamentos/{videos,manuais,modelos}`, servidos pelo backend em `/treinamentos`; a lista (títulos, duração, páginas) fica em `conteudos.dados.ts`, gerado junto com os arquivos. `Materiais.tsx` mostra o player, o PDF e o modelo dentro de cada etapa; a página **Treinamentos e manuais** da Área do Cliente reúne tudo.
+
+- Etapas sem arquivo ainda mostram um aviso de produção; nada é simulado.
+- Assistir ao vídeo **não** é registrado: a confirmação das etapas de treinamento continua sendo declaração da loja (`conhecimento_previo_confirmado`).
+- Modelos: planilha de importação de produtos (a mesma do botão "Baixar modelo") e planilha de contagem de estoque (apoio; o saldo é registrado na tela Estoque).
+- Os textos dos vídeos e dos manuais estão em `docs/implantacao-midia/`.
 
 ## Validação
 

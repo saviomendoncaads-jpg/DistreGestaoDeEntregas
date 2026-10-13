@@ -1,0 +1,92 @@
+{
+  "slug": "saldo-inicial",
+  "etapa": 4,
+  "titulo": "Importação de estoque",
+  "resumo": "Registre o saldo inicial de todos os produtos ativos e deixe o estoque pronto para a vitrine.",
+  "tempo": "30 a 60 minutos, conforme o tamanho do catálogo",
+  "antes": [
+    "Conclua as etapas 1 a 3: produtos cadastrados e o primeiro recebimento feito.",
+    "Faça a **contagem física** de todos os produtos. Use a **planilha de contagem** (botão **Baixar planilha de contagem** na etapa) para anotar a quantidade de cada um."
+  ],
+  "objetivos": [
+    "Registrar o saldo de cada produto ativo na tela **Estoque**.",
+    "Tratar produtos que ainda não têm unidades.",
+    "Verificar a etapa na jornada de implantação."
+  ],
+  "passos": [
+    {
+      "titulo": "Veja o que falta",
+      "texto": "Abra **Estoque** e role até **Saldo por produto**. Produtos que ainda não receberam mercadoria aparecem como **Sem controle**. A etapa só termina quando **todos os produtos ativos** tiverem saldo registrado.",
+      "tela": "1b-parcial-saldos",
+      "marcas": [
+        { "alvo": "saldos", "texto": "Tabela de saldos: confira os produtos que ainda estão **Sem controle**." },
+        { "alvo": "semControle", "texto": "Cada produto sem saldo precisa de uma entrada." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Faça a contagem física",
+      "texto": "Conte as unidades de cada produto na loja e anote na planilha. A planilha de contagem tem uma linha por produto e uma coluna para a quantidade contada. Ela **não é importada** pelo Distre: serve de apoio para você registrar o saldo corretamente.",
+      "tela": "2-contagem",
+      "marcas": [
+        { "alvo": "col_codigoInterno", "texto": "**codigoInterno**: o mesmo código do cadastro do produto." },
+        { "alvo": "col_quantidade_contada", "texto": "**quantidade_contada**: o que você contou na prateleira e no estoque." }
+      ],
+      "recorte": "inteira",
+      "dica": "Conte uma seção de cada vez e anote na hora. Se a quantidade de um produto estiver em dúvida, conte de novo antes de registrar."
+    },
+    {
+      "titulo": "Registre a entrada de cada produto",
+      "texto": "Na janela **Estoque**, em **Receber mercadorias**: escolha o produto, digite a quantidade contada e, se quiser, escreva \"Saldo inicial\" em **Documento / fornecedor**. Clique em **Registrar entrada**.",
+      "tela": "gravacao:primeiro",
+      "posicoes": "1-parcial-topo",
+      "marcas": [
+        { "alvo": "produto", "texto": "Escolha o produto." },
+        { "alvo": "quantidade", "texto": "Informe a quantidade contada." },
+        { "alvo": "registrar", "texto": "Clique em **Registrar entrada**." }
+      ]
+    },
+    {
+      "titulo": "Repita até acabar a lista",
+      "texto": "Faça o mesmo caminho para o próximo produto, e assim por diante. Depois de cada registro, o produto passa de **Sem controle** para **Disponível** na tabela de saldos.",
+      "tela": "gravacao:segundo",
+      "posicoes": "1-parcial-topo",
+      "marcas": [
+        { "alvo": "receber", "texto": "O formulário **Receber mercadorias** fica pronto para o próximo produto." }
+      ],
+      "dica": "Para ganhar tempo, use o mesmo texto em Documento / fornecedor (por exemplo, \"Saldo inicial\") em todas as entradas da contagem."
+    },
+    {
+      "titulo": "Produtos sem unidades agora",
+      "texto": "Se um produto não tem unidades hoje, não invente saldo. Abra o produto em **Produtos** e mude a situação para **Rascunho**. Quando a mercadoria chegar, receba o produto em **Estoque** e volte a ativá-lo.",
+      "atencao": "Só produtos **ativos** entram na conta da etapa. Um produto em rascunho não precisa de saldo, mas também não aparece na vitrine."
+    },
+    {
+      "titulo": "Confira o resultado",
+      "texto": "Quando todos tiverem saldo, os indicadores do alto mostram o total de **produtos controlados** igual ao de produtos ativos e **nenhum produto sem saldo**.",
+      "tela": "3-completo-topo",
+      "marcas": [
+        { "alvo": "controlados", "texto": "**Produtos controlados**: deve ser igual ao número de produtos ativos." },
+        { "alvo": "semSaldo", "texto": "**Sem saldo**: deve estar em zero." }
+      ],
+      "recorte": { "x": 0.2, "y": 0.1, "w": 0.6 }
+    },
+    {
+      "titulo": "Volte à implantação e conclua",
+      "texto": "Feche a janela de Estoque e clique em **Voltar à implantação e verificar a tarefa**. Na etapa 4, marque a confirmação e clique em **Verificar dados e concluir**. O Distre consulta o servidor e só conclui se todos os produtos ativos tiverem saldo registrado."
+    }
+  ],
+  "problemas": [
+    { "p": "\"Falta registrar o saldo inicial de N produto(s).\"", "s": "Há produtos ativos ainda **Sem controle**. Registre a entrada deles em **Estoque** ou deixe-os como **Rascunho** se não têm unidades." },
+    { "p": "\"Cadastre ou importe os produtos da loja antes de continuar.\"", "s": "A loja não tem nenhum produto ativo. Volte às etapas 1 e 2." },
+    { "p": "\"Quantidade deve ser inteira entre 1 e 1.000.000.\"", "s": "Registre a entrada com número inteiro. Para produto com zero unidades, use a situação **Rascunho**." },
+    { "p": "O produto não aparece na lista de Receber mercadorias", "s": "Use **Atualizar** na janela de Estoque e confira se ele está cadastrado nesta loja." }
+  ],
+  "checklist": [
+    "Todos os produtos ativos aparecem como **Disponível** na tabela de saldos.",
+    "O indicador **Sem saldo** está em zero.",
+    "Produtos sem unidades estão como **Rascunho**.",
+    "Você clicou em **Verificar dados e concluir** na etapa 4."
+  ],
+  "proximo": "Etapa 5 · Imagens para o e-commerce"
+}

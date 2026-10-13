@@ -1,0 +1,271 @@
+{
+  "meta": {
+    "titulo": "Gestão de estoque inicial",
+    "fps": 30,
+    "largura": 1920,
+    "altura": 1080,
+    "voz": "pt-BR-ThalitaMultilingualNeural",
+    "velocidade": "-5%",
+    "capa": {
+      "titulo": "Estoque",
+      "destaque": "inicial",
+      "subtitulo": "Aula 3 da implantação",
+      "selo": "Aula 3",
+      "tela": "2-registrado"
+    },
+    "abertura": {
+      "titulo": "Gestão de estoque inicial",
+      "subtitulo": "Aula 3 da implantação ·",
+      "destaque": "Distre"
+    },
+    "fecho": {
+      "itens": [
+        "Contar",
+        "Receber",
+        "Conferir o saldo",
+        "Vender"
+      ],
+      "frase": "Estoque certo,",
+      "destaque": "venda segura",
+      "rodape": "Próxima etapa: o saldo de todos os produtos"
+    },
+    "resumo": "Entenda como o saldo funciona e registre o primeiro recebimento de um produto."
+  },
+  "cenas": [
+    {
+      "id": "01-abertura",
+      "tipo": "titulo",
+      "titulo": "Gestão de estoque inicial",
+      "narracao": "",
+      "duracao_fixa": 3
+    },
+    {
+      "id": "02-saldo",
+      "tipo": "tela",
+      "narracao": "O estoque do Distre funciona por saldo: cada produto só passa a ter saldo depois do primeiro recebimento.",
+      "visual": {
+        "tela": "1b-saldos",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "saldos",
+            "palavra": "saldo",
+            "zoom": 1.25,
+            "etiqueta": "Saldo por produto",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "semControle",
+            "palavra": "primeiro",
+            "zoom": 2.4,
+            "etiqueta": "Sem controle até o 1º recebimento",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "03-indicadores",
+      "tipo": "tela",
+      "narracao": "Abra Estoque, no menu lateral. No alto, três indicadores resumem produtos controlados, unidades em estoque e produtos sem saldo.",
+      "visual": {
+        "tela": "1-estoque",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.45,
+          "z": 1.05
+        },
+        "pontos": [
+          {
+            "alvo": "controlados",
+            "palavra": "controlados",
+            "zoom": 2.2,
+            "etiqueta": "Produtos controlados",
+            "lado": "acima"
+          },
+          {
+            "alvo": "unidades",
+            "palavra": "unidades",
+            "zoom": 2.2,
+            "etiqueta": "Unidades em estoque",
+            "lado": "acima"
+          },
+          {
+            "alvo": "semSaldo",
+            "palavra": "sem",
+            "zoom": 2.2,
+            "etiqueta": "Produtos sem saldo",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "04-receber",
+      "tipo": "tela",
+      "narracao": "Em Receber mercadorias, escolha o produto e informe a quantidade que você contou na prateleira.",
+      "visual": {
+        "gravacao": "receber1",
+        "posicoes": "1-estoque",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.5,
+          "y": 0.45,
+          "z": 1.3
+        },
+        "pontos": [
+          {
+            "alvo": "produto",
+            "palavra": "produto",
+            "zoom": 1.7,
+            "etiqueta": "Produto",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "quantidade",
+            "palavra": "quantidade",
+            "zoom": 1.7,
+            "etiqueta": "Quantidade contada",
+            "lado": "acima",
+            "moldura": false,
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "05-registrar",
+      "tipo": "tela",
+      "narracao": "Se quiser, indique o documento, como saldo inicial ou o número da nota de entrada. Depois, clique em Registrar entrada.",
+      "visual": {
+        "gravacao": "receber2",
+        "posicoes": "1-estoque",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.5,
+          "y": 0.45,
+          "z": 1.3
+        },
+        "pontos": [
+          {
+            "alvo": "documento",
+            "palavra": "documento",
+            "zoom": 1.7,
+            "etiqueta": "Documento (opcional)",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "registrar",
+            "palavra": "registrar",
+            "zoom": 2,
+            "etiqueta": "Registrar entrada",
+            "lado": "acima",
+            "moldura": true,
+            "cor": "branca"
+          }
+        ],
+        "ate": "clique"
+      }
+    },
+    {
+      "id": "06-resultado",
+      "tipo": "tela",
+      "narracao": "Pronto. O produto passou a ter saldo, e a movimentação ficou registrada no histórico.",
+      "visual": {
+        "segmentos": [
+          {
+            "tela": "3-saldos-depois",
+            "plano0": {
+              "x": 0.5,
+              "y": 0.45,
+              "z": 1
+            },
+            "pontos": [
+              {
+                "alvo": "linhaProduto",
+                "palavra": "saldo",
+                "zoom": 1.9,
+                "etiqueta": "agora tem saldo",
+                "lado": "acima"
+              }
+            ]
+          },
+          {
+            "tela": "4-historico",
+            "palavra": "histórico",
+            "atraso": -6,
+            "plano0": {
+              "x": 0.5,
+              "y": 0.5,
+              "z": 1.1
+            },
+            "pontos": [
+              {
+                "alvo": "primeiraMovimentacao",
+                "palavra": "histórico",
+                "zoom": 2,
+                "etiqueta": "movimentação registrada",
+                "lado": "acima",
+                "cor": "branca"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "07-vida",
+      "tipo": "quadro",
+      "narracao": "A partir daqui, o saldo muda sozinho: cada recebimento soma, cada venda na vitrine baixa e cada cancelamento devolve as unidades.",
+      "visual": {
+        "quadro": {
+          "titulo": "O saldo se atualiza sozinho",
+          "itens": [
+            "Recebimento: soma ao saldo",
+            "Venda na vitrine: baixa do saldo",
+            "Cancelamento: devolve ao saldo"
+          ],
+          "palavras": [
+            "recebimento",
+            "venda",
+            "cancelamento"
+          ]
+        }
+      }
+    },
+    {
+      "id": "08-regras",
+      "tipo": "quadro",
+      "narracao": "Produto com saldo zerado fica indisponível na vitrine. Já produto sem controle, que nunca recebeu mercadoria, continua à venda sem limite.",
+      "visual": {
+        "quadro": {
+          "titulo": "Duas situações",
+          "itens": [
+            "Com controle e sem saldo: indisponível",
+            "Sem controle: vende sem limite"
+          ],
+          "palavras": [
+            "zerado",
+            "sem"
+          ]
+        }
+      }
+    },
+    {
+      "id": "99-fecho",
+      "tipo": "titulo",
+      "narracao": "Agora você entende como o saldo funciona. Na próxima etapa, vamos registrar o saldo de todos os produtos."
+    }
+  ]
+}
