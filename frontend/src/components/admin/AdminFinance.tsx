@@ -99,7 +99,7 @@ return (
                       <label className="master-label-15" htmlFor="master-adminfinance-field-1" >Empresa</label>
                       <select id="master-adminfinance-field-1"
                         className="form-input master-surface-40"
-                        
+
                         value={finFaturasFiltros.empresaId}
                         onChange={e => { setFinPaginaAtual(1); setFinFaturasFiltros(prev => ({ ...prev, empresaId: e.target.value })); }}
                       >
@@ -114,7 +114,7 @@ return (
                       <label className="master-label-15" htmlFor="master-adminfinance-field-2" >Status</label>
                       <select id="master-adminfinance-field-2"
                         className="form-input master-surface-40"
-                        
+
                         value={finFaturasFiltros.status}
                         onChange={e => { setFinPaginaAtual(1); setFinFaturasFiltros(prev => ({ ...prev, status: e.target.value })); }}
                       >
@@ -132,7 +132,7 @@ return (
                       <input id="master-adminfinance-field-3"
                         type="date"
                         className="form-input master-surface-40"
-                        
+
                         max={finFaturasFiltros.dataFim || undefined}
                         value={finFaturasFiltros.dataInicio}
                         onChange={e => { setFinPaginaAtual(1); setFinFaturasFiltros(prev => ({ ...prev, dataInicio: e.target.value })); }}
@@ -144,7 +144,7 @@ return (
                       <input id="master-adminfinance-field-4"
                         type="date"
                         className="form-input master-surface-40"
-                        
+
                         min={finFaturasFiltros.dataInicio || undefined}
                         value={finFaturasFiltros.dataFim}
                         onChange={e => { setFinPaginaAtual(1); setFinFaturasFiltros(prev => ({ ...prev, dataFim: e.target.value })); }}
@@ -155,7 +155,7 @@ return (
                   <button
                     type="button"
                     className="btn btn-success master-button-41"
-                    
+
                     onClick={() => setShowCobrarManualForm(true)}
                   >
                     + Cobrança Manual
@@ -232,7 +232,7 @@ return (
                                         <button
                                           type="button"
                                           className="btn btn-small btn-success master-button-50"
-                                          
+
                                           onClick={() => setShowBaixaManualForm(fat.id)}
                                         >
                                           Baixar
@@ -240,7 +240,7 @@ return (
                                         <button
                                           type="button"
                                           className="btn btn-small master-button-51"
-                                          
+
                                           onClick={() => {
                                             setShowContestarForm(fat.id);
                                             setContestarMotivo('');
@@ -251,7 +251,7 @@ return (
                                         <button
                                           type="button"
                                           className="btn btn-small master-button-52"
-                                          
+
                                           onClick={() => handleCancelarFatura(fat.id)}
                                         >
                                           Cancelar
@@ -315,24 +315,24 @@ return (
                           <line x1="50" y1="70" x2="480" y2="70" stroke="#e2e8f0" strokeDasharray="3,3" />
                           <line x1="50" y1="120" x2="480" y2="120" stroke="#e2e8f0" strokeDasharray="3,3" />
                           <line x1="50" y1="170" x2="480" y2="170" stroke="var(--border-thin)" strokeWidth="1" />
-                          
+
                           {/* Desenha as barras */}
                           {(() => {
                             const maxVal = Math.max(...revenueHistory.slice(-5).map(d => Math.max(d.bruto, d.liquido)), 100);
                             const scale = 150 / maxVal;
-                            
+
                             return revenueHistory.slice(-5).map((d, idx) => {
                               const x = 80 + idx * 80;
                               const hBruto = d.bruto * scale;
                               const hLiquido = d.liquido * scale;
-                              
+
                               return (
                                 <g key={d.referencia}>
                                   {/* Barra Bruto (Blue) */}
                                   <rect x={x} y={170 - hBruto} width="18" height={hBruto} fill="url(#gradBruto)" rx="2" stroke="var(--color-blue)" strokeWidth="0.5" />
                                   {/* Barra Liquido (Emerald) */}
                                   <rect x={x + 22} y={170 - hLiquido} width="18" height={hLiquido} fill="url(#gradLiquido)" rx="2" stroke="var(--color-emerald)" strokeWidth="0.5" />
-                                  
+
                                   {/* Labels */}
                                   <text x={x + 20} y="185" fill="var(--text-secondary)" fontSize="9" textAnchor="middle">{d.referencia}</text>
                                   {d.bruto > 0 && <text x={x + 9} y={165 - hBruto} fill="var(--color-blue)" fontSize="8" textAnchor="middle">R$ {d.bruto.toFixed(0)}</text>}
@@ -378,7 +378,7 @@ return (
                           <line x1="50" y1="70" x2="480" y2="70" stroke="#e2e8f0" strokeDasharray="3,3" />
                           <line x1="50" y1="120" x2="480" y2="120" stroke="#e2e8f0" strokeDasharray="3,3" />
                           <line x1="50" y1="170" x2="480" y2="170" stroke="var(--border-thin)" strokeWidth="1" />
-                          
+
                           {/* Desenhar linha/pontos */}
                           {(() => {
                             const points: string[] = [];
@@ -387,7 +387,7 @@ return (
                               const y = 170 - (d.taxaInadimplencia * 1.5);
                               points.push(`${x},${y}`);
                             });
-                            
+
                             return (
                               <g>
                                 {points.length > 1 && (
@@ -502,7 +502,7 @@ return (
             {/* TAB: PLANOS E CONFIGURAÇÕES */}
             {finSubTab === 'planos_config' && (
               <div className="master-fin-grid master-grid-55" >
-                
+
                 {/* CONFIGURAÇÃO DE COBRANÇA */}
                 {props.section === 'configuracoes' && <div className="card master-surface-56" >
                   <h3 className="master-title-57" >Configurações de Cobrança e Inadimplência</h3>
