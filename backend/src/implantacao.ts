@@ -59,9 +59,44 @@ export async function concluirEtapa(lojaId:string,passo:number,confirmacao:boole
  });return lerImplantacao(lojaId);
 }
 const router=Router();router.use(verificarSessao);
+/** Indicadores somente de consulta; pagamento registrado não comprova a data de liberação do acesso. */
+export async function lerIndicadoresImplantacao(){
+ const r=await pool.request().query(`
+ SELECT l.ID lojaId,e.NOME empresaNome,e.TELEFONE telefone,e.EMAIL email,l.STATUS_FINANCEIRO statusFinanceiro,
+ primeira.ID primeiroPagamentoFaturaId,primeira.DATA_PAGAMENTO primeiroPagamentoEm,primeira.DATA_VENCIMENTO primeiroPagamentoVencimento,
+ CASE WHEN COALESCE(primeira.LOJA_ID,primeira.assinaturaLoja) IS NULL THEN 'empresa' ELSE 'loja' END pagamentoEscopo,
+ ultima.DATA_PAGAMENTO ultimoPagamentoEm,
+ fat.ID faturaId,fat.STATUS faturaStatus,fat.DATA_VENCIMENTO faturaVencimento,fat.DATA_PAGAMENTO faturaPagamentoEm,
+ fat.VALOR_BRUTO-fat.VALOR_DESCONTO faturaValor,
+ CASE WHEN COALESCE(fat.LOJA_ID,fat.assinaturaLoja) IS NULL THEN 'empresa' ELSE 'loja' END faturaEscopo,
+ uso.ultimaOperacaoEm,uso.comandas30Dias,etapa.ultimaEtapaEm,
+ catalogo.ultimaAlteracaoCatalogoEm
+ FROM LOJAS l JOIN EMPRESAS e ON e.ID=l.EMPRESA_ID
+ OUTER APPLY (SELECT TOP(1) f.*,a.LOJA_ID assinaturaLoja FROM FATURAS f LEFT JOIN ASSINATURAS_EMPRESAS a ON a.ID=f.ASSINATURAS_EMPRESAS_ID
+ WHERE f.EMPRESA_ID=l.EMPRESA_ID AND (COALESCE(f.LOJA_ID,a.LOJA_ID)=l.ID OR COALESCE(f.LOJA_ID,a.LOJA_ID) IS NULL)
+ AND f.STATUS='PAGA' AND TRY_CONVERT(datetimeoffset,f.DATA_PAGAMENTO) IS NOT NULL
+ ORDER BY TRY_CONVERT(datetimeoffset,f.DATA_PAGAMENTO),f.ID) primeira
+ OUTER APPLY (SELECT TOP(1) f.DATA_PAGAMENTO FROM FATURAS f LEFT JOIN ASSINATURAS_EMPRESAS a ON a.ID=f.ASSINATURAS_EMPRESAS_ID
+ WHERE f.EMPRESA_ID=l.EMPRESA_ID AND (COALESCE(f.LOJA_ID,a.LOJA_ID)=l.ID OR COALESCE(f.LOJA_ID,a.LOJA_ID) IS NULL)
+ AND f.STATUS='PAGA' AND TRY_CONVERT(datetimeoffset,f.DATA_PAGAMENTO) IS NOT NULL
+ ORDER BY TRY_CONVERT(datetimeoffset,f.DATA_PAGAMENTO) DESC,f.ID) ultima
+ OUTER APPLY (SELECT TOP(1) f.*,a.LOJA_ID assinaturaLoja FROM FATURAS f LEFT JOIN ASSINATURAS_EMPRESAS a ON a.ID=f.ASSINATURAS_EMPRESAS_ID
+ WHERE f.EMPRESA_ID=l.EMPRESA_ID AND (COALESCE(f.LOJA_ID,a.LOJA_ID)=l.ID OR COALESCE(f.LOJA_ID,a.LOJA_ID) IS NULL)
+ AND f.STATUS IN ('PENDENTE','VENCIDA','ATRASADA','PAGA')
+ ORDER BY CASE WHEN f.STATUS='PAGA' THEN 1 ELSE 0 END,
+ CASE WHEN f.STATUS<>'PAGA' THEN TRY_CONVERT(datetimeoffset,f.DATA_VENCIMENTO) END,
+ TRY_CONVERT(datetimeoffset,f.DATA_VENCIMENTO) DESC,f.ID) fat
+ OUTER APPLY (SELECT MAX(TRY_CONVERT(datetimeoffset,ATUALIZADO_EM)) ultimaOperacaoEm,
+ COUNT(CASE WHEN TRY_CONVERT(datetimeoffset,CRIADO_EM)>=DATEADD(day,-30,SYSUTCDATETIME()) AND (TIPO_COMANDA='pedido' OR PEDIDO_ORIGEM_ID IS NULL) THEN 1 END) comandas30Dias
+ FROM ENTREGAS WHERE LOJA_ID=l.ID) uso
+ OUTER APPLY (SELECT MAX(CONCLUIDO_EM) ultimaEtapaEm FROM IMPLANTACAO_ETAPAS WHERE LOJA_ID=l.ID) etapa
+ OUTER APPLY (SELECT MAX(CRIADO_EM) ultimaAlteracaoCatalogoEm FROM PRODUTOS_HISTORICO WHERE LOJA_ID=l.ID) catalogo`);
+ return r.recordset;
+}
 router.get('/admin',asyncHandler(async(req,res)=>{
  if(obterSessaoDoRequest(req)?.tipo!=='admin'){res.status(403).json({error:'Acesso administrativo necessário.'});return;}
- res.json(await Promise.all(lojas.map(async l=>({...await lerImplantacao(l.id),empresaId:l.empresaId,ativo:l.ativo}))));
+ const indicators=new Map((await lerIndicadoresImplantacao()).map(r=>[r.lojaId,r]));
+ res.json(await Promise.all(lojas.map(async l=>({...await lerImplantacao(l.id),empresaId:l.empresaId,ativo:l.ativo,acompanhamento:indicators.get(l.id)||null}))));
 }));
 router.use(asyncHandler(async(req,res,next)=>{
  const s=obterSessaoDoRequest(req)!;const id=s.tipo==='loja'?s.lojaId:String(req.query.lojaId||'');
