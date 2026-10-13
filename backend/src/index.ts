@@ -1,5 +1,9 @@
 import 'dotenv/config'; // carrega backend/.env ANTES de tudo (database.ts lê process.env no load)
+import { configurarAutenticacaoSocket, desconectarSessoesInvalidas } from './security/socketAuth';
+import { podeAcessarLoja } from './security/sessionPolicy';
+import { responderErro } from './http/asyncHandler';
 import express from 'express';
+import { asyncSocketHandler } from './http/asyncSocketHandler';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -9,14 +13,14 @@ import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import tenantsRouter, { carregarTenantsDoBanco, lojas } from './tenants';
-import authRouter, { sessions, carregarSessoesDoBanco, verificarApiKeyIntegracao } from './auth';
+import authRouter, { obterSessaoPorToken, carregarSessoesDoBanco, verificarApiKeyIntegracao } from './auth';
 import apiRouter, { deliveries, webhooksReceived, drivers, carregarEntregasDoBanco, carregarMotoristasDoBanco, carregarVeiculosDoBanco } from './gateway';
-import whatsappRouter, { whatsappBotService, whatsappSessions } from './whatsapp';
+import whatsappRouter, { whatsappBotService, obterSessaoWhatsapp } from './whatsapp';
 import { broker } from './broker';
 import { dispatcherAgent } from './dispatcher';
 import { monitorAgent } from './monitor';
 import { integratorAgent } from './integrator';
-import { conectarBanco, salvarMotorista, limparSessoesExpiradas } from './database';
+import { conectarBanco, salvarMotorista, salvarEntrega, limparSessoesExpiradas, pool } from './database';
 import { Entrega, Motorista } from './types';
 import financeiroRouter, { inicializarFinanceiro } from './financeiroService';
 import integracaoPedidosRouter from './integracaoPedidos';
@@ -98,7 +102,6 @@ const authLimiter = rateLimit({
 app.use('/api/auth', authLimiter, authRouter);
 
 // Roteador de gestão de empresas e lojas (multi-tenant)
-console.log('[Debug] tenantsRouter:', tenantsRouter, typeof tenantsRouter);
 app.use('/api', tenantsRouter);
 
 // Roteador do assistente virtual WhatsApp
@@ -128,7 +131,11 @@ app.use('/api/vitrine', vitrineLimiter, vitrineRouter);
 app.use('/api', apiRouter);
 
 // Endpoint básico de status de saúde do servidor
-app.get('/health', (req, res) => {
+app.get('/health', async (_req, res) => {
+  try {
+    if (!pool?.connected) throw new Error('Banco desconectado');
+    await pool.request().query('SELECT 1 AS pronto');
+  } catch { res.status(503).json({ status: 'indisponivel' }); return; }
   res.json({
     status: 'saudavel',
     timestamp: new Date().toISOString(),
@@ -166,6 +173,8 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(siteDir, 'index.html'));
 });
 
+app.use(responderErro);
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -173,6 +182,8 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST']
   }
 });
+
+configurarAutenticacaoSocket(io);
 
 // Multi-instância: com REDIS_URL definido, os broadcasts do socket.io são propagados
 // entre réplicas via Redis pub/sub. Sem REDIS_URL = instância única (idêntico ao atual).
@@ -196,7 +207,9 @@ async function configurarAdapterRedis(): Promise<void> {
 
 // Transmite eventos do Broker para todos os clientes WebSocket
 broker.registerBroadcastCallback((event, queueSize) => {
-  io.emit('broker_event', {
+  const lojaId = deliveries.get(event.deliveryId)?.lojaId;
+  const destino = lojaId ? io.to('admin').to(`loja-${lojaId}`) : io.to('admin');
+  destino.emit('broker_event', {
     event,
     queueSize,
     metrics: broker.getQueueMetrics()
@@ -209,23 +222,14 @@ io.on('connection', (socket) => {
 
   // Identifica a sessão pelo token enviado no handshake
   const token = socket.handshake.auth?.token as string | undefined;
-  const sessao = token ? sessions.get(token) : undefined;
+  const sessao = obterSessaoPorToken(token);
+  if (!sessao) { socket.disconnect(true); return; }
 
   // Coloca o socket na sala correta
   if (sessao?.tipo === 'loja' && sessao.lojaId) {
     socket.join(`loja-${sessao.lojaId}`);
   } else if (sessao?.tipo === 'admin') {
     socket.join('admin');
-  } else {
-    // Se o cliente forneceu um token de autenticação, mas a sessão não foi encontrada (ex: após restart),
-    // emitimos um evento de sessão expirada e forçamos desconexão.
-    if (token) {
-      console.log(`[Socket] Token inválido ou expirado. Forçando desconexão: ${socket.id}`);
-      socket.emit('session_expired');
-      socket.disconnect(true);
-      return;
-    }
-    socket.join('public'); // Sem token e sem sessão = sala publica sem acesso administrativo/vazamento
   }
 
   // Filtra entregas e drivers pela loja da sessão
@@ -258,9 +262,10 @@ io.on('connection', (socket) => {
   // Controle de vinculação do socket ao motoboy
   let driverIdVinculado: string | undefined;
 
-  socket.on('driver_register', async (data: { driverId: string }) => {
+  socket.on('driver_register', asyncSocketHandler(async (data: { driverId: string }) => {
+    if (!data || typeof data.driverId !== 'string') return;
     const driver = drivers.find(d => d.id === data.driverId);
-    if (!driver) return;
+    if (!driver || !podeAcessarLoja(sessao, driver.lojaId)) return;
 
     // Se a sessão for de loja e o motorista for de outra loja, recusa
     if (sessao?.tipo === 'loja' && sessao.lojaId !== driver.lojaId) {
@@ -308,12 +313,13 @@ io.on('connection', (socket) => {
         queue: broker.getQueueMetrics()
       });
     }
-  });
+  }));
 
-  socket.on('driver_gps_update', async (data: { driverId: string, x: number, y: number }) => {
+  socket.on('driver_gps_update', asyncSocketHandler(async (data: { driverId: string, x: number, y: number }) => {
+    if (!data || data.driverId !== driverIdVinculado || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
     const { driverId, x, y } = data;
     const driver = drivers.find(d => d.id === driverId);
-    if (driver) {
+    if (driver && podeAcessarLoja(sessao, driver.lojaId)) {
       driver.dispositivoConectado = true;
       driver.localizacaoAtual = { x, y };
       driver.ultimaAtualizacao = new Date().toISOString();
@@ -334,7 +340,7 @@ io.on('connection', (socket) => {
       };
       const motoristaEntregas = todasEntregas.filter(d => 
         d.motorista?.id === driverId && 
-        (d.status === 'EM_TRANSITO' || d.status === 'NO_LOCAL' || d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA')
+        (d.status === 'DESPACHADO' || d.status === 'EM_TRANSITO' || d.status === 'NO_LOCAL' || d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA')
       );
       motoristaEntregas.sort((a, b) => {
         const weightA = getStatusWeight(a.status);
@@ -348,6 +354,7 @@ io.on('connection', (socket) => {
       });
       const entregaAtiva = motoristaEntregas[0];
       if (entregaAtiva) {
+        if (entregaAtiva.status === 'DESPACHADO') entregaAtiva.status = 'EM_TRANSITO';
         if (!entregaAtiva.telemetria) {
           entregaAtiva.telemetria = {
             velocidadeKmh: 45,
@@ -361,14 +368,17 @@ io.on('connection', (socket) => {
         }
       }
 
+      if (entregaAtiva) await salvarEntrega(entregaAtiva);
       await salvarMotorista(driver);
     }
-  });
+  }));
 
   // Listeners para o Simulador de WhatsApp
-  socket.on('whatsapp_send_msg', async (data: { phone: string; text: string; lojaId: string }) => {
+  socket.on('whatsapp_send_msg', asyncSocketHandler(async (data: { phone: string; text: string; lojaId: string }) => {
+    if (!data || typeof data.phone !== 'string' || typeof data.text !== 'string' || data.text.length > 2000) return;
     const { phone, text, lojaId } = data;
     const targetLojaId = sessao?.tipo === 'loja' && sessao.lojaId ? sessao.lojaId : lojaId;
+    if (!targetLojaId || !lojas.some(l => l.id === targetLojaId && l.ativo) || !podeAcessarLoja(sessao, targetLojaId)) return;
     const room = `loja-${targetLojaId}`;
 
     // 1. Transmite a mensagem enviada pelo cliente (para atualizar todos os painéis da loja/admin)
@@ -412,19 +422,21 @@ io.on('connection', (socket) => {
         isTyping: false
       });
     }
-  });
+  }));
 
   socket.on('whatsapp_get_history', (data: { phone: string; lojaId: string }) => {
+    if (!data || typeof data.phone !== 'string') return;
     const { phone, lojaId } = data;
     const targetLojaId = sessao?.tipo === 'loja' && sessao.lojaId ? sessao.lojaId : lojaId;
-    const session = whatsappSessions.get(phone);
+    if (!targetLojaId || !podeAcessarLoja(sessao, targetLojaId)) return;
+    const session = obterSessaoWhatsapp(targetLojaId, phone);
     socket.emit('whatsapp_history', {
       phone,
       messages: session?.messages || []
     });
   });
 
-  socket.on('disconnect', async () => {
+  socket.on('disconnect', asyncSocketHandler(async () => {
     console.log(`[Socket] Cliente desconectado: ${socket.id}`);
     if (driverIdVinculado) {
       const driver = drivers.find(d => d.id === driverIdVinculado);
@@ -436,11 +448,12 @@ io.on('connection', (socket) => {
         console.log(`[Socket] Celular do motoboy ${driverIdVinculado} desconectado; motoboy permanece online.`);
       }
     }
-  });
+  }));
 });
 
 // Transmissão periódica do status do sistema (a cada 1 segundo) — filtrado por sala
 setInterval(() => {
+  desconectarSessoesInvalidas(io);
   const agentStates = {
     dispatcher: dispatcherAgent.getAgentState(),
     monitor: monitorAgent.getAgentState(),
@@ -526,4 +539,7 @@ async function startServer() {
   });
 }
 
-startServer(); // Inicializa o servidor completo
+startServer().catch(error => {
+  console.error('[Boot] Inicialização interrompida:', error?.message);
+  process.exit(1);
+});

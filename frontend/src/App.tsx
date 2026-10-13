@@ -2709,9 +2709,6 @@ export default function App() {
 
     const payload: Partial<AcaoFilaSincronia> = {
       recebedorNome,
-      recebedorCPF: '000.000.000-00',
-      comprovanteFotoUrl: 'foto_canhoto_assinado.png',
-      assinaturaBase64: 'Assinatura Simplificada',
       justificativaDesvioCoordenada: !isWithinGeofenceMobile ? justificationText : undefined
     };
 

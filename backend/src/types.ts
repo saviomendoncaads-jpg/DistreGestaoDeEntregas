@@ -187,6 +187,7 @@ export interface Sessao {
   nomeEmpresa?: string;
   token: string;
   criadoEm: string;
+  expiraEm?: string;
   recebePedidos?: boolean;
   latitude?: number;
   longitude?: number;

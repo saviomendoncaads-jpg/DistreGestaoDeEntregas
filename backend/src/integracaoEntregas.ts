@@ -1,3 +1,5 @@
+import { validarValoresIntegracao } from './integracaoValidation';
+import { asyncHandler } from './http/asyncHandler';
 import { Router, Request, Response } from 'express';
 import { broker } from './broker';
 import { salvarEntrega } from './database';
@@ -95,7 +97,7 @@ function montarEndereco(end: EntregaEntrada['endereco']): string {
 // A mercadoria já está faturada/separada no ERP de origem. Sempre cria comanda do tipo
 // 'entrega' e publica imediatamente no broker para despacho automático pelo Agente
 // Dispatcher, independente do flag `recebePedidos` da loja.
-router.post('/entregas', async (req: Request, res: Response) => {
+router.post('/entregas', asyncHandler(async (req: Request, res: Response) => {
   try {
     const lojaId = (req.header('x-loja-id') || (req.body?.lojaId as string | undefined) || '').trim();
     if (!lojaId) {
@@ -134,7 +136,7 @@ router.post('/entregas', async (req: Request, res: Response) => {
       origemErp
     } = payload;
 
-    if (!cliente?.nome) {
+    if (typeof cliente?.nome !== 'string' || !cliente.nome.trim()) {
       res.status(400).json({ error: 'cliente.nome é obrigatório.' });
       return;
     }
@@ -142,26 +144,28 @@ router.post('/entregas', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'produtos[] é obrigatório e não pode estar vazio.' });
       return;
     }
-    if (!endereco?.logradouro) {
+    if (typeof endereco?.logradouro !== 'string' || !endereco.logradouro.trim()) {
       res.status(400).json({ error: 'endereco.logradouro é obrigatório.' });
       return;
     }
 
     for (const [i, p] of produtos.entries()) {
-      if (!p?.nome || !Number.isFinite(p.quantidade) || p.quantidade <= 0) {
+      if (typeof p?.nome !== 'string' || !p.nome.trim() || !Number.isFinite(p.quantidade) || p.quantidade <= 0) {
         res.status(400).json({ error: `produtos[${i}] inválido: nome e quantidade (>0) são obrigatórios.` });
         return;
       }
     }
 
+    const erroValores = validarValoresIntegracao(produtos, valores);
+    if (erroValores) { res.status(400).json({ error: erroValores }); return; }
     const subtotalCalc = produtos.reduce(
-      (acc, p) => acc + (Number(p.precoUnitario) || 0) * Number(p.quantidade),
+      (acc, p) => acc + Math.round((Number(p.precoUnitario) || 0) * 100) * Number(p.quantidade) / 100,
       0
     );
     const subtotal = valores?.subtotal ?? subtotalCalc;
     const taxaEntrega = valores?.taxaEntrega ?? 0;
     const desconto = valores?.desconto ?? 0;
-    const total = valores?.total ?? subtotal + taxaEntrega - desconto;
+    const total = valores?.total ?? Number((subtotal + taxaEntrega - desconto).toFixed(2));
 
     const itensTexto = produtos.map(p => `${p.quantidade}x ${p.nome}`);
     const enderecoTexto = montarEndereco(endereco);
@@ -213,8 +217,8 @@ router.post('/entregas', async (req: Request, res: Response) => {
       destinoLongitude: destinoCoord?.longitude
     };
 
-    deliveries.set(id, novaEntrega);
     await salvarEntrega(novaEntrega);
+    deliveries.set(id, novaEntrega);
 
     // ERP: sempre publica no broker para despacho imediato (mercadoria já pronta)
     broker.publish('entrega.recebida', id, {
@@ -239,6 +243,6 @@ router.post('/entregas', async (req: Request, res: Response) => {
     console.error('[IntegracaoEntregas] Erro ao receber entrega:', err);
     res.status(500).json({ error: err.message || 'Erro interno ao processar entrega.' });
   }
-});
+}));
 
 export default router;

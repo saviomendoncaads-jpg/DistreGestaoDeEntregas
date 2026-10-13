@@ -1,3 +1,4 @@
+import { asyncHandler } from './http/asyncHandler';
 import { lerConfigVitrine, erroRegraCompra } from './configVitrine';
 import { Router, Request, Response } from 'express';
 import { broker } from './broker';
@@ -102,7 +103,7 @@ function rankingMaisVendidos(lojaId: string, produtos: Produto[]): string[] {
 }
 
 // GET /api/vitrine/:lojaId — Dados públicos da loja + cardápio (produtos ativos)
-router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) => {
+router.get('/:lojaId', asyncHandler(async (req: Request<{ lojaId: string }>, res: Response) => {
   try {
     const loja = buscarLojaAtiva(req.params.lojaId);
     if (!loja) {
@@ -158,10 +159,10 @@ router.get('/:lojaId', async (req: Request<{ lojaId: string }>, res: Response) =
     console.error('[Vitrine] Erro ao montar cardápio:', err);
     res.status(500).json({ error: 'Erro interno ao carregar o cardápio.' });
   }
-});
+}));
 
 // POST /api/vitrine/:lojaId/pedidos — Checkout público do Painel do Cliente
-router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Response) => {
+router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: string }>, res: Response) => {
   try {
     const loja = buscarLojaAtiva(req.params.lojaId);
     if (!loja) {
@@ -353,6 +354,6 @@ router.post('/:lojaId/pedidos', async (req: Request<{ lojaId: string }>, res: Re
     console.error('[Vitrine] Erro ao receber pedido:', err);
     res.status(err instanceof ErroEstoque ? err.status : 500).json({ error: err instanceof ErroEstoque ? err.message : 'Erro interno ao processar o pedido.' });
   }
-});
+}));
 
 export default router;

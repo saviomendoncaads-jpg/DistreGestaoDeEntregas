@@ -1,3 +1,4 @@
+import { asyncHandler } from './http/asyncHandler';
 import { Router, Request, Response } from 'express';
 import { broker } from './broker';
 import { salvarCancelamentoComEstoque } from './estoque';
@@ -5,7 +6,8 @@ import { iniciarConferencia, registrarLeitura, exigirConferenciaCompleta, ErroCo
 import { registrarFalta, validarEntradaFalta } from './faltas';
 import { Entrega, Motorista, StatusEntrega, Prioridade, TipoCarga, FormaPagamento, LogWebhook, Incidente, TipoVeiculo } from './types';
 import { salvarEntrega, obterEntregas, obterMotoristas, salvarMotorista, deletarMotorista, obterTiposVeiculos, salvarTipoVeiculo, obterProdutos } from './database';
-import { obterSessaoDoRequest, exigirLojaAdimplente } from './auth';
+import { obterSessaoDoRequest, exigirLojaAdimplente, verificarSessao, verificarAdmin } from './auth';
+import { podeAcessarLoja, simuladorHabilitado } from './security/sessionPolicy';
 import { lojas, empresas } from './tenants';
 import { autoDispatchSettings } from './config';
 import { geocodificarEndereco } from './geocoding';
@@ -312,6 +314,22 @@ async function backfillCoordenadasDestino() {
 }
 
 const router = Router();
+router.use(verificarSessao);
+router.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return exigirLojaAdimplente(req, res, next);
+  next();
+});
+router.use('/simulator', (req, res, next) => {
+  if (!simuladorHabilitado()) { res.status(404).json({ error: 'Simulador desabilitado.' }); return; }
+  verificarAdmin(req, res, next);
+});
+router.use('/deliveries/:id', (req, res, next) => {
+  const entrega = deliveries.get(req.params.id);
+  if (!entrega || !podeAcessarLoja(obterSessaoDoRequest(req), entrega.lojaId)) {
+    res.status(404).json({ error: 'Entrega não encontrada.' }); return;
+  }
+  next();
+});
 
 // Obter configurações de despacho
 router.get('/config', (req: Request, res: Response) => {
@@ -341,7 +359,7 @@ router.post('/config', (req: Request, res: Response) => {
 });
 
 // Despachar comandas manualmente em lote
-router.post('/deliveries/dispatch-batch', async (req: Request, res: Response) => {
+router.post('/deliveries/dispatch-batch', asyncHandler(async (req: Request, res: Response) => {
   const sessao = obterSessaoDoRequest(req);
   if (!sessao) {
     res.status(401).json({ error: 'Não autenticado' });
@@ -353,6 +371,11 @@ router.post('/deliveries/dispatch-batch', async (req: Request, res: Response) =>
     return;
   }
 
+  const motorista = drivers.find(d => d.id === driverId);
+  const comandas = deliveryIds.map(id => typeof id === 'string' ? deliveries.get(id) : undefined);
+  if (!motorista || !podeAcessarLoja(sessao, motorista.lojaId) || comandas.some(d => !d || !podeAcessarLoja(sessao, d.lojaId) || d.lojaId !== motorista.lojaId || d.tipoComanda === 'pedido')) {
+    res.status(404).json({ error: 'Entregas ou motoboy não encontrados nesta loja.' }); return;
+  }
   try {
     const { dispatcherAgent } = require('./dispatcher');
     await dispatcherAgent.manualDispatch(deliveryIds, driverId, romaneioId);
@@ -361,10 +384,10 @@ router.post('/deliveries/dispatch-batch', async (req: Request, res: Response) =>
     console.error('[Gateway] Erro no despacho manual:', err);
     res.status(400).json({ error: err.message });
   }
-});
+}));
 
 // 1. Ingestar nova entrega
-router.post('/deliveries', exigirLojaAdimplente, async (req: Request, res: Response) => {
+router.post('/deliveries', exigirLojaAdimplente, asyncHandler(async (req: Request, res: Response) => {
   const { clientName, clienteDocumento, address, items, priority, cargoType, webhookUrl, formaPagamento, bairro, cidade, referencia, valor, driverId, x, y } = req.body;
 
   if (!clientName || !address || !priority || !cargoType) {
@@ -431,10 +454,8 @@ router.post('/deliveries', exigirLojaAdimplente, async (req: Request, res: Respo
     destinoLongitude: destinoCoord?.longitude
   };
 
-  deliveries.set(id, newDelivery);
-
-  // Persiste no SQL Server
   await salvarEntrega(newDelivery);
+  deliveries.set(id, newDelivery);
 
   // Publica o evento se não for do tipo pedido
   if (newDelivery.tipoComanda !== 'pedido') {
@@ -451,7 +472,7 @@ router.post('/deliveries', exigirLojaAdimplente, async (req: Request, res: Respo
   }
 
   res.status(201).json(newDelivery);
-});
+}));
 
 // 2. Obter entregas (filtrado por loja se sessão de loja)
 router.get('/deliveries', (req: Request, res: Response) => {
@@ -481,7 +502,7 @@ router.get('/deliveries/:id', (req: Request, res: Response) => {
 });
 
 // 4. Injetar incidente para simulação
-router.post('/deliveries/:id/incident', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/incident', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -519,7 +540,7 @@ router.post('/deliveries/:id/incident', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 5. Obter motoristas disponíveis (filtrado por loja se sessão de loja)
 router.get('/drivers', (req: Request, res: Response) => {
@@ -539,7 +560,7 @@ router.get('/drivers', (req: Request, res: Response) => {
 
 // 5.0. Consumo do plano da loja autenticada (motoristas e entregas do mês) —
 // alimenta a barra de uso e o nudge de upgrade no painel.
-router.get('/loja-atual/uso', async (req: Request, res: Response) => {
+router.get('/loja-atual/uso', asyncHandler(async (req: Request, res: Response) => {
   const sessao = obterSessaoDoRequest(req);
   if (sessao?.tipo !== 'loja' || !sessao.lojaId) {
     res.status(403).json({ error: 'Apenas sessões de loja têm consumo de plano.' });
@@ -552,10 +573,10 @@ router.get('/loja-atual/uso', async (req: Request, res: Response) => {
     console.error('[Gateway] Erro ao obter uso do plano da loja:', err);
     res.status(500).json({ error: 'Erro ao calcular consumo do plano.' });
   }
-});
+}));
 
 // 5.1. Cadastrar novo motorista (vinculado à loja da sessão)
-router.post('/drivers', async (req: Request, res: Response) => {
+router.post('/drivers', asyncHandler(async (req: Request, res: Response) => {
   const { name, vehicleType } = req.body;
   if (!name || !vehicleType) {
     res.status(400).json({ error: 'Nome e tipo de veículo são obrigatórios' });
@@ -596,7 +617,7 @@ router.post('/drivers', async (req: Request, res: Response) => {
   drivers.push(newDriver);
   await salvarMotorista(newDriver);
   res.status(201).json(newDriver);
-});
+}));
 
 // 5.1.0. Vincular dispositivo móvel do entregador por código
 router.post('/drivers/vincular', (req: Request, res: Response) => {
@@ -632,7 +653,7 @@ router.post('/drivers/vincular', (req: Request, res: Response) => {
 });
 
 // 5.1.1. Remover motorista (respeitando isolamento por loja)
-router.delete('/drivers/:id', async (req: Request, res: Response) => {
+router.delete('/drivers/:id', asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
   const sessao = obterSessaoDoRequest(req);
   const index = drivers.findIndex(d => {
@@ -654,7 +675,7 @@ router.delete('/drivers/:id', async (req: Request, res: Response) => {
   drivers.splice(index, 1);
   await deletarMotorista(id as string);
   res.json({ success: true, message: 'Motoboy removido com sucesso' });
-});
+}));
 
 // 5.2. Obter tipos de veículos
 router.get('/vehicle-types', (req: Request, res: Response) => {
@@ -662,7 +683,7 @@ router.get('/vehicle-types', (req: Request, res: Response) => {
 });
 
 // 5.3. Cadastrar novo tipo de veículo
-router.post('/vehicle-types', async (req: Request, res: Response) => {
+router.post('/vehicle-types', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const { name } = req.body;
   if (!name) {
     res.status(400).json({ error: 'Nome do tipo de veículo é obrigatório' });
@@ -687,7 +708,7 @@ router.post('/vehicle-types', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao salvar tipo de veículo no banco de dados', details: err.message });
   }
-});
+}));
 
 // 6. Receptor de webhooks do simulador externo
 router.post('/simulator/webhook', (req: Request, res: Response) => {
@@ -731,7 +752,7 @@ router.post('/simulator/clear', (req: Request, res: Response) => {
 });
 
 // 9. Resolver incidentes
-router.post('/deliveries/:id/resolve', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/resolve', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -771,10 +792,10 @@ router.post('/deliveries/:id/resolve', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 10. Confirmar conclusão da entrega (ENTREGUE - Com critérios POD)
-router.post('/deliveries/:id/complete', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -782,6 +803,9 @@ router.post('/deliveries/:id/complete', async (req: Request, res: Response) => {
   }
 
   const { recebedorNome, recebedorCPF, comprovanteFotoUrl, assinaturaBase64, justificativaDesvioCoordenada } = req.body;
+  if (typeof recebedorNome !== 'string' || !recebedorNome.trim()) {
+    res.status(400).json({ error: 'Informe o nome do recebedor.' }); return;
+  }
 
   // Libera o motorista
   if (delivery.motorista) {
@@ -791,10 +815,10 @@ router.post('/deliveries/:id/complete', async (req: Request, res: Response) => {
   }
 
   delivery.status = 'ENTREGUE';
-  delivery.recebedorNome = recebedorNome || 'Recebedor Não Informado';
-  delivery.recebedorCPF = recebedorCPF || '000.000.000-00';
-  delivery.comprovanteFotoUrl = comprovanteFotoUrl || 'mock_canhoto_foto.png';
-  delivery.assinaturaBase64 = assinaturaBase64 || 'mock_assinatura';
+  delivery.recebedorNome = recebedorNome.trim();
+  delivery.recebedorCPF = recebedorCPF || undefined;
+  delivery.comprovanteFotoUrl = comprovanteFotoUrl || undefined;
+  delivery.assinaturaBase64 = assinaturaBase64 || undefined;
   delivery.justificativaDesvioCoordenada = justificativaDesvioCoordenada;
   delivery.dataHoraConclusao = new Date().toISOString();
   delivery.atualizadoEm = new Date().toISOString();
@@ -832,10 +856,10 @@ router.post('/deliveries/:id/complete', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 11. Registrar insucesso/devolução (AGUARDANDO_RETORNO_CD)
-router.post('/deliveries/:id/fail', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/fail', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -882,10 +906,10 @@ router.post('/deliveries/:id/fail', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 11.0. Confirmar chegada ao local de destino (NO_LOCAL)
-router.post('/deliveries/:id/arrive', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/arrive', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -913,10 +937,10 @@ router.post('/deliveries/:id/arrive', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 11.1. Estornar última ação (Rollback de Status)
-router.post('/deliveries/:id/rollback', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/rollback', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -959,10 +983,10 @@ router.post('/deliveries/:id/rollback', async (req: Request, res: Response) => {
   });
 
   res.json(delivery);
-});
+}));
 
 // 11.2. Receber devolução do estoque no CD Central
-router.post('/deliveries/:id/return-stock', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/return-stock', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -996,10 +1020,10 @@ router.post('/deliveries/:id/return-stock', async (req: Request, res: Response) 
   });
 
   res.json(delivery);
-});
+}));
 
 // 12. Receber coordenadas em lote acumuladas offline
-router.post('/deliveries/:id/telemetria-bulk', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/telemetria-bulk', asyncHandler(async (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
@@ -1045,7 +1069,7 @@ router.post('/deliveries/:id/telemetria-bulk', async (req: Request, res: Respons
   }
 
   res.json({ success: true, message: 'Coordenadas offline sincronizadas' });
-});
+}));
 
 // 12.1. Simulação da API de Pedidos Externos (iFood/VTEX mock)
 router.get('/simulator/external-orders-api', (req: Request, res: Response) => {
@@ -1088,7 +1112,7 @@ router.get('/simulator/external-orders-api', (req: Request, res: Response) => {
 });
 
 // 12.2. Importador de Pedidos Externos
-router.post('/simulator/import-external', async (req: Request, res: Response) => {
+router.post('/simulator/import-external', asyncHandler(async (req: Request, res: Response) => {
   const { url } = req.body;
   if (!url) {
     res.status(400).json({ error: 'URL da API externa não informada' });
@@ -1154,8 +1178,8 @@ router.post('/simulator/import-external', async (req: Request, res: Response) =>
         tipoComanda: recebePedidos ? 'pedido' : 'entrega'
       };
 
-      deliveries.set(id, newDelivery);
       await salvarEntrega(newDelivery);
+    deliveries.set(id, newDelivery);
 
       if (!recebePedidos) {
         broker.publish('entrega.recebida', id, {
@@ -1175,7 +1199,7 @@ router.post('/simulator/import-external', async (req: Request, res: Response) =>
     console.error('[Simulator] Erro ao sincronizar pedidos da API externa:', err);
     res.status(500).json({ error: `Falha na conexão com a API externa: ${err.message}` });
   }
-});
+}));
 
 export async function checarDesvioSequencia(e: Entrega) {
   if (!e.motorista || !e.sequenciaEsperada) return;
@@ -1223,17 +1247,18 @@ export async function checarDesvioSequencia(e: Entrega) {
   }
 }
 
-router.get('/produtos', async (req: Request, res: Response) => {
+router.get('/produtos', asyncHandler(async (req: Request, res: Response) => {
   try {
-    const { lojaId } = req.query;
+    const sessao = obterSessaoDoRequest(req)!;
+    const lojaId = sessao.tipo === 'loja' ? sessao.lojaId : req.query.lojaId;
     const produtos = await obterProdutos(lojaId as string);
     res.json(produtos);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
-router.post('/pedidos-whatsapp', async (req: Request, res: Response) => {
+router.post('/pedidos-whatsapp', asyncHandler(async (req: Request, res: Response) => {
   try {
     const { lojaId, cliente, pedido, entrega, pagamento } = req.body;
     if (!lojaId || !cliente?.nome || !pedido?.itens || !entrega?.endereco) {
@@ -1241,6 +1266,7 @@ router.post('/pedidos-whatsapp', async (req: Request, res: Response) => {
       return;
     }
 
+    if (!podeAcessarLoja(obterSessaoDoRequest(req), lojaId)) { res.status(403).json({ error: 'Loja não autorizada.' }); return; }
     const lojaObj = lojas.find(l => l.id === lojaId);
     const recebePedidos = lojaObj ? lojaObj.recebePedidos : false;
 
@@ -1274,8 +1300,8 @@ router.post('/pedidos-whatsapp', async (req: Request, res: Response) => {
       tipoComanda: recebePedidos ? 'pedido' : 'entrega'
     };
 
-    deliveries.set(id, newDelivery);
     await salvarEntrega(newDelivery);
+    deliveries.set(id, newDelivery);
 
     if (!recebePedidos) {
       broker.publish('entrega.recebida', id, {
@@ -1294,9 +1320,9 @@ router.post('/pedidos-whatsapp', async (req: Request, res: Response) => {
     console.error('[Gateway] Erro ao processar pedido recebido do WhatsApp:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
-router.post('/deliveries/:id/prepare', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/prepare', asyncHandler(async (req: Request, res: Response) => {
   try {
     const order = deliveries.get(req.params.id as string);
     if (!order) {
@@ -1328,9 +1354,9 @@ router.post('/deliveries/:id/prepare', async (req: Request, res: Response) => {
     console.error('[Gateway] Erro ao mover comanda de pedido para preparo:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
-router.post('/deliveries/:id/cancel', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/cancel', asyncHandler(async (req: Request, res: Response) => {
   try {
     const sessao = obterSessaoDoRequest(req);
     if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
@@ -1368,9 +1394,9 @@ router.post('/deliveries/:id/cancel', async (req: Request, res: Response) => {
     console.error('[Gateway] Erro ao cancelar comanda:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
-router.post('/deliveries/:id/conferencia/:acao', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/conferencia/:acao', asyncHandler(async (req: Request, res: Response) => {
   const sessao = obterSessaoDoRequest(req);
   if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
   const order = deliveries.get(String(req.params.id));
@@ -1400,9 +1426,9 @@ router.post('/deliveries/:id/conferencia/:acao', async (req: Request, res: Respo
     }
     else res.status(404).json({ error: 'Ação não encontrada.' });
   } catch (e) { res.status(e instanceof ErroConferencia ? e.status : 500).json({ error: e instanceof Error ? e.message : 'Erro na conferência.' }); }
-});
+}));
 
-router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response) => {
+router.post('/deliveries/:id/finalize-order', asyncHandler(async (req: Request, res: Response) => {
   try {
     const sessao = obterSessaoDoRequest(req);
     if (!sessao) { res.status(401).json({ error: 'Não autenticado.' }); return; }
@@ -1459,8 +1485,8 @@ router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response
     newDelivery.telemetria = undefined;
     newDelivery.incidentes = [];
 
-    deliveries.set(deliveryId, newDelivery);
     await salvarEntrega(newDelivery);
+    deliveries.set(deliveryId, newDelivery);
 
     // 3. Publica no Broker de Eventos para que o Dispatcher Agende a Entrega
     broker.publish('entrega.recebida', deliveryId, {
@@ -1496,7 +1522,7 @@ router.post('/deliveries/:id/finalize-order', async (req: Request, res: Response
     console.error('[Gateway] Erro ao finalizar comanda de pedido:', err);
     res.status(err instanceof ErroConferencia ? err.status : 500).json({ error: err.message });
   }
-});
+}));
 
 export default router;
 
