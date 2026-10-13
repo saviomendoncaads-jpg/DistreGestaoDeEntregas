@@ -5,13 +5,14 @@ import { pool } from '../database';
 import mssql from '../db';
 import { asyncHandler } from '../http/asyncHandler';
 
-/** Somente cobranças reais; registros de demonstração nunca viram meios de pagamento. */
+/** Pix direto da plataforma: chave configurada, confirmação administrativa de recebimento. */
 export function meiosPagamento(fatura: any) {
-  if (!String(fatura.GATEWAY_FATURA_ID || '').startsWith('pay_') || !['PENDENTE','ATRASADA','VENCIDA'].includes(fatura.STATUS)) return {};
-  let boletoUrl: string | undefined;
-  try { const url = new URL(fatura.BOLETO_URL); if(url.protocol==='https:' && !url.username && !url.password) boletoUrl=url.href; } catch { /* Sem boleto disponível. */ }
-  const pix = String(fatura.PIX_COPIA_COLA || '');
-  return { boletoUrl, pixCopiaCola: pix.startsWith('000201') && !/mock|pix\.gateway\.com/i.test(pix) ? pix : undefined };
+  const valor=Number(fatura.VALOR_BRUTO)-Number(fatura.VALOR_DESCONTO);
+  if (!['PENDENTE','ATRASADA','VENCIDA'].includes(fatura.STATUS) || !Number.isFinite(valor) || valor<=0) return {};
+  const chave = (process.env.PIX_PLATAFORMA_CHAVE || '').trim();
+  // Apenas chave aleatória nesta etapa; sem boleto, QR fictício ou confirmação automática.
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(chave)) return {};
+  return { pixChave:chave, confirmacaoPagamento:'MANUAL' as const };
 }
 
 const router = Router();
