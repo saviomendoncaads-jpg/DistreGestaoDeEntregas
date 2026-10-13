@@ -153,6 +153,9 @@ async function inicializarBanco() {
       ALTER TABLE ENTREGAS ADD REFERENCIA NVARCHAR(MAX) NULL;
     END
 
+    IF COL_LENGTH('ENTREGAS', 'PEDIDO_ORIGEM_ID') IS NULL
+      ALTER TABLE ENTREGAS ADD PEDIDO_ORIGEM_ID VARCHAR(50) NULL;
+
     -- Coordenadas reais do destino (geocodificadas a partir do endereço do cliente)
     IF OBJECT_ID('ENTREGAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'DESTINO_LAT')
     BEGIN
@@ -526,6 +529,17 @@ async function inicializarBanco() {
   try {
     await pool.request().query(query);
 
+    // Vínculo aditivo: legados ambíguos não são ligados automaticamente.
+    await pool.request().query(`
+      UPDATE filho SET PEDIDO_ORIGEM_ID = pai.ID
+      FROM ENTREGAS filho JOIN ENTREGAS pai ON filho.REFERENCIA = 'Origem: Pedido ' + pai.ID AND filho.LOJA_ID = pai.LOJA_ID
+      WHERE filho.PEDIDO_ORIGEM_ID IS NULL AND filho.TIPO_COMANDA = 'entrega' AND pai.TIPO_COMANDA = 'pedido'
+        AND (SELECT COUNT(*) FROM ENTREGAS c WHERE c.LOJA_ID = pai.LOJA_ID AND c.TIPO_COMANDA = 'entrega'
+          AND (c.PEDIDO_ORIGEM_ID = pai.ID OR c.REFERENCIA = 'Origem: Pedido ' + pai.ID)) = 1;
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ENTREGAS_PEDIDO_ORIGEM' AND object_id = OBJECT_ID('ENTREGAS'))
+        CREATE UNIQUE INDEX UX_ENTREGAS_PEDIDO_ORIGEM ON ENTREGAS(PEDIDO_ORIGEM_ID) WHERE PEDIDO_ORIGEM_ID IS NOT NULL;
+    `);
+
     // Trigger de imutabilidade do ledger — precisa rodar em batch isolado (CREATE TRIGGER
     // deve ser a 1ª instrução do batch e o driver mssql não suporta o separador "GO").
     await pool.request().query(`
@@ -650,11 +664,8 @@ export async function salvarEvento(evt: Entrega | any) {
   }
 }
 
-export async function obterEntregas(): Promise<Entrega[]> {
-  try {
-    if (!pool) return [];
-    const result = await pool.request().query('SELECT * FROM ENTREGAS');
-    return result.recordset.map((row: any) => ({
+export function entregaDoRegistro(row: any): Entrega {
+  return ({
       id: row.ID,
       nomeCliente: row.NOME_CLIENTE,
       endereco: row.ENDERECO,
@@ -688,11 +699,23 @@ export async function obterEntregas(): Promise<Entrega[]> {
       cidade: row.CIDADE || undefined,
       formaPagamento: row.FORMA_PAGAMENTO || undefined,
       despachadoEm: row.DESPACHADO_EM || undefined,
+      pedidoOrigemId: row.PEDIDO_ORIGEM_ID || undefined,
+      entregaVinculadaId: row.ENTREGA_VINCULADA_ID || undefined,
       tipoComanda: (row.TIPO_COMANDA || 'entrega') as 'pedido' | 'entrega',
       referencia: row.REFERENCIA || undefined,
       destinoLatitude: row.DESTINO_LAT !== null && row.DESTINO_LAT !== undefined ? Number(row.DESTINO_LAT) : undefined,
       destinoLongitude: row.DESTINO_LNG !== null && row.DESTINO_LNG !== undefined ? Number(row.DESTINO_LNG) : undefined
-    }));
+    });
+}
+
+export async function obterEntregas(): Promise<Entrega[]> {
+  try {
+    if (!pool) return [];
+    const result = await pool.request().query(`SELECT e.*, vinculo.ENTREGA_VINCULADA_ID FROM ENTREGAS e
+      OUTER APPLY (SELECT CASE WHEN COUNT(*) = 1 THEN MAX(c.ID) END ENTREGA_VINCULADA_ID FROM ENTREGAS c
+        WHERE e.TIPO_COMANDA = 'pedido' AND c.TIPO_COMANDA = 'entrega' AND c.LOJA_ID = e.LOJA_ID
+          AND (c.PEDIDO_ORIGEM_ID = e.ID OR c.REFERENCIA = 'Origem: Pedido ' + e.ID)) vinculo`);
+    return result.recordset.map(entregaDoRegistro);
   } catch (err) {
     console.error('[Banco de Dados] Erro ao obter entregas:', err);
     return [];
@@ -741,11 +764,12 @@ export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
           DESPACHADO_EM = @despachadoEm,
           TIPO_COMANDA = @tipoComanda,
           REFERENCIA = @referencia,
+          PEDIDO_ORIGEM_ID = @pedidoOrigem,
           DESTINO_LAT = @destinoLat,
           DESTINO_LNG = @destinoLng
       WHEN NOT MATCHED THEN
-        INSERT (ID, NOME_CLIENTE, ENDERECO, ITENS, PRIORIDADE, TIPO_CARGA, STATUS, MOTORISTA, ROTA, TELEMETRIA, INCIDENTES, URL_WEBHOOK, LOGS_WEBHOOK, CRIADO_EM, ATUALIZADO_EM, RECEBEDOR_NOME, RECEBEDOR_CPF, COMPROVANTE_FOTO_URL, ASSINATURA_BASE64, JUSTIFICATIVA_DESVIO_COORDENADA, DATA_HORA_CONCLUSAO, SEQUENCIA_ESPERADA, SEQUENCIA_REALIZADA, VALOR, LOJA_ID, NOME_LOJA, NOME_EMPRESA, CLIENTE_DOCUMENTO, ROMANEIO_ID, BAIRRO, CIDADE, FORMA_PAGAMENTO, DESPACHADO_EM, TIPO_COMANDA, REFERENCIA, DESTINO_LAT, DESTINO_LNG)
-        VALUES (@id, @nomeCliente, @endereco, @itens, @prioridade, @tipoCarga, @status, @motorista, @rota, @telemetria, @incidentes, @urlWebhook, @logsWebhook, @criadoEm, @atualizadoEm, @recebedorNome, @recebedorCPF, @comprovanteFotoUrl, @assinaturaBase64, @justificativaDesvioCoordenada, @dataHoraConclusao, @sequenciaEsperada, @sequenciaRealizada, @valor, @lojaId, @nomeLoja, @nomeEmpresa, @clienteDocumento, @romaneioId, @bairro, @cidade, @formaPagamento, @despachadoEm, @tipoComanda, @referencia, @destinoLat, @destinoLng);
+        INSERT (ID, NOME_CLIENTE, ENDERECO, ITENS, PRIORIDADE, TIPO_CARGA, STATUS, MOTORISTA, ROTA, TELEMETRIA, INCIDENTES, URL_WEBHOOK, LOGS_WEBHOOK, CRIADO_EM, ATUALIZADO_EM, RECEBEDOR_NOME, RECEBEDOR_CPF, COMPROVANTE_FOTO_URL, ASSINATURA_BASE64, JUSTIFICATIVA_DESVIO_COORDENADA, DATA_HORA_CONCLUSAO, SEQUENCIA_ESPERADA, SEQUENCIA_REALIZADA, VALOR, LOJA_ID, NOME_LOJA, NOME_EMPRESA, CLIENTE_DOCUMENTO, ROMANEIO_ID, BAIRRO, CIDADE, FORMA_PAGAMENTO, DESPACHADO_EM, TIPO_COMANDA, REFERENCIA, PEDIDO_ORIGEM_ID, DESTINO_LAT, DESTINO_LNG)
+        VALUES (@id, @nomeCliente, @endereco, @itens, @prioridade, @tipoCarga, @status, @motorista, @rota, @telemetria, @incidentes, @urlWebhook, @logsWebhook, @criadoEm, @atualizadoEm, @recebedorNome, @recebedorCPF, @comprovanteFotoUrl, @assinaturaBase64, @justificativaDesvioCoordenada, @dataHoraConclusao, @sequenciaEsperada, @sequenciaRealizada, @valor, @lojaId, @nomeLoja, @nomeEmpresa, @clienteDocumento, @romaneioId, @bairro, @cidade, @formaPagamento, @despachadoEm, @tipoComanda, @referencia, @pedidoOrigem, @destinoLat, @destinoLng);
     `;
     
     await (transaction ? new mssql.Request(transaction) : pool.request())
@@ -783,6 +807,7 @@ export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
       .input('formaPagamento', mssql.VarChar, e.formaPagamento || null)
       .input('despachadoEm', mssql.VarChar, e.despachadoEm || null)
       .input('tipoComanda', mssql.VarChar, e.tipoComanda || 'entrega')
+      .input('pedidoOrigem', mssql.VarChar(50), e.pedidoOrigemId || null)
       .input('referencia', mssql.NVarChar, e.referencia || null)
       .input('destinoLat', mssql.Float, e.destinoLatitude !== undefined ? e.destinoLatitude : null)
       .input('destinoLng', mssql.Float, e.destinoLongitude !== undefined ? e.destinoLongitude : null)

@@ -1,3 +1,5 @@
+import ReturnStockAction from './components/ReturnStockAction';
+import { comandasOperacionais } from './operationOrders';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
@@ -211,6 +213,8 @@ interface Entrega {
   tipoComanda?: 'pedido' | 'entrega';
   destinoLatitude?: number;
   destinoLongitude?: number;
+  pedidoOrigemId?: string;
+  entregaVinculadaId?: string;
 }
 
 
@@ -1018,9 +1022,9 @@ export default function App() {
     ? sessao.lojaId 
     : (sessao?.tipo === 'admin' && lojaVisualizada ? lojaVisualizada.id : undefined);
 
-  const deliveries = tenantLojaId
+  const deliveries = comandasOperacionais(tenantLojaId
     ? allDeliveries.filter(d => d.lojaId === tenantLojaId)
-    : allDeliveries;
+    : allDeliveries);
 
   const drivers = tenantLojaId
     ? allDrivers.filter(d => d.lojaId === tenantLojaId)
@@ -3464,23 +3468,16 @@ export default function App() {
                   <div style={{ marginTop: '0.4rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.2)', padding: '0.4rem', borderRadius: '6px', fontSize: '0.68rem' }}>
                     <div style={{ color: 'var(--color-amber)', fontWeight: 'bold' }}>⚠️ EM CUSTÓDIA REVERSA (MOTORISTA):</div>
                     <div style={{ color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
-                      O pedido falhou. Aguardando retorno a Loja para bipar conferência física.
+                      O pedido falhou. Aguardando recebimento e conferência física na loja.
                     </div>
-                    <button
-                      className="btn btn-success btn-small"
-                      style={{ width: '100%', fontSize: '0.68rem', padding: '0.2rem' }}
-                      onClick={async () => {
-                        try {
-                          await apiFetch(`${BACKEND_URL}/api/deliveries/${selectedDelivery.id}/return-stock`, {
-                            method: 'POST'
-                          });
-                        } catch (err) {
-                          console.error('Erro ao bipar retorno ao estoque:', err);
-                        }
-                      }}
-                    >
-                      Bipar Código de Barras (Retorno ao Estoque)
-                    </button>
+                    <ReturnStockAction key={selectedDelivery.id} onReturn={async () => {
+                      const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${selectedDelivery.id}/return-stock`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmacaoIntegral: true })
+                      });
+                      const retorno = await response.json();
+                      if (!response.ok) throw new Error(retorno.error || 'Não foi possível registrar o retorno.');
+                      setAllDeliveries(previous => previous.map(d => d.id === retorno.id ? retorno : d));
+                    }} />
                   </div>
                 )}
 
@@ -3488,7 +3485,7 @@ export default function App() {
                   <div style={{ marginTop: '0.4rem', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.4rem', borderRadius: '6px', fontSize: '0.68rem' }}>
                     <div style={{ color: 'var(--color-cyan)', fontWeight: 'bold' }}>PEDIDO CANCELADO / DEVOLVIDO:</div>
                     <div style={{ color: 'var(--text-secondary)' }}>
-                      Conferência física finalizada e saldo de produtos retornado ao estoque.
+                      Retorno integral confirmado. As quantidades baixadas pela venda foram estornadas ao estoque.
                     </div>
                   </div>
                 )}
