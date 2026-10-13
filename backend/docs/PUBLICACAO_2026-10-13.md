@@ -40,3 +40,14 @@ Uploads permanecem compartilhados com o diretório original, sem mover imagens. 
 ## Limites restantes
 
 A publicação não fecha as pendências do diagnóstico de consolidação. Gateway da operação estava configurado como MOCK, sem credenciais Asaas: a versão publicada rejeita cobrança simulada em produção e não habilita cobrança real. Credenciais históricas, dependência node-forge, fiscal real, compras/financeiro das vendas e demais itens abertos continuam exigindo tratamento próprio. O endereço atual ainda utiliza túnel temporário.
+
+## Área do Cliente publicada — 13/10/2026
+
+Código `d42d0f82c0c8420da842b073cc884c9dcec8f95c`, release separada `C:/Projetos/Distre-releases/d42d0f82c0c8`.
+
+- `/area-cliente`: Início, Minha implantação, Treinamentos e manuais, Suporte e Minha conta. Menu operacional com acesso à Área do Cliente e retorno explícito à operação. `/implantacao` preservado.
+- Progresso e histórico da jornada mantidos. A página inicial consulta os dados; abrir a jornada inicia a implantação. Acessar Operação funciona mesmo antes de iniciar a preparação.
+- Conteúdos e atendimento por chamados continuam pendentes; não foram fabricados arquivos, canais de suporte, planos ou dados de assinatura.
+- Build completo e 230 testes aprovados (36 SQL); fluxo de navegador em base temporária: primeiro acesso, todas as páginas, acesso direto à operação, persistência e conclusão das sete etapas, tarefas verificadas, Master e celular de 390 px. CI aprovado nos quatro checks do código publicado.
+- Backup SQL com restauração e quatro comandas conferidas em base temporária. Estágio aprovado: login, relatórios e quatro comandas existentes. Publicação com configuração do serviço salva e versão anterior disponível para recuperação.
+- Checagem pública autenticada de consulta, incluindo Área do Cliente e jornada administrativa; nenhum progresso de loja real foi concluído pela validação.
