@@ -65,7 +65,7 @@ export default function DispatchWorkspace(props: Props) {
           return <article key={o.id} className={`dispatch-order ${checked ? 'is-selected' : ''}`}>
             <input type="checkbox" aria-label={`Selecionar pedido ${o.id}`} checked={checked} disabled={busy} onChange={e => props.onToggleManifest(o.id, e.target.checked)} />
             <div className="dispatch-order-info"><strong>{o.id}</strong><span className="dispatch-customer">{o.nomeCliente}</span><span className="dispatch-address"><Icon kind="pin" />{o.endereco}</span><button type="button" className="dispatch-link" onClick={() => props.onAbrirComanda(o.id)}>Ver pedido →</button></div>
-            <div className="dispatch-order-meta"><strong>{money.format(props.getValor(o))}</strong><button type="button" disabled={!props.onNotaFiscal} onClick={() => props.onNotaFiscal?.(o.id, n)} className={`dispatch-fiscal ${n?.status === 'AUTORIZADA' ? 'is-authorized' : n?.status === 'ERRO' || n?.status === 'REJEITADA' ? 'is-error' : ''}`}>{n ? `${NOME_MODELO[n.modelo]} ${status}` : 'Nota pendente'}</button><span className="dispatch-time"><Icon kind="clock" />{elapsed(o.atualizadoEm || o.criadoEm)}</span></div>
+            <div className="dispatch-order-meta"><strong>{money.format(props.getValor(o))}</strong><button type="button" disabled={!props.onNotaFiscal} onClick={() => props.onNotaFiscal?.(o.id, n)} className={`dispatch-fiscal ${n?.status === 'AUTORIZADA' ? 'is-authorized' : n?.status === 'ERRO' || n?.status === 'REJEITADA' ? 'is-error' : ''}`}>{n ? `${NOME_MODELO[n.modelo]} ${status}` : 'Sem nota'}</button><span className="dispatch-time"><Icon kind="clock" />{elapsed(o.atualizadoEm || o.criadoEm)}</span></div>
           </article>;
         })}</div>
         {!visible.length && <div className="dispatch-empty"><Icon kind="box" /><h4>{ready.length ? 'Nenhum pedido encontrado' : 'Nenhum pedido pronto para despacho'}</h4><p>{ready.length ? 'Ajuste a busca para encontrar o pedido.' : 'Os pedidos aparecem aqui após concluir a separação.'}</p>{query && <button className="dispatch-link" type="button" onClick={() => setQuery('')}>Limpar busca</button>}</div>}
@@ -83,7 +83,7 @@ export default function DispatchWorkspace(props: Props) {
         {available.length === 0 && <p className="dispatch-hint">{props.drivers.length ? 'Os entregadores estão em rota. Escolha manualmente quem receberá estes pedidos.' : 'Cadastre um motoboy para despachar os pedidos.'}</p>}
         {error && <p className="dispatch-error" role="alert">{error}</p>}{success && <p className="dispatch-success" role="status">{success}</p>}
         <button type="button" className="dispatch-submit" disabled={!canDispatch} onClick={dispatch}><Icon kind="truck" />{busy ? 'Despachando…' : `Despachar ${selected.length} ${selected.length === 1 ? 'pedido' : 'pedidos'}`}</button>
-        <p className="dispatch-footnote">Após o despacho, acompanhe em <strong>Entregas</strong>.</p>
+        <p className="dispatch-footnote">Após o despacho, acompanhe em <strong>Em rota</strong>.</p>
       </aside>
     </div>
   </div>;

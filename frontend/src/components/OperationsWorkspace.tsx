@@ -94,8 +94,8 @@ function BadgeOperacao({ sit, order, getStatusText }: { sit: Situacao; order: Or
 
 function BadgeFiscal({ nota, sit, onClick }: { nota?: NotaResumo; sit: Situacao; onClick?: () => void }) {
   if (!nota) {
-    if (sit === 'finalizado' || sit === 'rota') return <span className="ops-pill ops-pill--neutro">Sem nota</span>;
-    return <span className="ops-pill ops-pill--pendente"><IcoClock />Pendente</span>;
+    if ((sit === 'pronto' || sit === 'faturado') && onClick) return <button type="button" className="ops-pill ops-pill--neutro ops-pill--btn" onClick={onClick} title="Emitir nota, se desejar">Sem nota</button>;
+    return <span className="ops-pill ops-pill--neutro">Sem nota</span>;
   }
   const mapa: Record<string, [string, string, ReactNode]> = {
     AUTORIZADA: ['autorizada', 'Autorizada', <IcoCheck />],
@@ -178,7 +178,6 @@ export default function OperationsWorkspace(props: Props) {
     if (n && fiscalIssues.has(n.status) && props.onNotaFiscal) return { rotulo: 'Corrigir', tom: 'alerta', fazer: () => props.onNotaFiscal!(o.id, n) };
     if (sit === 'novo') return { rotulo: 'Separar', fazer: e => props.onPreparar(o.id, e) };
     if (sit === 'separacao') return { rotulo: 'Iniciar separação', fazer: e => props.onFinalizar(o.id, e) };
-    if (sit === 'pronto' && props.onNotaFiscal) return { rotulo: 'Emitir nota', fazer: () => props.onNotaFiscal!(o.id, n) };
     if (sit === 'pronto' || sit === 'faturado') {
       return { rotulo: 'Despachar', fazer: () => { if (!props.selectedForManifest.includes(o.id)) props.onToggleManifest(o.id, true); changeStage('prontos'); } };
     }
@@ -253,7 +252,7 @@ export default function OperationsWorkspace(props: Props) {
                   {sit !== 'finalizado' && <span className={`ops-decorrido ${atras ? 'is-atrasado' : ''}`}>{atras && <IcoAlert size={12} />}{decorrido(min)}</span>}
                 </td>
                 <td data-label="Operação"><BadgeOperacao sit={sit} order={o} getStatusText={props.getStatusText} />{sit === 'rota' && <div className="ops-route-details"><span>{props.getStatusText(o.status)}</span><span>Entregador: {o.motorista?.name || 'Não informado'}</span><span>{o.endereco}</span></div>}</td>
-                <td data-label="Fiscal"><BadgeFiscal nota={n} sit={sit} onClick={n && props.onNotaFiscal ? () => props.onNotaFiscal!(o.id, n) : undefined} /></td>
+                <td data-label="Fiscal"><BadgeFiscal nota={n} sit={sit} onClick={props.onNotaFiscal ? () => props.onNotaFiscal!(o.id, n) : undefined} /></td>
                 <td className="ops-acoes"><div className="ops-acoes-inner">
                   {a && <button type="button" disabled={pending.includes(o.id)} className={`ops-acao ${a.tom === 'alerta' ? 'ops-acao--alerta' : ''}`} onClick={a.fazer}>{a.rotulo}</button>}
                   <button type="button" className="ops-abrir" aria-label={`Abrir pedido ${o.id}`} onClick={() => abrir(o)}>›</button>
