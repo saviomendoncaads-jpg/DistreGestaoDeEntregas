@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "titulo": "Go-Live", "fps": 30, "largura": 1920, "altura": 1080,
+    "voz": "pt-BR-ThalitaMultilingualNeural", "velocidade": "-5%",
+    "resumo": "Conclua a implantação e comece a operar: a última conferência e o aceite do Go-Live.",
+    "capa": { "titulo": "Go-Live", "destaque": "da sua loja", "subtitulo": "Aula 7 da implantação", "selo": "Aula 7", "tela": "1-golive" },
+    "abertura": { "titulo": "Go-Live", "subtitulo": "Aula 7 da implantação ·", "destaque": "Distre" },
+    "fecho": { "itens": ["Produtos", "Estoque", "Imagens", "Operação"], "frase": "Tudo pronto,", "destaque": "bom trabalho", "rodape": "Em dúvida? Revise as aulas em Treinamentos e manuais" }
+  },
+  "cenas": [
+    { "id": "01-abertura", "tipo": "titulo", "titulo": "Go-Live", "narracao": "", "duracao_fixa": 3 },
+    { "id": "02-ultima", "tipo": "tela", "narracao": "Chegou a última etapa, o Go-Live. As seis anteriores já estão concluídas.",
+      "visual": { "tela": "0-jornada", "plano0": { "x": 0.5, "y": 0.45, "z": 1.0 },
+        "pontos": [ { "alvo": "progresso", "palavra": "anteriores", "zoom": 1.6, "etiqueta": "6 de 7 etapas concluídas", "lado": "acima", "moldura": false } ] } },
+    { "id": "03-confere", "tipo": "tela", "narracao": "Antes de aceitar, o Distre confere de novo, no servidor, os produtos ativos, os saldos e as imagens necessárias.",
+      "visual": { "tela": "1-golive", "plano0": { "x": 0.55, "y": 0.65, "z": 1.1 },
+        "pontos": [ { "alvo": "verificacao", "palavra": "confere", "zoom": 1.8, "etiqueta": "conferência no servidor", "lado": "acima", "moldura": false } ] } },
+    { "id": "04-aceite", "tipo": "tela", "narracao": "Revise as informações, marque a confirmação e clique em Iniciar utilização do ERP.",
+      "visual": { "gravacao": "iniciar", "posicoes": "1-golive", "gravacaoPasso": "auto", "gravacaoAtraso": 6, "ate": "clique", "plano0": { "x": 0.6, "y": 0.8, "z": 1.2 },
+        "pontos": [ { "alvo": "confirmar", "palavra": "confirmação", "zoom": 1.9, "etiqueta": "marque a confirmação", "lado": "acima", "moldura": false },
+                    { "alvo": "botao", "palavra": "iniciar", "zoom": 1.9, "etiqueta": "Iniciar utilização do ERP", "lado": "acima", "cor": "branca" } ] } },
+    { "id": "05-concluido", "tipo": "tela", "narracao": "Pronto. Sua implantação está concluída, e a data fica registrada na loja.",
+      "visual": { "tela": "2-concluido", "plano0": { "x": 0.5, "y": 0.35, "z": 1.1 },
+        "pontos": [ { "alvo": "barra", "palavra": "concluída", "zoom": 1.9, "etiqueta": "7 de 7 · 100%", "lado": "acima", "cor": "branca" } ] } },
+    { "id": "06-depois", "tipo": "quadro", "narracao": "O Go-Live só registra o aceite. Ele não cria pedidos, notas fiscais nem cobranças, e o acesso ao painel continua como sempre.",
+      "visual": { "quadro": { "titulo": "O que o Go-Live faz", "itens": ["Confere produtos, saldos e imagens", "Registra o aceite e a data", "Não cria pedidos, notas ou cobranças"], "palavras": ["confere", "registra", "não"] } } },
+    { "id": "99-fecho", "tipo": "titulo", "narracao": "Se precisar rever alguma aula, os vídeos e manuais continuam em Treinamentos e manuais. Boas vendas!" }
+  ]
+}

@@ -47,6 +47,24 @@ export const AULAS: Aula[] = [
     "duracao": "1 min 08 s",
     "segundos": 68,
     "tamanhoMb": 4.1
+  },
+  {
+    "id": "operacao-pdv",
+    "passo": 6,
+    "titulo": "Operação e PDV",
+    "resumo": "Acompanhe o caminho completo de um pedido: separar, conferir pelo EAN, emitir a nota e despachar.",
+    "duracao": "1 min 37 s",
+    "segundos": 97,
+    "tamanhoMb": 6.8
+  },
+  {
+    "id": "go-live",
+    "passo": 7,
+    "titulo": "Go-Live",
+    "resumo": "Conclua a implantação e comece a operar: a última conferência e o aceite do Go-Live.",
+    "duracao": "52 s",
+    "segundos": 52,
+    "tamanhoMb": 3.2
   }
 ];
 
@@ -85,6 +103,21 @@ export const MANUAIS: Manual[] = [
     "titulo": "Imagens para o e-commerce",
     "paginas": 6,
     "tamanhoKb": 860
+  },
+  {
+    "id": "operacao-pdv",
+    "passo": 6,
+    "titulo": "Guia da operação e PDV",
+    "paginas": 10,
+    "tamanhoKb": 1508,
+    "rotulo": "Baixar PDF com Passo a Passo da Operação"
+  },
+  {
+    "id": "go-live",
+    "passo": 7,
+    "titulo": "Go-Live: concluindo a implantação",
+    "paginas": 4,
+    "tamanhoKb": 583
   }
 ];
 
