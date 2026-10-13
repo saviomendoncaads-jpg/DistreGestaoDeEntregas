@@ -1,3 +1,4 @@
+import { solicitarCancelamento, avisarErro, confirmarAcao, avisarInfo, limparFeedback } from './ui/feedback';
 import {pinPanelRole,getPanelSession,savePanelSession,clearPanelSession,sessionKey} from './auth/sessions';
 import ManualDeliveryActions from './components/ManualDeliveryActions';
 import ImplementationCard from './implantacao/ImplementationCard';
@@ -232,6 +233,7 @@ export default function App() {
 
   // Loja sendo visualizada pelo Admin Master
   const [lojaVisualizada, setLojaVisualizada] = useState<{ id: string; nome: string; nomeEmpresa: string } | null>(null);
+  useEffect(()=>{limparFeedback();},[sessao?.token,lojaVisualizada?.id]);
 
   // --- ESTADOS DO MÓDULO FINANCEIRO ---
   const [adminDataState, setAdminDataState] = useState<Record<string, 'loading' | 'refreshing' | 'ready' | 'error'>>({});
@@ -353,6 +355,7 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    limparFeedback();
     try {
       if (sessao?.token) {
         await fetch(`${BACKEND_URL}/api/auth/logout`, {
@@ -493,10 +496,10 @@ export default function App() {
         carregarTodosDadosFinanceiros();
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao registrar baixa');
+        avisarErro(data.error || 'Erro ao registrar baixa');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -514,15 +517,15 @@ export default function App() {
         carregarTodosDadosFinanceiros();
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao contestar fatura');
+        avisarErro(data.error || 'Erro ao contestar fatura');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
   const handleCancelarFatura = async (faturaId: string) => {
-    if (!confirm('Deseja realmente cancelar esta fatura?')) return;
+    if (!(await confirmarAcao('Deseja realmente cancelar esta fatura?'))) return;
     try {
       const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/faturas/${faturaId}/cancelar`, {
         method: 'PUT'
@@ -531,10 +534,10 @@ export default function App() {
         carregarTodosDadosFinanceiros();
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao cancelar fatura');
+        avisarErro(data.error || 'Erro ao cancelar fatura');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -547,15 +550,15 @@ export default function App() {
         body: JSON.stringify(finConfiguracoes)
       });
       if (res.ok) {
-        alert('Configurações salvas com sucesso!');
+
         carregarFinanceiroConfig();
         carregarFinanceiroDashboard();
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao salvar configurações');
+        avisarErro(data.error || 'Erro ao salvar configurações');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -643,7 +646,7 @@ export default function App() {
   const handleCadastrarEmpresa = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!novaEmpresaNome.trim() || !novaEmpresaCnpj.trim()) {
-      alert('Nome e CNPJ são obrigatórios');
+      avisarErro('Nome e CNPJ são obrigatórios');
       return;
     }
     try {
@@ -667,18 +670,18 @@ export default function App() {
       setShowNovaEmpresaForm(false);
       carregarEmpresas();
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
   const handleCadastrarLoja = async (e: React.FormEvent, empresaId: string) => {
     e.preventDefault();
     if (!novaLojaNome.trim() || !novaLojaUsuario.trim() || !novaLojaSenha.trim() || !novaLojaCnpj.trim()) {
-      alert('Nome, CNPJ, usuário e senha são obrigatórios');
+      avisarErro('Nome, CNPJ, usuário e senha são obrigatórios');
       return;
     }
     if (!novaLojaPlanoId) {
-      alert('Selecione o plano de assinatura da loja');
+      avisarErro('Selecione o plano de assinatura da loja');
       return;
     }
     try {
@@ -719,7 +722,7 @@ export default function App() {
       carregarLojas(empresaId);
       carregarEmpresas();
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -732,10 +735,10 @@ export default function App() {
         carregarEmpresas();
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao alternar status da empresa');
+        avisarErro(data.error || 'Erro ao alternar status da empresa');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -748,10 +751,10 @@ export default function App() {
         carregarLojas(empresaId);
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao alternar status da loja');
+        avisarErro(data.error || 'Erro ao alternar status da loja');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -767,10 +770,10 @@ export default function App() {
         carregarLojas(empresaId);
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao alternar recebimento de pedidos');
+        avisarErro(data.error || 'Erro ao alternar recebimento de pedidos');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -793,7 +796,7 @@ export default function App() {
     e.preventDefault();
     if (!editingLoja) return;
     if (!editLojaNome.trim() || !editLojaUsuario.trim() || !editLojaCnpj.trim()) {
-      alert('Nome, CNPJ e usuário são obrigatórios');
+      avisarErro('Nome, CNPJ e usuário são obrigatórios');
       return;
     }
 
@@ -827,14 +830,14 @@ export default function App() {
       setEditingLoja(null);
       carregarLojas(editingLoja.empresaId);
       carregarEmpresas();
-      alert('Loja atualizada com sucesso!');
+
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
   const handleRegenerarChaveLoja = async (empresaId: string, lojaId: string) => {
-    if (!window.confirm('Tem certeza que deseja regenerar a chave de acesso? A chave antiga deixará de funcionar imediatamente.')) {
+    if (!(await confirmarAcao('Tem certeza que deseja regenerar a chave de acesso? A chave antiga deixará de funcionar imediatamente.'))) {
       return;
     }
     try {
@@ -842,20 +845,20 @@ export default function App() {
         method: 'POST'
       });
       if (res.ok) {
-        const data = await res.json();
-        alert(`Nova chave gerada com sucesso: ${data.chaveAcesso}`);
+        await res.json();
+
         carregarLojas(empresaId);
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao regenerar chave da loja');
+        avisarErro(data.error || 'Erro ao regenerar chave da loja');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
   const handleDeleteEmpresa = async (empresaId: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir esta empresa?')) return;
+    if (!(await confirmarAcao('Tem certeza que deseja excluir esta empresa?'))) return;
     try {
       const res = await apiFetch(`${BACKEND_URL}/api/empresas/${empresaId}`, {
         method: 'DELETE'
@@ -864,15 +867,15 @@ export default function App() {
         carregarEmpresas();
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao excluir empresa. Verifique se existem lojas cadastradas.');
+        avisarErro(data.error || 'Erro ao excluir empresa. Verifique se existem lojas cadastradas.');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
   const handleDeleteLoja = async (empresaId: string, lojaId: string) => {
-    if (!window.confirm('Tem certeza que deseja excluir esta loja?')) return;
+    if (!(await confirmarAcao('Tem certeza que deseja excluir esta loja?'))) return;
     try {
       const res = await apiFetch(`${BACKEND_URL}/api/empresas/${empresaId}/lojas/${lojaId}`, {
         method: 'DELETE'
@@ -882,10 +885,10 @@ export default function App() {
         carregarEmpresas();
       } else {
         const data = await res.json();
-        alert(data.error || 'Erro ao excluir loja');
+        avisarErro(data.error || 'Erro ao excluir loja');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -1360,7 +1363,7 @@ export default function App() {
         setNewDriverName('');
         setShowDriverModal(false);
       })
-      .catch(err => alert(err.message));
+      .catch(err => avisarErro(err.message));
   };
 
   const handleDeleteDriver = (id: string) => {
@@ -1375,7 +1378,7 @@ export default function App() {
         }
         return res.json();
       })
-      .catch(err => alert(err.message));
+      .catch(err => avisarErro(err.message));
   };
 
   const handleSubmitVehicle = (e: React.FormEvent) => {
@@ -1396,7 +1399,7 @@ export default function App() {
         setNewVehicleName('');
         setShowVehicleModal(false);
       })
-      .catch(err => alert(err.message));
+      .catch(err => avisarErro(err.message));
   };
 
   const socketRef = useRef<Socket | null>(null);
@@ -1642,17 +1645,16 @@ export default function App() {
       if (!response.ok) {
         throw new Error(data.error || 'Erro ao preparar comanda');
       }
-      alert(data.message || 'Pedido aceito e em preparação!');
+
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
   const handleCancelarPedido = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const motivo = window.prompt('Motivo do cancelamento (opcional):', '');
-    if (motivo === null) return; // usuário fechou o prompt
-    if (!window.confirm(`Confirma o cancelamento da comanda ${id}? Esta ação não pode ser desfeita.`)) return;
+    const motivo = await solicitarCancelamento(`Cancelar a comanda ${id}? Esta ação não pode ser desfeita.`);
+    if (motivo === null) return;
     try {
       const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${id}/cancel`, {
         method: 'POST',
@@ -1663,7 +1665,7 @@ export default function App() {
         throw new Error(data.error || 'Erro ao cancelar comanda');
       }
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -1724,7 +1726,7 @@ export default function App() {
 
   const avisarNotaPendente = (n: NotaResumo) => {
     if (n.status === 'PROCESSANDO') {
-      alert(`${NOME_MODELO[n.modelo]} enviada e ainda em processamento na SEFAZ. Clique no selo da nota no card para atualizar e imprimir.`);
+      avisarInfo(`${NOME_MODELO[n.modelo]} enviada e ainda em processamento na SEFAZ. Clique no selo da nota no card para atualizar e imprimir.`);
     }
   };
 
@@ -1751,7 +1753,7 @@ export default function App() {
       else avisarNotaPendente(nota);
     }
     if (data.fiscal?.erro) {
-      alert(`Separação concluída, mas a nota fiscal não foi autorizada:\n${data.fiscal.erro}\n\nUse "Emitir nota" no card para tentar de novo.`);
+      avisarErro(`Separação concluída, mas a nota fiscal não foi autorizada:\n${data.fiscal.erro}\n\nUse "Emitir nota" no card para tentar de novo.`);
     }
   };
 
@@ -1763,7 +1765,7 @@ export default function App() {
       try {
         await executarFinalizacao(id, modoNotaPadrao);
       } catch (err: any) {
-        alert(err.message);
+        avisarErro(err.message);
         if (err.status === 412) setShowConfigFiscal(true); // dados fiscais da loja não configurados
       }
       return;
@@ -1782,9 +1784,9 @@ export default function App() {
       const completa = nota.status === 'PROCESSANDO' ? await fiscalApi.atualizar(nota.id) : await fiscalApi.obterNota(nota.id);
       registrarNota(completa);
       if (completa.status === 'AUTORIZADA'||completa.status==='CONTINGENCIA') await imprimirFiscal(completa);
-      else alert(`${NOME_MODELO[completa.modelo]}: ${completa.status.toLowerCase()}${completa.mensagem ? ` — ${completa.mensagem}` : ''}`);
+      else avisarInfo(`${NOME_MODELO[completa.modelo]}: ${completa.status.toLowerCase()}${completa.mensagem ? ` — ${completa.mensagem}` : ''}`);
     } catch (err: any) {
-      alert(err.message);
+      avisarErro(err.message);
     }
   };
 
@@ -2440,10 +2442,10 @@ export default function App() {
                     if (!response.ok) {
                       throw new Error(data.error || 'Erro ao despachar entregas');
                     }
-                    alert(data.message || 'Comandas liberadas com sucesso!');
+
                     setActiveManifest(null);
                   } catch (err: any) {
-                    alert(err.message);
+                    avisarErro(err.message);
                   }
                 }}
               >
@@ -2458,15 +2460,15 @@ export default function App() {
         {new URLSearchParams(location.search).get('retorno')==='implantacao'&&<a className="btn btn-secondary" href="/area-cliente?secao=implantacao">Voltar à implantação e verificar a tarefa</a>}
         <OperationsWorkspace
           activeMenuKey={showVitrineModal ? 'vitrine' : showProdutosModal ? 'produtos' : undefined}
-          onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return false; setShowProdutosModal(false); setShowVitrineModal(false); setCatalogoAlterado(false); return true; }}
-          workspace={showVitrineModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoVitrine backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onDirtyChange={setCatalogoAlterado} onClose={() => { setShowVitrineModal(false); setCatalogoRefresh(v => v + 1); }} onProdutos={() => { setShowVitrineModal(false); setShowProdutosModal(true); }} /> : showProdutosModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoProdutos backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onClose={() => setShowProdutosModal(false)} onEstoque={() => setShowEstoqueModal(true)} onVitrine={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowProdutosModal(false); setShowVitrineModal(true); }} onDirtyChange={setCatalogoAlterado} refreshKey={catalogoRefresh} /> : undefined}
+          onWorkspaceExit={async () => { if (catalogoAlterado && !(await confirmarAcao('Descartar as alterações não publicadas?'))) return false; setShowProdutosModal(false); setShowVitrineModal(false); setCatalogoAlterado(false); return true; }}
+          workspace={showVitrineModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoVitrine backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onDirtyChange={setCatalogoAlterado} onClose={() => { setShowVitrineModal(false); setCatalogoRefresh(v => v + 1); }} onProdutos={() => { setShowVitrineModal(false); setShowProdutosModal(true); }} /> : showProdutosModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoProdutos backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onClose={() => setShowProdutosModal(false)} onEstoque={() => setShowEstoqueModal(true)} onVitrine={async () => { if (catalogoAlterado && !(await confirmarAcao('Descartar as alterações não publicadas?'))) return; setShowProdutosModal(false); setShowVitrineModal(true); }} onDirtyChange={setCatalogoAlterado} refreshKey={catalogoRefresh} /> : undefined}
           onDispatchViewChange={setDispatchViewActive}
           onDespacharProntos={despacharPedidosProntos}
           menuActions={[
             ...(tenantLojaId ? [{ key: 'configuracoes', label: 'Configurações', icon: 'settings' as const, onClick: () => setShowOperationSettings(true) }] : []),
             ...(sessao?.tipo === 'loja' && sessao.lojaId ? [
-              { key: 'produtos', label: 'Produtos', icon: 'products' as const, onClick: () => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowVitrineModal(false); setShowProdutosModal(true); } },
-              { key: 'vitrine', label: 'Configuração da vitrine', icon: 'products' as const, onClick: () => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowProdutosModal(false); setShowVitrineModal(true); } },
+              { key: 'produtos', label: 'Produtos', icon: 'products' as const, onClick: async () => { if (catalogoAlterado && !(await confirmarAcao('Descartar as alterações não publicadas?'))) return; setShowVitrineModal(false); setShowProdutosModal(true); } },
+              { key: 'vitrine', label: 'Configuração da vitrine', icon: 'products' as const, onClick: async () => { if (catalogoAlterado && !(await confirmarAcao('Descartar as alterações não publicadas?'))) return; setShowProdutosModal(false); setShowVitrineModal(true); } },
               { key: 'estoque', label: 'Estoque', icon: 'stock' as const, onClick: () => setShowEstoqueModal(true) },
             ] : []),
             { key: 'relatorios', label: 'Relatórios', icon: 'reports', onClick: () => { setReportPhase('filters'); setReportModalOpen(true); } },

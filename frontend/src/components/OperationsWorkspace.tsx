@@ -7,7 +7,7 @@ import DispatchWorkspace from './DispatchWorkspace';
 type Props = ComponentProps<typeof KanbanComandas> & {
   workspace?: ReactNode;
   activeMenuKey?: string;
-  onWorkspaceExit?: () => boolean;
+  onWorkspaceExit?: () => boolean | Promise<boolean>;
   onDispatchViewChange?: (active: boolean) => void;
   onDespacharProntos: (ids: string[], driverId: string) => Promise<void>;
   menuActions?: { key: string; label: string; icon: 'products' | 'stock' | 'reports' | 'drivers' | 'vehicles' | 'settings'; onClick: () => void }[];
@@ -147,7 +147,7 @@ export default function OperationsWorkspace(props: Props) {
     return ok && normalize(`${o.id} ${o.nomeCliente} ${o.endereco}`).includes(normalize(query.trim()));
   }).sort((a, b) => (ORDEM[sitOf(a)] - ORDEM[sitOf(b)]) || (tempo(b) - tempo(a)));
 
-  const changeStage = (next: Stage) => { if (props.onWorkspaceExit?.() === false) return; setStage(next); setFocused(null); setView('lista'); };
+  const changeStage = async (next: Stage) => { if (await props.onWorkspaceExit?.() === false) return; setStage(next); setFocused(null); setView('lista'); };
   const title = stage === 'todos' ? 'Pedidos' : stages.find(s => s.key === stage)?.label ?? 'Pedidos';
   const focusExists = props.deliveries.some(o => o.id === focused);
   const boardOrders = focused ? props.deliveries.filter(o => o.id === focused) : filtered;

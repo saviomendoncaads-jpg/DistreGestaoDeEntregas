@@ -1,3 +1,4 @@
+import { avisarErro } from './../../ui/feedback';
 import StoreImplementationBadge from './StoreImplementationBadge';
 import AdminForm from './AdminForm';
 import { useState } from 'react';
@@ -426,8 +427,8 @@ return (
                                         className="icon-btn"
                                         title="Copiar Chave de Acesso"
                                         onClick={() => {
-                                          navigator.clipboard.writeText(loja.chaveAcesso);
-                                          alert('Chave copiada para a área de transferência!');
+                                          navigator.clipboard.writeText(loja.chaveAcesso).catch(() => avisarErro('Não foi possível copiar a chave. Tente novamente.'));
+
                                         }}
                                       >
                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

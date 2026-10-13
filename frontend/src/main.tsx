@@ -1,6 +1,7 @@
 import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
+import FeedbackPanel from './ui/FeedbackPanel'
 
 // Roteamento por pathname (sem react-router): /loja/<id> é a vitrine pública do
 // cliente final; o resto é o painel da loja/admin. Os dois entram por import()
@@ -18,6 +19,7 @@ const Raiz = ehImplantacao ? Implantacao : ehVitrine ? PainelCliente : App
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    <FeedbackPanel />
     <Suspense fallback={null}>
       <Raiz />
     </Suspense>

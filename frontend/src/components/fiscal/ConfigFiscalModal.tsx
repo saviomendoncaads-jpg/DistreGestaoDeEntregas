@@ -1,3 +1,4 @@
+import { confirmarAcao } from './../../ui/feedback';
 import { useEffect, useState } from 'react';
 import { buscarEnderecoPorCep, mascararCep } from '../../cliente/services/cep';
 import type { ConfigFiscal, CredenciaisEnvio, EstadoFiscal, FiscalApi } from './fiscalApi';
@@ -113,8 +114,8 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
     return 'Credenciais salvas com segurança (cifradas).';
   });
 
-  const removerCertificado = () => {
-    if (!window.confirm('Remover o certificado A1 salvo?')) return;
+  const removerCertificado = async () => {
+    if (!(await confirmarAcao('Remover o certificado A1 salvo?'))) return;
     executar('cred', async () => { aplicarEstado(await api.salvarCredenciais({ removerCertificado: true })); return 'Certificado removido.'; });
   };
 
