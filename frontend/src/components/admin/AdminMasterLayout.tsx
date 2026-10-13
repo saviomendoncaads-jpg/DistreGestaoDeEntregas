@@ -27,7 +27,7 @@ export default function AdminMasterLayout({section,onNavigate,onLogout,connected
       <div className="master-sidebar-foot"><span className="master-avatar">AD</span><div><strong>Administrador</strong><small>Gestão da plataforma</small></div><button type="button" onClick={onLogout} aria-label="Sair da conta" title="Sair"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M9 4H4v16h5M10 12h11m-4-4 4 4-4 4"/></svg></button></div>
     </aside>
     <div className="master-main">
-      <header className="master-topbar"><span>Plataforma <span aria-hidden="true">/</span> <strong>{current.label}</strong></span><div className="master-topbar-actions"><span className={`master-connection ${connected?'is-online':''}`} role="status"><i aria-hidden="true"/>{connected?'Conectado':'Reconectando'}</span><button type="button" className="master-mobile-logout" onClick={onLogout}>Sair</button></div></header>
+      <header className="master-topbar"><span>Plataforma <span aria-hidden="true">/</span> <strong>{current.label}</strong></span><div className="master-topbar-actions"><a className="btn btn-secondary" href="/app?perfil=loja" target="_blank" rel="noopener noreferrer">Abrir painel da loja ↗</a><span className={`master-connection ${connected?'is-online':''}`} role="status"><i aria-hidden="true"/>{connected?'Conectado':'Reconectando'}</span><button type="button" className="master-mobile-logout" onClick={onLogout}>Sair</button></div></header>
       <main className="master-content"><div className="master-page-heading"><span>GESTÃO DO DISTRE</span><h1>{current.title}</h1><p>{current.description}</p></div>{children}</main>
     </div>
   </div>;

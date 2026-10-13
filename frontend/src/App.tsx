@@ -1,3 +1,4 @@
+import {pinPanelRole,getPanelSession,savePanelSession,clearPanelSession,sessionKey} from './auth/sessions';
 import ManualDeliveryActions from './components/ManualDeliveryActions';
 import ImplementationCard from './implantacao/ImplementationCard';
 import type { ImplementationState } from './implantacao/api';
@@ -179,15 +180,14 @@ interface Sessao {
 
 export default function App() {
   // --- ESTADOS MULTI-TENANT & AUTENTICAÇÃO ---
-  const [sessao, setSessao] = useState<Sessao | null>(() => {
-    const saved = localStorage.getItem('distre_sessao');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [activeRole]=useState(pinPanelRole);
+  const [sessao,setSessao]=useState<Sessao|null>(()=>getPanelSession(activeRole));
+  useEffect(()=>{const sync=(event:StorageEvent)=>{if(event.key===sessionKey(activeRole))setSessao(getPanelSession(activeRole));};window.addEventListener('storage',sync);return()=>window.removeEventListener('storage',sync);},[activeRole]);
 
   const [loginUsuario, setLoginUsuario] = useState('');
   const [loginSenha, setLoginSenha] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [loginTab, setLoginTab] = useState<'loja' | 'admin'>('loja');
+  const [loginTab] = useState<'loja' | 'admin'>(activeRole);
   const [selectedDriverForDispatch, setSelectedDriverForDispatch] = useState('');
   const [dispatchViewActive, setDispatchViewActive] = useState(false);
 
@@ -342,8 +342,7 @@ export default function App() {
       };
 
       setSessao(novaSessao);
-      localStorage.setItem('distre_sessao', JSON.stringify(novaSessao));
-      localStorage.setItem('distre_token', data.token);
+      savePanelSession(novaSessao);
       const next = new URLSearchParams(location.search).get('next');
       if (next === 'implantacao' || next === 'area-cliente') location.assign(next === 'implantacao' ? '/area-cliente?secao=implantacao' : '/area-cliente');
       setLoginUsuario('');
@@ -370,8 +369,7 @@ export default function App() {
     setAllDrivers([]);
     setSelectedForManifest([]);
     setActiveManifest(null);
-    localStorage.removeItem('distre_sessao');
-    localStorage.removeItem('distre_token');
+    clearPanelSession(activeRole,sessao?.token);
     localStorage.removeItem('distre_driver_mobile');
     localStorage.removeItem('distre_driver_location');
   };
@@ -2019,7 +2017,7 @@ export default function App() {
 
   if (!sessao) {
     return <LoginScreen mode={loginTab} username={loginUsuario} password={loginSenha} error={loginError}
-      onModeChange={mode => { setLoginTab(mode); setLoginError(null); }}
+      onModeChange={mode => { const url=new URL(location.href);url.searchParams.set('perfil',mode);url.searchParams.delete('next');location.assign(url.href); }}
       onUsernameChange={setLoginUsuario} onPasswordChange={setLoginSenha} onSubmit={handleLogin} />;
   }
 
@@ -2232,6 +2230,7 @@ export default function App() {
           )}
         </div>
         <div className="header-actions">
+          <a className="btn btn-secondary" href="/app?perfil=admin" target="_blank" rel="noopener noreferrer">Abrir Painel Master ↗</a>
           <button
             className="btn btn-primary"
             onClick={() => window.location.assign(sessao?.tipo==='admin'&&tenantLojaId?`/area-cliente?lojaId=${encodeURIComponent(tenantLojaId)}`:'/area-cliente')}

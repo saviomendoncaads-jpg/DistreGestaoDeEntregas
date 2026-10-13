@@ -100,3 +100,10 @@ Cobranças abertas passam a oferecer exclusivamente Pagar com Pix. A chave aleat
 ## Pagamento total em um único Pix
 
 Resumo de cobranças oferece Pagar total em aberto com Pix. Mostra a soma em centavos, quantidade e referências das faturas abertas (incluindo a vencer), chave e cópia, permitindo uma transferência e um comprovante para conferência administrativa. Faturas pagas/canceladas são excluídas; opção requer chave comum válida para todas as faturas. Pagamento individual continua disponível e nenhum clique realiza baixa/liberação.
+
+
+## Sessões independentes do Master e da loja
+
+Master e loja usam sessões separadas no armazenamento do navegador. Cada aba fixa seu perfil na URL: /app?perfil=admin ou /app?perfil=loja. Master oferece Abrir painel da loja e operação oferece Abrir Painel Master, ambos em nova aba. Logout/expiração remove somente a sessão correspondente; atualização em abas do mesmo perfil é sincronizada. Área do Cliente usa a loja; acompanhamento com lojaId usa a sessão administrativa. Sessão legada é migrada uma única vez, sem recriar sessão encerrada e sem interpretar dados inválidos.
+
+255 testes aprovados, incluindo 45 SQL e seis regressões de sessão/routing/migração. Navegador validou logins reais pela UI em duas abas do mesmo contexto, tokens independentes, recarga, Área do Cliente, logout do Master mantendo loja e logout da loja mantendo Master, além do celular. Nenhuma sessão foi transformada de loja em administrador.
