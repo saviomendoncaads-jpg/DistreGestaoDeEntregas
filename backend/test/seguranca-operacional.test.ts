@@ -96,10 +96,10 @@ describe('proteção do fluxo operacional', () => {
     expect((await request('/api/produtos?lojaId=l2', 'loja-test')).status).toBe(200);
     expect(mocks.produtos).toHaveBeenCalledWith('l1');
   });
-  it('recusa sessão operacional de loja suspensa', async () => {
+  it('mantém sessão de loja suspensa e bloqueia escrita operacional', async () => {
     lojas[0].statusFinanceiro = 'SUSPENSO';
-    expect((await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', {})).status).toBe(401);
-    expect((await request('/api/deliveries/pedido-l1', 'loja-test')).status).toBe(401);
+    expect((await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', {})).status).toBe(402);
+    expect((await request('/api/deliveries/pedido-l1', 'loja-test')).status).toBe(200);
   });
   it('desabilita simulador por padrão e sempre em produção', async () => {
     vi.stubEnv('ENABLE_SIMULATOR', 'false');

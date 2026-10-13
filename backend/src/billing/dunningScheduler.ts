@@ -5,7 +5,6 @@ import { pool } from '../database';
 import { getGateway } from './gatewayFactory';
 import { appendLedger } from './ledgerService';
 import { transicionar } from './SubscriptionStateMachine';
-import { revogarSessoesDaLoja, revogarSessoesDaEmpresa } from '../auth';
 import { lojas, empresas } from '../tenants';
 
 // Régua de cobrança automatizada (Smart Dunning):
@@ -158,7 +157,7 @@ async function garantirCobrancaGerada(fat: any): Promise<void> {
   console.log(`[Dunning] Cobrança gerada p/ fatura ${fat.ID} (${cobranca.gatewayFaturaId}).`);
 }
 
-/** Suspende a LOJA (grace period esgotado): bloqueia painel da loja + revoga suas sessões. */
+/** Suspende a LOJA (grace period esgotado): bloqueia operações, mantendo acesso à conta e às cobranças. */
 async function suspenderLoja(lojaId: string, empresaId: string): Promise<void> {
   const loja = lojas.find((l) => l.id === lojaId);
   if (!loja || loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO') return;
@@ -169,7 +168,7 @@ async function suspenderLoja(lojaId: string, empresaId: string): Promise<void> {
     .query('UPDATE LOJAS SET STATUS_FINANCEIRO = @s WHERE ID = @id');
   loja.statusFinanceiro = 'SUSPENSO';
 
-  await revogarSessoesDaLoja(lojaId);
+
 
   await appendLedger({
     empresaId,
@@ -203,7 +202,7 @@ async function suspenderEmpresa(empresaId: string, assinaturaId?: string): Promi
   }
 
   // Revoga sessões ativas das lojas vinculadas (Map + banco).
-  await revogarSessoesDaEmpresa(empresaId);
+
 
   await appendLedger({
     empresaId,

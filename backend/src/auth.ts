@@ -28,11 +28,6 @@ export async function carregarSessoesDoBanco(): Promise<void> {
     const persistidas = await obterSessoesValidas();
     let n = 0;
     for (const s of persistidas) {
-      // Não restaura sessão de loja suspensa/cancelada (respeita o gate de inadimplência).
-      if (s.tipo === 'loja' && s.lojaId) {
-        const loja = lojas.find(l => l.id === s.lojaId);
-        if (loja && (lojaBloqueadaFinanceiro(loja))) continue;
-      }
       if (!sessaoExpirada(s)) sessions.set(s.token, s);
       n++;
     }
@@ -113,15 +108,6 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
     return;
   }
 
-  // Bloqueio por inadimplência (cobrança por LOJA): loja suspensa/cancelada não reabre sessão.
-  if (lojaBloqueadaFinanceiro(loja)) {
-    res.status(402).json({
-      error: 'Assinatura desta loja suspensa por inadimplência. Regularize o pagamento para acessar o painel.',
-      codigo: 'PAYMENT_REQUIRED'
-    });
-    return;
-  }
-
   const token = crypto.randomUUID();
   const sessao: Sessao = {
     tipo: 'loja',
@@ -144,7 +130,8 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
     nomeEmpresa: empresa.nome,
     recebePedidos: loja.recebePedidos,
     latitude: loja.latitude,
-    longitude: loja.longitude
+    longitude: loja.longitude,
+    operacaoBloqueada: lojaBloqueadaFinanceiro(loja)
   });
 }));
 
@@ -183,7 +170,8 @@ router.get('/me', (req: Request, res: Response) => {
   if (!sessao) { res.status(401).json({ error: 'Sessão inválida ou expirada' }); return; }
   // Retorna tudo menos o token interno
   const { token: _t, ...dadosSessao } = sessao;
-  res.json({ ...dadosSessao, token });
+  const loja = sessao.tipo === 'loja' ? lojas.find(l=>l.id===sessao.lojaId) : undefined;
+  res.json({ ...dadosSessao, token, operacaoBloqueada: loja ? lojaBloqueadaFinanceiro(loja) : false });
 });
 
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
@@ -212,7 +200,7 @@ export function obterSessaoPorToken(token: unknown): Sessao | null {
   if (sessao.tipo === 'loja') {
     const loja = lojas.find(l => l.id === sessao.lojaId);
     const empresa = loja && empresas.find(e => e.id === loja.empresaId);
-    if (!loja || !loja.ativo || !empresa || !empresa.ativo || lojaBloqueadaFinanceiro(loja)) { sessions.delete(token); return null; }
+    if (!loja || !loja.ativo || !empresa || !empresa.ativo ) { sessions.delete(token); return null; }
   }
   return sessao;
 }
@@ -230,8 +218,8 @@ export function verificarSessao(req: Request & { sessao?: Sessao }, res: Respons
 
 /**
  * Middleware que bloqueia ações de escrita de uma LOJA suspensa/cancelada por
- * inadimplência (grace period D+7 esgotado). Cobrança é por loja: uma loja
- * suspensa não derruba as outras lojas da mesma empresa. Admin e leitura não afetados.
+ * inadimplência após a carência configurada. Cobrança individual de uma loja
+ * não bloqueia as outras filiais; dívida da rede bloqueia sua operação conjunta. Conta e leitura permanecem acessíveis.
  */
 export function exigirLojaAdimplente(req: Request & { sessao?: Sessao }, res: Response, next: NextFunction) {
   const sessao = obterSessaoDoRequest(req);

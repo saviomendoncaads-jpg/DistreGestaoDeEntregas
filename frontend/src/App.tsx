@@ -165,6 +165,7 @@ const HISTORICO_PERFORMANCE: DadoPerformanceHistorico[] = [];
 
 
 interface Sessao {
+  operacaoBloqueada?: boolean;
   tipo: 'admin' | 'loja';
   lojaId?: string;
   nomeLoja?: string;
@@ -336,6 +337,7 @@ export default function App() {
         lojaId: data.lojaId,
         nomeLoja: data.nomeLoja,
         nomeEmpresa: data.nomeEmpresa,
+        operacaoBloqueada: data.operacaoBloqueada,
         token: data.token
       };
 
@@ -953,6 +955,14 @@ export default function App() {
   const [catalogoRefresh, setCatalogoRefresh] = useState(0);
   const [showProdutosModal, setShowProdutosModal] = useState(false);
   const [showVitrineModal, setShowVitrineModal] = useState(false);
+  const [operacaoBloqueada,setOperacaoBloqueada]=useState<boolean|null>(null);
+  useEffect(()=>{
+    if(sessao?.tipo!=='loja'){setOperacaoBloqueada(false);return;}
+    setOperacaoBloqueada(sessao.operacaoBloqueada??null);
+    let cancelled=false;
+    const refresh=async()=>{try{const r=await fetch(`${BACKEND_URL}/api/auth/me`,{headers:{Authorization:`Bearer ${sessao.token}`}});if(r.status===401){if(!cancelled)void handleLogout();return;}if(!r.ok)return;const d=await r.json();if(!cancelled)setOperacaoBloqueada(d.operacaoBloqueada===true);}catch{/* Permissão anterior preservada; servidor continua protegendo ações. */}};
+    void refresh();const timer=setInterval(()=>void refresh(),15000);window.addEventListener('focus',refresh);return()=>{cancelled=true;clearInterval(timer);window.removeEventListener('focus',refresh);};
+  },[sessao?.token]);
   const [implementationState,setImplementationState]=useState<ImplementationState|null>(null);
   useEffect(() => {
     document.title = !sessao ? 'Distre - Acesso ao ERP'
@@ -967,9 +977,9 @@ export default function App() {
     if(area==='vitrine')setShowVitrineModal(true);
   },[sessao?.tipo,sessao?.lojaId]);
   useEffect(()=>{
-    if(sessao?.tipo==='loja'&&implementationState?.lojaId===sessao.lojaId&&implementationState?.needsWelcome
+    if(sessao?.tipo==='loja'&&operacaoBloqueada===false&&implementationState?.lojaId===sessao.lojaId&&implementationState?.needsWelcome
       &&!new URLSearchParams(location.search).has('area'))location.replace('/area-cliente');
-  },[sessao,implementationState]);
+  },[sessao,implementationState,operacaoBloqueada]);
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverVehicleType, setNewDriverVehicleType] = useState('motorcycle');
   const [newVehicleName, setNewVehicleName] = useState('');
@@ -2240,6 +2250,7 @@ export default function App() {
           <button
             className="btn"
             style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-thin)' }}
+            disabled={operacaoBloqueada!==false}
             onClick={handleClearSimulation}
             title="Apagar todos os dados da simulação"
           >
@@ -2257,6 +2268,8 @@ export default function App() {
         </div>
       </header>
 
+      {sessao.tipo==='loja'&&operacaoBloqueada!==false&&<section className="operation-payment-banner" role="status"><div><strong>{operacaoBloqueada?'Operação suspensa por inadimplência':'Verificando acesso à operação…'}</strong><p>{operacaoBloqueada?'Regularize o pagamento para continuar operando. Sua conta e suas cobranças continuam disponíveis.':'Aguarde a conferência da sua assinatura.'}</p></div><a className="btn btn-primary" href="/area-cliente?secao=cobrancas">Acessar cobranças e pagamentos</a></section>}
+      <div className={sessao.tipo==='loja'&&operacaoBloqueada!==false?'operation-payment-muted':undefined} inert={sessao.tipo==='loja'&&operacaoBloqueada!==false} aria-label="Área de operação">
       {/* 2. Incidents Alerts Banner */}
       {alertDeliveries.length > 0 && (
         <div className="incidents-container">
@@ -2554,7 +2567,7 @@ export default function App() {
         </section>}
 
       </div>
-      {showThermalReceipt && activeManifest && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && showThermalReceipt && activeManifest && createPortal(
         <div className="thermal-overlay">
           <div className="thermal-modal-content">
 
@@ -2776,7 +2789,7 @@ export default function App() {
       )}
 
       {/* Modal do Relatório Analítico */}
-      {reportModalOpen && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && reportModalOpen && createPortal(
         <div className="report-modal-overlay" onClick={() => setReportModalOpen(false)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="report-modal-header">
@@ -3317,7 +3330,7 @@ export default function App() {
       , document.body)}
 
       {/* Modal de Cadastro de Motoboy */}
-      {showDriverModal && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && showDriverModal && createPortal(
         <div className="report-modal-overlay" onClick={() => setShowDriverModal(false)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
             <div className="report-modal-header">
@@ -3449,7 +3462,7 @@ export default function App() {
         </div>
       , document.body)}
 
-      {showVehicleModal && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && showVehicleModal && createPortal(
         <div className="report-modal-overlay" onClick={() => setShowVehicleModal(false)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
             <div className="report-modal-header">
@@ -3528,7 +3541,7 @@ export default function App() {
         </div>
       , document.body)}
 
-      {editingLoja && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && editingLoja && createPortal(
         <div className="report-modal-overlay" onClick={() => setEditingLoja(null)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
             <div className="report-modal-header">
@@ -3665,6 +3678,7 @@ export default function App() {
           </div>
         </div>
       , document.body)}
+      </div>
     </div>
   );
 }

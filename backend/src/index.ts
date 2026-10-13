@@ -22,6 +22,7 @@ import { monitorAgent } from './monitor';
 import { integratorAgent } from './integrator';
 import { conectarBanco, limparSessoesExpiradas, pool } from './database';
 import { Entrega, Motorista } from './types';
+import clientBillingRouter from './billing/clientBilling';
 import financeiroRouter, { inicializarFinanceiro } from './financeiroService';
 import integracaoPedidosRouter from './integracaoPedidos';
 import integracaoEntregasRouter from './integracaoEntregas';
@@ -110,6 +111,7 @@ app.use('/api', tenantsRouter);
 app.use('/api/whatsapp', whatsappRouter);
 
 // Roteador do Módulo Financeiro (admin)
+app.use('/api/cliente/cobrancas', clientBillingRouter);
 app.use('/api/admin/financeiro', financeiroRouter);
 app.use('/api/admin/relatorios', commercialReportsRouter);
 
