@@ -1810,35 +1810,12 @@ export default function App() {
 
   const comandaEmEmissao = emissaoFiscal ? deliveries.find(d => d.id === emissaoFiscal.comandaId) : undefined;
 
-  // Gera o romaneio (manifesto) das comandas selecionadas + entregador escolhido.
-  // Extraído do antigo botão "Gerar Romaneios" do header; acionado pelo Kanban (Coluna "Prontos").
-  const gerarRomaneioParaSelecionados = (driverId?: string) => {
+  const gerarRomaneioParaSelecionados = async (driverId?: string) => {
     if (selectedForManifest.length === 0) return;
-    const driver =
-      drivers.find(drv => drv.id === driverId) ||
-      drivers.find(drv => drv.id === selectedDriverForDispatch) ||
-      drivers.find(drv => drv.status === 'ocioso') ||
-      drivers[0];
-    const driverName = driver ? driver.name : 'Motoboy Terceirizado';
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    const romId = `ROM-${dateStr}-${Math.floor(100 + Math.random() * 900)}`;
-    const totalValue = selectedForManifest.reduce((acc, deliveryId) => {
-      const found = deliveries.find(del => del.id === deliveryId);
-      return acc + (found ? getDeliveryValue(found) : 0);
-    }, 0);
-    setActiveManifest({
-      id: romId,
-      deliveryIds: [...selectedForManifest],
-      driverName,
-      driverId: driver ? driver.id : '',
-      totalValue,
-    });
-    setSelectedForManifest([]);
+    const escolhido = driverId || selectedDriverForDispatch || drivers.find(d => d.status === 'ocioso')?.id || '';
+    try { await despacharPedidosProntos([...selectedForManifest], escolhido); }
+    catch (error) { avisarErro(error instanceof Error ? error.message : 'Não foi possível despachar.'); }
   };
-
-
-
-
   const despacharPedidosProntos = async (ids: string[], driverId: string) => {
     const driver = drivers.find(d => d.id === driverId);
     if (!driver) throw new Error('O entregador não está mais cadastrado.');
@@ -2300,120 +2277,6 @@ export default function App() {
             </span>
           </div>
         </div>}
-        {/* Romaneio Ativo */}
-        {activeManifest && (
-          <div className="ops-manifest" style={{
-            background: '#0d131f', 
-            border: '1px solid #1f293d', 
-            borderRadius: '8px', 
-            padding: '0.75rem', 
-            marginBottom: '0.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.4rem'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="font-mono" style={{ color: 'var(--color-cyan)', fontWeight: 'bold', fontSize: '0.85rem' }}>{activeManifest.id}</span>
-              <button 
-                style={{ background: 'transparent', border: 'none', color: 'var(--color-rose)', cursor: 'pointer', fontSize: '0.75rem' }}
-                onClick={() => {
-                  if (activeManifest.despachado) { setActiveManifest(null); return; }
-                  setSelectedForManifest(activeManifest.deliveryIds);
-                  setSelectedDriverForDispatch(activeManifest.driverId);
-                  setActiveManifest(null);
-                }}
-              >
-                {activeManifest.despachado ? 'Fechar romaneio' : 'Desfazer'}
-              </button>
-            </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-              <div><strong>Motoboy:</strong> {activeManifest.driverName}</div>
-              <div style={{ marginTop: '0.2rem' }}>
-                <strong>Comandas:</strong>{' '}
-                {activeManifest.deliveryIds.map(id => (
-                  <span key={id} className="font-mono" style={{ marginRight: '0.4rem', background: '#141b27', padding: '0.1rem 0.3rem', borderRadius: '4px' }}>
-                    {id}
-                  </span>
-                ))}
-              </div>
-              <div style={{ 
-                marginTop: '0.4rem', 
-                padding: '0.4rem', 
-                background: 'rgba(6, 182, 212, 0.04)', 
-                border: '1px solid rgba(6, 182, 212, 0.1)', 
-                borderRadius: '4px',
-                color: 'var(--color-cyan)',
-                fontWeight: 600
-              }}>
-                Total dos pedidos: R$ {activeManifest.totalValue.toFixed(2)}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className="btn btn-small"
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
-                  gap: '0.4rem',
-                  background: '#141b27',
-                  border: '1px solid #1f293d',
-                  color: 'var(--text-primary)',
-                  fontSize: '0.72rem',
-                  padding: '0.35rem',
-                  width: 'fit-content'
-                }}
-                onClick={() => setShowThermalReceipt(true)}
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                  <path d="M6 9V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v5" />
-                  <rect width="12" height="8" x="6" y="14" rx="1" />
-                </svg>
-                Imprimir Guia do Motoboy (80mm)
-              </button>
-
-              {!activeManifest.despachado && <button
-                type="button"
-                className="btn btn-primary btn-small"
-                style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center', 
-                  gap: '0.4rem',
-                  fontSize: '0.72rem',
-                  padding: '0.35rem',
-                  width: 'fit-content'
-                }}
-                onClick={async () => {
-                  try {
-                    const response = await apiFetch(`${BACKEND_URL}/api/deliveries/dispatch-batch`, {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        deliveryIds: activeManifest.deliveryIds,
-                        driverId: activeManifest.driverId,
-                        romaneioId: activeManifest.id
-                      })
-                    });
-                    const data = await response.json();
-                    if (!response.ok) {
-                      throw new Error(data.error || 'Erro ao despachar entregas');
-                    }
-
-                    setActiveManifest(null);
-                  } catch (err: any) {
-                    avisarErro(err.message);
-                  }
-                }}
-              >
-                Liberar Entrega
-              </button>}
-            </div>
-          </div>
-        )}
-
         {/* Kanban de Controle de Comandas — substitui as 2 filas verticais antigas */}
         {sessao?.tipo==='loja'&&<ImplementationCard key={sessao.token} token={sessao.token} onLoaded={setImplementationState}/>}
         {new URLSearchParams(location.search).get('retorno')==='implantacao'&&<a className="btn btn-secondary" href="/area-cliente?secao=implantacao">Voltar à implantação e verificar a tarefa</a>}

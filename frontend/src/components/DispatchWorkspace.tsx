@@ -41,7 +41,7 @@ export default function DispatchWorkspace(props: Props) {
     submitting.current = true; setBusy(true); setError(''); setSuccess('');
     try {
       await props.onDespacharProntos(selected.map(o => o.id), chosen.id);
-      setSuccess(`${selected.length} ${selected.length === 1 ? 'pedido despachado' : 'pedidos despachados'}. O romaneio está disponível para impressão.`);
+      setSuccess(`${selected.length} ${selected.length === 1 ? 'pedido despachado' : 'pedidos despachados'}. Acompanhe em Em rota.`);
     } catch (e) { setError(e instanceof Error ? e.message : 'Não foi possível despachar. Tente novamente.'); }
     finally { submitting.current = false; setBusy(false); }
   }
