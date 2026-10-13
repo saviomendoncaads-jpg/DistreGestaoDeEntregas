@@ -48,10 +48,8 @@ export async function concluirEtapa(lojaId:string,passo:number,confirmacao:boole
   if(passo!==count+1)throw new ErroImplantacao('Conclua a etapa anterior primeiro.');
   const stats=await evidence(lojaId,tx);
   if(passo===7&&['SUSPENSO','CANCELADO'].includes(lojas.find(l=>l.id===lojaId)?.statusFinanceiro||''))throw new ErroImplantacao('Regularize o acesso da loja antes de confirmar o início da operação.');
-  if([2,4,5,7].includes(passo)&&!stats.produtos)throw new ErroImplantacao('Cadastre ou importe os produtos da loja antes de continuar.');
-  if([4,7].includes(passo)&&stats.comEstoque<stats.produtos)throw new ErroImplantacao(`Falta registrar o saldo inicial de ${stats.produtos-stats.comEstoque} produto(s).`);
-  if([5,7].includes(passo)&&lojas.find(l=>l.id===lojaId)?.recebePedidos&&stats.comImagem<stats.produtos)throw new ErroImplantacao(`Falta cadastrar a imagem principal de ${stats.produtos-stats.comImagem} produto(s).`);
-  const mode=[1,3,6].includes(passo)?'conhecimento_previo_confirmado':passo===7?'aceite_operacional':'dados_verificados';
+  // Os indicadores ficam no histórico; a confirmação da loja permite avançar com tarefas pendentes.
+  const mode=[1,3,6].includes(passo)?'conhecimento_previo_confirmado':passo===7?'aceite_operacional':'confirmacao_da_loja';
   await new mssql.Request(tx).input('loja',mssql.VarChar(100),lojaId).input('passo',mssql.Int,passo).input('modo',mssql.VarChar(50),mode)
    .input('autor',mssql.NVarChar(200),autor).input('evidencia',mssql.NVarChar,JSON.stringify(stats)).query(`
    INSERT INTO IMPLANTACAO_ETAPAS(LOJA_ID,PASSO,MODALIDADE,AUTOR,EVIDENCIA) VALUES(@loja,@passo,@modo,@autor,@evidencia);

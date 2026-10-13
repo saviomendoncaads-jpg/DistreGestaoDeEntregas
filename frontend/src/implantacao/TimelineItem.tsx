@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Step, StepStatus, StepType } from './types';
 import Icon from './Icon';
+import Materiais from './Materiais';
 export default function TimelineItem({ step, status, type, last, children }: { step: Step; status: StepStatus; type: StepType; last: boolean; children: ReactNode }) {
   return <li className={`imp-timeline-item ${status}`} aria-current={status === 'active' ? 'step' : undefined}>
     <div className="imp-track" aria-hidden="true">
@@ -16,6 +17,10 @@ export default function TimelineItem({ step, status, type, last, children }: { s
         <span className={`imp-status ${status}`}>{status === 'completed' ? 'Concluído' : status === 'active' ? 'Sua próxima etapa' : 'Bloqueado'}</span>
       </div>
       {status === 'active' && <div className="imp-step-content">{children}</div>}
+      {status === 'completed' && <details className="imp-step-content imp-completed-materials">
+        <summary>Rever vídeos e baixar materiais</summary>
+        <Materiais passo={step.id}/>
+      </details>}
     </article>
   </li>;
 }

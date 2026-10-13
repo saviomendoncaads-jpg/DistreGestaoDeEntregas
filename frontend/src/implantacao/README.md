@@ -12,14 +12,16 @@ Rota `/implantacao` autenticada, no menu lateral da loja. Sem sessão, segue par
 `IMPLANTACAO_LOJAS` mantém progresso e datas. `IMPLANTACAO_ETAPAS` mantém modalidade, identificação da sessão por papel/loja, evidência e horário. Não armazena tokens. Uma transação serializável valida sequência e grava avanço + histórico. Retry é idempotente, sem duplicar eventos. A sessão de loja ignora IDs externos; admin pode consultar uma loja explicitamente.
 
 1. Conhecimento prévio de organização do catálogo confirmado pela loja.
-2. Pelo menos um produto ativo cadastrado/importado. Rascunhos não contam.
+2. Confirmação da loja para concluir, mesmo sem produtos cadastrados/importados.
 3. Conhecimento prévio de estoque inicial confirmado pela loja.
-4. Todos os produtos ativos possuem registro de saldo na loja.
-5. Para loja que recebe pedidos por e-commerce, todos os produtos ativos têm imagem principal cadastrada. Para loja sem esse canal, imagens são opcionais.
+4. Confirmação da loja para concluir, mesmo com produtos sem saldo registrado.
+5. Confirmação da loja para concluir, mesmo com imagens pendentes.
 6. Conhecimento prévio de operação e PDV confirmado pela loja.
-7. Aceite de Go-Live, revalidando catálogo, saldos, imagens quando necessárias e situação de acesso da loja.
+7. Aceite de Go-Live, permitindo tarefas pendentes e preservando a verificação da situação de acesso da loja.
 
 Go-Live registra preparação/aceite; não cria pedidos, documentos fiscais, cobranças ou alterações de plano. Não certifica homologação fiscal/financeira. A identificação individual de operadores depende da evolução de usuários e permissões documentada na auditoria.
+
+As tarefas práticas registram a modalidade `confirmacao_da_loja`, mantendo os indicadores reais na evidência, sem criar cadastros, saldos ou imagens. Etapas concluídas oferecem **Rever vídeos e baixar materiais**, sem ações para concluir novamente.
 
 ## Aulas, manuais e modelos
 
@@ -32,7 +34,7 @@ Cada etapa tem uma aula em vídeo e um manual em PDF, produzidos com as telas re
 
 ## Validação
 
-Testes SQL: isolamento, persistência, concorrência, idempotência, sequência, saldo e imagens reais, suspensão e revalidação do Go-Live. HTTP: sessão, escopo por loja e acesso administrativo. Navegador: primeiro acesso, refresh, tarefa pendente, retorno do cadastro, estoque, finalização, mudança para Ajuda e Treinamentos, acompanhamento administrativo e responsividade.
+Testes SQL: isolamento, persistência, concorrência, idempotência, sequência, confirmação com catálogo vazio, saldos e imagens pendentes, suspensão e data do Go-Live. HTTP: sessão, escopo por loja e acesso administrativo. Navegador: primeiro acesso, refresh, tarefa pendente, retorno do cadastro, estoque, finalização, mudança para Ajuda e Treinamentos, acompanhamento administrativo e responsividade.
 
 ## Área do Cliente
 

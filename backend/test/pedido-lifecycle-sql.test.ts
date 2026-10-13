@@ -18,6 +18,8 @@ describe.skipIf(process.env.RUN_SQL_ESTOQUE_TESTS !== '1')('ciclo pedido→entre
     process.env.DB_DATABASE = nomeBanco; process.env.SEED_DEMO = 'false';
     banco = await import('../src/database'); await banco.conectarBanco();
     estoque = await import('../src/estoque'); await estoque.inicializarEstoque();
+    // Mesma ordem do boot: tenants inicializa os handlers compartilhados com auth.
+    await import('../src/tenants');
     onboarding=await import('../src/implantacao');await onboarding.inicializarImplantacao();
     lifecycle = await import('../src/pedidoLifecycle'); reports = await import('../src/commercialReports');
     await banco.salvarEmpresa({ id: 'empresa-fixture', nome: 'Empresa fixture', cnpj: '00000000000191', ativo: true, criadoEm: new Date().toISOString() });
@@ -81,36 +83,48 @@ describe.skipIf(process.env.RUN_SQL_ESTOQUE_TESTS !== '1')('ciclo pedido→entre
     await expect(onboarding.concluirEtapa(loja,1,false,'operador')).rejects.toThrow('Confirme');
     expect((await onboarding.lerImplantacao(loja)).completed).toBe(0);
   });
-  it('conclusão concorrente é idempotente e estoque precisa de registros reais',async()=>{
+  it('conclusão concorrente é idempotente e confirmação permite estoque pendente',async()=>{
     await onboarding.iniciarImplantacao(loja);await onboarding.concluirEtapa(loja,1,true,'operador');
     await Promise.all([onboarding.concluirEtapa(loja,2,true,'operador'),onboarding.concluirEtapa(loja,2,true,'operador')]);
     expect((await onboarding.lerImplantacao(loja)).history).toHaveLength(2);
     await onboarding.concluirEtapa(loja,3,true,'operador');
     await banco.salvarProduto({id:'sem-saldo-'+seq,lojaId:loja,nome:'Sem saldo',preco:5,ativo:true});
-    await expect(onboarding.concluirEtapa(loja,4,true,'operador')).rejects.toThrow('saldo inicial');
-    expect((await onboarding.lerImplantacao(loja)).completed).toBe(3);
+    await onboarding.concluirEtapa(loja,4,true,'operador');
+    const state=await onboarding.lerImplantacao(loja);
+    expect(state.completed).toBe(4);
+    expect(state.stats.comEstoque).toBeLessThan(state.stats.produtos);
+    expect(state.history[3]).toMatchObject({modalidade:'confirmacao_da_loja',autor:'operador'});
+    const evidence=await banco.pool.request().input('loja',mssql.VarChar(100),loja).query('SELECT EVIDENCIA FROM IMPLANTACAO_ETAPAS WHERE LOJA_ID=@loja AND PASSO=4');
+    expect(JSON.parse(evidence.recordset[0].EVIDENCIA)).toMatchObject({produtos:2,comEstoque:1});
   });
-  it('Go-Live verifica estoque novamente antes de concluir e salva a data',async()=>{
+  it('Go-Live aceita confirmação com estoque pendente e salva a data',async()=>{
     await onboarding.iniciarImplantacao(loja);
     for(let passo=1;passo<=6;passo++)await onboarding.concluirEtapa(loja,passo,true,'operador');
     await banco.salvarProduto({id:'novo-'+seq,lojaId:loja,nome:'Novo produto',preco:5,ativo:true});
-    await expect(onboarding.concluirEtapa(loja,7,true,'operador')).rejects.toThrow('saldo inicial');
-    await estoque.receberMercadoria(loja,'novo-'+seq,1,'nova-entrada-'+seq,'fixture');
     await onboarding.concluirEtapa(loja,7,true,'operador');
     expect((await onboarding.lerImplantacao(loja))).toMatchObject({completed:7,percent:100});
     expect((await onboarding.lerImplantacao(loja)).completedAt).toBeTruthy();
   });
-  it('e-commerce exige imagens e loja suspensa não conclui Go-Live',async()=>{
+  it('e-commerce permite confirmar sem imagens e loja suspensa não conclui Go-Live',async()=>{
     const tenants=await import('../src/tenants');const row=(await banco.obterLojas()).find(l=>l.id===loja)!;
     const store={...row,recebePedidos:true};tenants.lojas.push(store);
     try{
       await onboarding.iniciarImplantacao(loja);for(let passo=1;passo<=4;passo++)await onboarding.concluirEtapa(loja,passo,true,'operador');
-      await expect(onboarding.concluirEtapa(loja,5,true,'operador')).rejects.toThrow('imagem principal');
-      await banco.pool.request().input('loja',mssql.VarChar(100),loja).query("UPDATE PRODUTOS SET IMAGEM_URL='/uploads/fixture.jpg' WHERE LOJA_ID=@loja");
       await onboarding.concluirEtapa(loja,5,true,'operador');await onboarding.concluirEtapa(loja,6,true,'operador');
+      expect((await onboarding.lerImplantacao(loja)).stats.comImagem).toBe(0);
       store.statusFinanceiro='SUSPENSO';await expect(onboarding.concluirEtapa(loja,7,true,'operador')).rejects.toThrow('Regularize');
       expect((await onboarding.lerImplantacao(loja)).completed).toBe(6);
     }finally{tenants.lojas.splice(tenants.lojas.indexOf(store),1);}
+  });
+  it('loja sem catálogo conclui por confirmação sem criar produtos, saldos ou imagens',async()=>{
+    const vazia=`loja-vazia-${seq}`;
+    await banco.salvarLoja({id:vazia,empresaId:'empresa-fixture',nome:vazia,usuario:vazia,senhaHash:'fixture-sem-login',chaveAcesso:vazia,ativo:true,criadoEm:new Date().toISOString()});
+    await onboarding.iniciarImplantacao(vazia);
+    for(let passo=1;passo<=7;passo++)await onboarding.concluirEtapa(vazia,passo,true,'operador');
+    const state=await onboarding.lerImplantacao(vazia);
+    expect(state).toMatchObject({completed:7,percent:100,stats:{produtos:0,comEstoque:0,comImagem:0,operacoes:0}});
+    expect(state.history).toHaveLength(7);
+    expect((await onboarding.lerImplantacao(loja)).completed).toBe(0);
   });
   async function conferir() {
     await banco.pool.request().input('pedido', mssql.VarChar(50), pedido.id)
