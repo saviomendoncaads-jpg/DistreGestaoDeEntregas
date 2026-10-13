@@ -97,7 +97,7 @@ export default function CentroOperacoes({ deliveries, drivers, liveEvents, zona 
     );
     const slaPct = universo.length ? Math.round((1 - emRisco.size / universo.length) * 100) : 100;
 
-    const frotaAtiva = drivers.filter(d => d.dispositivoConectado).length;
+    const frotaAtiva = drivers.filter(d => d.status === 'ocioso').length;
 
     // Resumo financeiro do dia: valor das comandas em operação (abertas) + as
     // concluídas hoje. Não inventa dado — soma o `valor` que já vem em cada comanda.
@@ -217,8 +217,8 @@ export default function CentroOperacoes({ deliveries, drivers, liveEvents, zona 
               <span className="centro-ops-resumo-value">{m.aguardando}<small> comandas</small></span>
             </div>
             <div className="centro-ops-resumo-row">
-              <span className="centro-ops-resumo-label">Frota ativa</span>
-              <span className="centro-ops-resumo-value">{m.frotaAtiva}<small> / {m.frotaTotal} online</small></span>
+              <span className="centro-ops-resumo-label">Entregadores disponíveis</span>
+              <span className="centro-ops-resumo-value">{m.frotaAtiva}<small> / {m.frotaTotal} cadastrados</small></span>
             </div>
           </BentoItem>
         </div>
