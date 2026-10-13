@@ -1,0 +1,314 @@
+{
+  "meta": {
+    "titulo": "Apresentação do Distre",
+    "fps": 30,
+    "largura": 1920,
+    "altura": 1080,
+    "voz": "pt-BR-ThalitaMultilingualNeural",
+    "velocidade": "-5%",
+    "resumo": "Da loja online à entrega: conheça a operação atual do Distre com dados fictícios.",
+    "aviso": "DEMONSTRAÇÃO · DADOS FICTÍCIOS",
+    "capa": {
+      "titulo": "Sua loja.",
+      "destaque": "Sua operação.",
+      "subtitulo": "Conheça o Distre na prática",
+      "selo": "Demonstração",
+      "tela": "1-novos"
+    },
+    "abertura": {
+      "subtitulo": "Apresentação de demonstração ·",
+      "titulo": "Da loja online à entrega",
+      "destaque": "Distre"
+    },
+    "fecho": {
+      "itens": [
+        "Loja online",
+        "Pedidos",
+        "Separação",
+        "Entrega"
+      ],
+      "frase": "Sua loja online.",
+      "destaque": "Sua operação completa.",
+      "rodape": "DISTRE · E-commerce, pedidos e logística"
+    },
+    "cortes": [
+      "varredura",
+      "cortina",
+      "flash",
+      "iris",
+      "varredura",
+      "cortina",
+      "flash",
+      "iris",
+      "varredura",
+      "cortina"
+    ]
+  },
+  "cenas": [
+    {
+      "id": "01-abertura",
+      "tipo": "titulo",
+      "narracao": "",
+      "duracao_fixa": 3
+    },
+    {
+      "id": "02-visao",
+      "tipo": "quadro",
+      "narracao": "O Distre conecta sua loja online, os pedidos e a logística. Veja o fluxo em uma loja fictícia.",
+      "visual": {
+        "quadro": {
+          "titulo": "Tudo conectado",
+          "itens": [
+            "Loja online",
+            "Gestão de pedidos",
+            "Logística de entrega"
+          ],
+          "palavras": [
+            "online",
+            "pedidos",
+            "logística"
+          ]
+        }
+      }
+    },
+    {
+      "id": "03-vitrine",
+      "tipo": "tela",
+      "narracao": "A experiência começa na vitrine da loja, com busca, categorias e produtos organizados para o cliente escolher.",
+      "visual": {
+        "tela": "0-vitrine",
+        "pontos": [
+          {
+            "alvo": "categorias",
+            "palavra": "categorias",
+            "zoom": 1.7,
+            "etiqueta": "Sua loja online",
+            "lado": "acima",
+            "moldura": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "04-compra",
+      "tipo": "tela",
+      "narracao": "O cliente consulta os produtos e preços da loja e adiciona os itens à sacola.",
+      "visual": {
+        "tela": "0-produtos",
+        "pontos": [
+          {
+            "alvo": "primeiro",
+            "palavra": "produto",
+            "zoom": 1.8,
+            "etiqueta": "Catálogo da loja",
+            "lado": "direita",
+            "moldura": false
+          },
+          {
+            "alvo": "adicionar",
+            "palavra": "adiciona",
+            "zoom": 2.1,
+            "etiqueta": "Adicionar à sacola",
+            "lado": "acima",
+            "cursor": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "04b-sacola",
+      "narracao": "Na sacola, o cliente revisa as quantidades e segue para informar a entrega e finalizar o pedido.",
+      "tipo": "tela",
+      "visual": {
+        "plano0": {
+          "x": 0.82,
+          "z": 1.1,
+          "y": 0.45
+        },
+        "pontos": [
+          {
+            "lado": "abaixo",
+            "moldura": false,
+            "etiqueta": "Revise sua sacola",
+            "palavra": "quantidades",
+            "zoom": 1.8,
+            "alvo": "itens"
+          }
+        ],
+        "tela": "0-carrinho"
+      }
+    },
+    {
+      "id": "05-pedidos",
+      "tipo": "tela",
+      "narracao": "Na operação, os pedidos aparecem na mesma lista, com cliente, valor, situação e a ação para iniciar a separação.",
+      "visual": {
+        "tela": "1-novos",
+        "plano0": {
+          "x": 0.55,
+          "y": 0.4,
+          "z": 1.1
+        },
+        "pontos": [
+          {
+            "alvo": "tabela",
+            "palavra": "lista",
+            "zoom": 1.45,
+            "moldura": false
+          },
+          {
+            "alvo": "separar",
+            "palavra": "separação",
+            "zoom": 2.2,
+            "etiqueta": "Iniciar o atendimento",
+            "lado": "abaixo",
+            "cursor": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "06-conferencia",
+      "tipo": "tela",
+      "narracao": "Na separação, a equipe confere cada unidade pelo código de barras e acompanha quantas unidades já foram conferidas.",
+      "visual": {
+        "gravacao": "bipar",
+        "posicoes": "3-conferencia",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 12,
+        "plano0": {
+          "x": 0.5,
+          "y": 0.47,
+          "z": 1.45
+        },
+        "pontos": [
+          {
+            "alvo": "campo",
+            "palavra": "código",
+            "zoom": 1.9,
+            "etiqueta": "Conferência por código",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "palavra": "acompanha",
+            "zoom": 1.65,
+            "alvo": "progresso",
+            "moldura": false,
+            "etiqueta": "Unidades conferidas",
+            "lado": "acima"
+          }
+        ]
+      }
+    },
+    {
+      "id": "07-fiscal",
+      "tipo": "tela",
+      "narracao": "A separação oferece NFC-e e NF-e, conforme a configuração da loja. Aqui, a nota é simulada.",
+      "visual": {
+        "tela": "5-fiscal",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.48,
+          "z": 1.8
+        },
+        "pontos": [
+          {
+            "alvo": "opcoes",
+            "palavra": "oferece",
+            "zoom": 2.1,
+            "etiqueta": "Documento fiscal",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "ambiente",
+            "palavra": "simulada",
+            "zoom": 2.1,
+            "lado": "acima",
+            "moldura": false,
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "08-despacho",
+      "tipo": "tela",
+      "narracao": "Com o pedido pronto, a equipe escolhe o entregador no despacho e envia os pedidos selecionados para a rota.",
+      "visual": {
+        "tela": "7-despacho",
+        "plano0": {
+          "x": 0.55,
+          "y": 0.45,
+          "z": 1.05
+        },
+        "pontos": [
+          {
+            "alvo": "pedidos",
+            "palavra": "pronto",
+            "zoom": 1.65,
+            "moldura": false
+          },
+          {
+            "alvo": "entregador",
+            "palavra": "entregador",
+            "zoom": 1.8,
+            "etiqueta": "Escolha o entregador",
+            "lado": "acima",
+            "moldura": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "09-entregas",
+      "tipo": "tela",
+      "narracao": "Em Entregas, a loja acompanha os pedidos em rota e a evolução da operação até a conclusão.",
+      "visual": {
+        "tela": "8-entregas",
+        "plano0": {
+          "x": 0.55,
+          "y": 0.5,
+          "z": 1.05
+        },
+        "pontos": [
+          {
+            "alvo": "linha",
+            "palavra": "rota",
+            "zoom": 1.65,
+            "etiqueta": "Acompanhe as entregas",
+            "lado": "acima",
+            "moldura": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "10-resumo",
+      "tipo": "quadro",
+      "narracao": "Catálogo, estoque, pedidos e entregas ficam no mesmo sistema, para a equipe acompanhar cada etapa do trabalho.",
+      "visual": {
+        "quadro": {
+          "titulo": "Uma operação conectada",
+          "itens": [
+            "Catálogo e estoque",
+            "Pedidos e separação",
+            "Despacho e entregas"
+          ],
+          "palavras": [
+            "catálogo",
+            "pedidos",
+            "entregas"
+          ]
+        }
+      }
+    },
+    {
+      "id": "99-fecho",
+      "tipo": "titulo",
+      "narracao": "",
+      "duracao_fixa": 4
+    }
+  ]
+}
