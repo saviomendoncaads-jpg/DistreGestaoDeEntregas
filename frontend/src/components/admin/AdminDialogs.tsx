@@ -179,7 +179,7 @@ return <>{showCobrarManualForm && createPortal(
                       onChange={e => setBaixaManualObservacoes(e.target.value)}
                       placeholder="Ex: Recebido via transferência bancária direta."
                       rows={3}
-                      
+
                     />
                   </div>
                   <button type="submit" className="btn btn-success master-button-88" >Confirmar Pagamento</button>
@@ -215,7 +215,7 @@ return <>{showCobrarManualForm && createPortal(
                       placeholder="Descreva o motivo relatado pela empresa para a contestação da cobrança..."
                       rows={4}
                       required
-                      
+
                     />
                   </div>
                   <button type="submit" className="btn btn-success master-button-90" >Registrar Contestação</button>
@@ -329,41 +329,41 @@ return <>{showCobrarManualForm && createPortal(
                 <AdminForm className="master-layout-84" onSubmit={handleUpdateLoja} >
                   <div className="form-group">
                     <label className="master-label-6" htmlFor="master-admindialogs-field-16" >Nome Fantasia</label>
-                    <input id="master-admindialogs-field-16" 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaNome} 
-                      onChange={e => setEditLojaNome(e.target.value)} 
-                      required 
+                    <input id="master-admindialogs-field-16"
+                      type="text"
+                      className="form-input"
+                      value={editLojaNome}
+                      onChange={e => setEditLojaNome(e.target.value)}
+                      required
                     />
                   </div>
                   <div className="form-group">
                     <label className="master-label-6" htmlFor="master-admindialogs-field-17" >CNPJ da Loja</label>
-                    <input id="master-admindialogs-field-17" 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaCnpj} 
-                      onChange={e => setEditLojaCnpj(e.target.value)} 
-                      required 
+                    <input id="master-admindialogs-field-17"
+                      type="text"
+                      className="form-input"
+                      value={editLojaCnpj}
+                      onChange={e => setEditLojaCnpj(e.target.value)}
+                      required
                     />
                   </div>
                   <div className="form-group">
                     <label className="master-label-6" htmlFor="master-admindialogs-field-18" >Usuário de Acesso</label>
-                    <input id="master-admindialogs-field-18" 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaUsuario} 
-                      onChange={e => setEditLojaUsuario(e.target.value)} 
-                      required 
+                    <input id="master-admindialogs-field-18"
+                      type="text"
+                      className="form-input"
+                      value={editLojaUsuario}
+                      onChange={e => setEditLojaUsuario(e.target.value)}
+                      required
                     />
                   </div>
                   <div className="form-group">
                     <label className="master-label-6" htmlFor="master-admindialogs-field-19" >Alterar Senha (deixe em branco para manter a atual)</label>
-                    <input id="master-admindialogs-field-19" 
-                      type="password" 
-                      className="form-input" 
-                      value={editLojaSenha} 
-                      onChange={e => setEditLojaSenha(e.target.value)} 
+                    <input id="master-admindialogs-field-19"
+                      type="password"
+                      className="form-input"
+                      value={editLojaSenha}
+                      onChange={e => setEditLojaSenha(e.target.value)}
                       placeholder="Nova senha da loja"
                     />
                   </div>
@@ -436,9 +436,9 @@ return <>{showCobrarManualForm && createPortal(
                     <input className="master-surface-17"
                       type="checkbox"
                       id="editLojaRecebePedidosMaster"
-                      checked={editLojaRecebePedidos} 
-                      onChange={e => setEditLojaRecebePedidos(e.target.checked)} 
-                      
+                      checked={editLojaRecebePedidos}
+                      onChange={e => setEditLojaRecebePedidos(e.target.checked)}
+
                     />
                     <label className="master-label-18" htmlFor="editLojaRecebePedidosMaster" >
                       Separar pedidos antes da entrega

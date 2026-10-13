@@ -88,8 +88,8 @@ return (
         {/* Botão de Nova Empresa */}
         <div className="admin-header">
           <h2>Empresas cadastradas</h2>
-          <button 
-            className="btn btn-success" 
+          <button
+            className="btn btn-success"
             onClick={() => setShowNovaEmpresaForm(!showNovaEmpresaForm)}
           >
             {showNovaEmpresaForm ? 'Cancelar' : '+ Nova Empresa'}
@@ -103,44 +103,44 @@ return (
             <AdminForm className="master-grid-4" onSubmit={handleCadastrarEmpresa} >
               <div className="form-group master-surface-5" >
                 <label className="master-label-6" htmlFor="master-admincompanies-field-1" >Razão Social / Nome</label>
-                <input id="master-admincompanies-field-1" 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaNome} 
-                  onChange={e => setNovaEmpresaNome(e.target.value)} 
+                <input id="master-admincompanies-field-1"
+                  type="text"
+                  className="form-input"
+                  value={novaEmpresaNome}
+                  onChange={e => setNovaEmpresaNome(e.target.value)}
                   placeholder="Ex.: Comércio Central Ltda"
-                  required 
+                  required
                 />
               </div>
               <div className="form-group master-surface-5" >
                 <label className="master-label-6" htmlFor="master-admincompanies-field-2" >CNPJ</label>
-                <input id="master-admincompanies-field-2" 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaCnpj} 
-                  onChange={e => setNovaEmpresaCnpj(e.target.value)} 
+                <input id="master-admincompanies-field-2"
+                  type="text"
+                  className="form-input"
+                  value={novaEmpresaCnpj}
+                  onChange={e => setNovaEmpresaCnpj(e.target.value)}
                   placeholder="Ex: 12.345.678/0001-99"
-                  required 
+                  required
                 />
               </div>
               <div className="form-group master-surface-5" >
                 <label className="master-label-6" htmlFor="master-admincompanies-field-3" >Telefone (opcional)</label>
-                <input id="master-admincompanies-field-3" 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaTelefone} 
-                  onChange={e => setNovaEmpresaTelefone(e.target.value)} 
-                  placeholder="(11) 99999-9999" 
+                <input id="master-admincompanies-field-3"
+                  type="text"
+                  className="form-input"
+                  value={novaEmpresaTelefone}
+                  onChange={e => setNovaEmpresaTelefone(e.target.value)}
+                  placeholder="(11) 99999-9999"
                 />
               </div>
               <div className="form-group master-surface-5" >
                 <label className="master-label-6" htmlFor="master-admincompanies-field-4" >Email (opcional)</label>
-                <input id="master-admincompanies-field-4" 
-                  type="email" 
-                  className="form-input" 
-                  value={novaEmpresaEmail} 
-                  onChange={e => setNovaEmpresaEmail(e.target.value)} 
-                  placeholder="email@empresa.com" 
+                <input id="master-admincompanies-field-4"
+                  type="email"
+                  className="form-input"
+                  value={novaEmpresaEmail}
+                  onChange={e => setNovaEmpresaEmail(e.target.value)}
+                  placeholder="email@empresa.com"
                 />
               </div>
               <button type="submit" className="btn btn-success master-button-7" >Salvar Empresa</button>
@@ -165,15 +165,15 @@ return (
                   {/* Cabeçalho da Empresa */}
                   <div className="empresa-card-header">
                     <button type="button" className="empresa-header-info" aria-expanded={isExpanded} aria-label={`${isExpanded?'Recolher':'Ver lojas de'} ${empresa.nome}`} onClick={() => toggleEmpresaExpandida(empresa.id)}>
-                      <svg 
-                        width="16" 
-                        height="16" 
-                        viewBox="0 0 24 24" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        strokeWidth="2" 
-                        style={{ 
-                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', 
+                      <svg
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        style={{
+                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                           transition: 'transform 0.2s ease',
                           color: empresa.ativo ? 'var(--color-cyan)' : 'var(--text-secondary)'
                         }}
@@ -191,10 +191,10 @@ return (
                       <span className="master-text-9" >
                         {empresa.totalLojas || 0} loja(s)
                       </span>
-                      <button 
-                        className="btn btn-small" 
-                        style={{ 
-                          fontSize: '0.7rem', 
+                      <button
+                        className="btn btn-small"
+                        style={{
+                          fontSize: '0.7rem',
                           padding: '0.2rem 0.5rem',
                           background: empresa.ativo ? 'rgba(244, 63, 94, 0.1)' : 'rgba(16, 185, 129, 0.1)',
                           color: empresa.ativo ? 'var(--color-rose)' : 'var(--color-emerald)',
@@ -204,8 +204,8 @@ return (
                       >
                         {empresa.ativo ? 'Desativar' : 'Ativar'}
                       </button>
-                      <button 
-                        className="icon-btn danger" 
+                      <button
+                        className="icon-btn danger"
                         title="Excluir Empresa"
                         onClick={() => handleDeleteEmpresa(empresa.id)}
                       >
@@ -222,7 +222,7 @@ return (
                     <div className="empresa-card-content">
                       <div className="master-layout-10" >
                         <h4 className="master-title-11" >Lojas da empresa</h4>
-                        <button 
+                        <button
                           className="btn btn-success btn-small"
                           onClick={() => {
                             const abrindo = !isNovaLojaAberta;
@@ -241,42 +241,42 @@ return (
                           <AdminForm className="master-grid-14" onSubmit={e => handleCadastrarLoja(e, empresa.id)} >
                             <div className="form-group master-surface-5" >
                               <label className="master-label-15" htmlFor="master-admincompanies-field-5" >Nome Fantasia</label>
-                              <input id="master-admincompanies-field-5" 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaNome} 
-                                onChange={e => setNovaLojaNome(e.target.value)} 
-                                placeholder="Loja Centro" 
-                                required 
+                              <input id="master-admincompanies-field-5"
+                                type="text"
+                                className="form-input"
+                                value={novaLojaNome}
+                                onChange={e => setNovaLojaNome(e.target.value)}
+                                placeholder="Loja Centro"
+                                required
                               />
                             </div>
                             <div className="form-group master-surface-5" >
                               <label className="master-label-15" htmlFor="master-admincompanies-field-6" >CNPJ da Loja</label>
-                              <input id="master-admincompanies-field-6" 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaCnpj} 
-                                onChange={e => setNovaLojaCnpj(e.target.value)} 
-                                placeholder="00.000.000/0000-00" 
-                                required 
+                              <input id="master-admincompanies-field-6"
+                                type="text"
+                                className="form-input"
+                                value={novaLojaCnpj}
+                                onChange={e => setNovaLojaCnpj(e.target.value)}
+                                placeholder="00.000.000/0000-00"
+                                required
                               />
                             </div>
                             <div className="form-group master-surface-5" >
                               <label className="master-label-15" htmlFor="master-admincompanies-field-7" >Usuário de Acesso</label>
-                              <input id="master-admincompanies-field-7" 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaUsuario} 
-                                onChange={e => setNovaLojaUsuario(e.target.value)} 
-                                placeholder="ex: lojacentro" 
-                                required 
+                              <input id="master-admincompanies-field-7"
+                                type="text"
+                                className="form-input"
+                                value={novaLojaUsuario}
+                                onChange={e => setNovaLojaUsuario(e.target.value)}
+                                placeholder="ex: lojacentro"
+                                required
                               />
                             </div>
                             <div className="form-group master-surface-5" >
                               <label className="master-label-15" htmlFor="master-admincompanies-field-8" >Senha Inicial</label>
-                              <input id="master-admincompanies-field-8" 
-                                type="password" 
-                                className="form-input" 
+                              <input id="master-admincompanies-field-8"
+                                type="password"
+                                className="form-input"
                                 value={novaLojaSenha}
                                 onChange={e => setNovaLojaSenha(e.target.value)}
                                 placeholder="Senha da loja"
@@ -362,12 +362,12 @@ return (
                               />
                             </div>
                             <div className="form-group master-layout-16" >
-                              <input className="master-surface-17" 
-                                type="checkbox" 
+                              <input className="master-surface-17"
+                                type="checkbox"
                                 id="novaLojaRecebePedidos"
-                                checked={novaLojaRecebePedidos} 
-                                onChange={e => setNovaLojaRecebePedidos(e.target.checked)} 
-                                
+                                checked={novaLojaRecebePedidos}
+                                onChange={e => setNovaLojaRecebePedidos(e.target.checked)}
+
                               />
                               <label className="master-label-18" htmlFor="novaLojaRecebePedidos" >
                                 Separar pedidos antes da entrega
@@ -420,9 +420,9 @@ return (
                                   <td>
                                     <div className="chave-acesso-box">
                                       <AccessKey value={loja.chaveAcesso} />
-                                      <button 
+                                      <button
                                         type="button"
-                                        className="icon-btn" 
+                                        className="icon-btn"
                                         title="Copiar Chave de Acesso"
                                         onClick={() => {
                                           navigator.clipboard.writeText(loja.chaveAcesso);
@@ -434,9 +434,9 @@ return (
                                           <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
                                         </svg>
                                       </button>
-                                      <button 
+                                      <button
                                         type="button"
-                                        className="icon-btn" 
+                                        className="icon-btn"
                                         title="Regenerar Chave"
                                         onClick={() => handleRegenerarChaveLoja(empresa.id, loja.id)}
                                       >
@@ -447,7 +447,7 @@ return (
                                     </div>
                                   </td>
                                   <td>
-                                    <button type="button" 
+                                    <button type="button"
                                       className={`badge-tenant ${loja.recebePedidos ? 'ativo' : 'inativo'}`}
                                       style={{ cursor: 'pointer', border: loja.recebePedidos ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)', background: loja.recebePedidos ? 'rgba(245, 158, 11, 0.08)' : 'rgba(156, 163, 175, 0.08)', color: loja.recebePedidos ? 'var(--color-amber)' : '#9ca3af' }}
                                       onClick={() => handleToggleRecebePedidos(empresa.id, loja)}
@@ -463,27 +463,27 @@ return (
                                   </td>
                                   <td>
                                     <div className="master-layout-25" >
-                                      <button 
-                                        className="btn btn-small btn-success master-button-26" 
-                                        
+                                      <button
+                                        className="btn btn-small btn-success master-button-26"
+
                                         onClick={() => setLojaVisualizada({ id: loja.id, nome: loja.nome, nomeEmpresa: empresa.nome })}
                                         disabled={!loja.ativo || !empresa.ativo}
                                         title={(!loja.ativo || !empresa.ativo) ? 'Não é possível visualizar painel de loja ou empresa inativa' : 'Visualizar Dashboard'}
                                       >
                                         Painel
                                       </button>
-                                      <button 
-                                        className="btn btn-small master-button-27" 
-                                        
+                                      <button
+                                        className="btn btn-small master-button-27"
+
                                         onClick={() => startEditLoja(loja)}
                                         title="Editar Informações da Loja"
                                       >
                                         Editar
                                       </button>
-                                      <button 
+                                      <button
                                         className="btn btn-small"
-                                        style={{ 
-                                          fontSize: '0.7rem', 
+                                        style={{
+                                          fontSize: '0.7rem',
                                           padding: '0.15rem 0.4rem',
                                           background: loja.ativo ? 'rgba(244, 63, 94, 0.1)' : 'rgba(16, 185, 129, 0.1)',
                                           color: loja.ativo ? 'var(--color-rose)' : 'var(--color-emerald)',
@@ -493,8 +493,8 @@ return (
                                       >
                                         {loja.ativo ? 'Bloquear' : 'Liberar'}
                                       </button>
-                                      <button 
-                                        className="icon-btn danger" 
+                                      <button
+                                        className="icon-btn danger"
                                         title="Excluir Loja"
                                         onClick={() => handleDeleteLoja(empresa.id, loja.id)}
                                       >
