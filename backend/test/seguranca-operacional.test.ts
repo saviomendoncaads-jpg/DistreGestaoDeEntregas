@@ -98,6 +98,7 @@ describe('proteção do fluxo operacional', () => {
   });
   it('mantém sessão de loja suspensa e bloqueia escrita operacional', async () => {
     lojas[0].statusFinanceiro = 'SUSPENSO';
+    expect((await request('/whatsapp/message', 'loja-test', 'POST', { lojaId:'l1',telefone:'85999999999',mensagem:'Novo pedido' })).status).toBe(402);
     expect((await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', {})).status).toBe(402);
     expect((await request('/api/deliveries/pedido-l1', 'loja-test')).status).toBe(200);
   });

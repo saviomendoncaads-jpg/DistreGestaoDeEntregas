@@ -1,5 +1,5 @@
 import { asyncHandler } from './http/asyncHandler';
-import { verificarSessao, obterSessaoDoRequest } from './auth';
+import { verificarSessao, obterSessaoDoRequest, exigirLojaAdimplente } from './auth';
 import { podeAcessarLoja } from './security/sessionPolicy';
 import { Router, Request, Response } from 'express';
 import { deliveries, gerarIdComanda } from './gateway';
@@ -282,7 +282,7 @@ export const whatsappBotService = new WhatsappBotService();
 const router = Router();
 router.use(verificarSessao);
 
-router.post('/message', asyncHandler(async (req: Request, res: Response) => {
+router.post('/message', exigirLojaAdimplente, asyncHandler(async (req: Request, res: Response) => {
   const { phone, text, lojaId } = req.body;
   if (typeof phone !== 'string' || !phone || typeof text !== 'string' || !text || typeof lojaId !== 'string' || !lojaId) {
     res.status(400).json({ error: 'Campos phone, text e lojaId são obrigatórios.' });
