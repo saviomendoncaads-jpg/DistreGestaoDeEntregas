@@ -123,4 +123,3 @@ describe.skipIf(process.env.RUN_SQL_ESTOQUE_TESTS !== '1')('ciclo pedido→entre
     expect((await estoque.saldosPublicos(loja)).get(produto)).toBe(8);
   });
 });
-
