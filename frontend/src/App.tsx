@@ -1867,23 +1867,6 @@ export default function App() {
     }
   };
 
-  const handleClearSimulation = async () => {
-    try {
-      await apiFetch(`${BACKEND_URL}/api/simulator/clear`, { method: 'POST' });
-      setAllDeliveries([]);
-      setSelectedDeliveryId(null);
-      localStorage.removeItem('actionQueue');
-      // Limpa os caches de gps offline
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('offline_gps_')) {
-          localStorage.removeItem(key);
-        }
-      });
-    } catch (err) {
-      console.error('Erro ao limpar simulação:', err);
-    }
-  };
-
   const triggerQuickDelivery = async () => {
     const clients = ['Lojas Americanas', 'Supermercado Extra', 'Farmácia Pague Menos', 'Hospital Albert Einstein', 'Lojas Renner'];
     const products = [['Teclado Mecânico', 'Mouse Sem Fio'], ['Sorvete Kibon', 'Polpas Congeladas'], ['Medicamentos Controlados', 'Vacinas'], ['Materiais Cirúrgicos'], ['Jaqueta de Couro', 'Calça Jeans']];
@@ -2251,15 +2234,6 @@ export default function App() {
               <button className="btn btn-secondary" onClick={triggerQuickDelivery}>Entrega Rápida</button>
             </>
           )}
-          <button
-            className="btn"
-            style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-thin)' }}
-            disabled={operacaoBloqueada!==false}
-            onClick={handleClearSimulation}
-            title="Apagar todos os dados da simulação"
-          >
-            Limpar Dados
-          </button>
           {!lojaVisualizada && (
             <button
               className="btn"
