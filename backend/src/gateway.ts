@@ -23,6 +23,7 @@ import path from 'path';
 import { ErroFiscal, emitirNotaDaVenda, normalizarDestinatario, validarEmissao } from './fiscal/fiscalService';
 import { notaParaImpressao } from './fiscal/notaApresentacao';
 import { ModeloNota } from './fiscal/tipos';
+import { gerarComandaPdf } from './comandaPdf';
 
 const VEHICLE_TYPES_FILE = path.join(__dirname, '..', 'vehicle_types.json');
 
@@ -495,6 +496,17 @@ router.get('/deliveries', (req: Request, res: Response) => {
 });
 
 // 3. Obter única entrega
+router.get('/deliveries/:id/comanda.pdf', asyncHandler(async (req: Request, res: Response) => {
+  const delivery = deliveries.get(req.params.id as string);
+  if (!delivery) { res.status(404).json({ error: 'Entrega não encontrada' }); return; }
+  const pdf = await gerarComandaPdf(delivery);
+  const filename = `comanda-${delivery.id.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(pdf);
+}));
+
 router.get('/deliveries/:id', (req: Request, res: Response) => {
   const delivery = deliveries.get(req.params.id as string);
   if (!delivery) {

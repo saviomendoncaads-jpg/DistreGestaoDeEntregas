@@ -1418,7 +1418,7 @@ export default function App() {
   // Modo configurável por loja (persistido em localStorage):
   //  - 'impressora': abre a comanda 80mm e dispara window.print() (vai p/ impressora
   //    padrão; sai silencioso se o Chrome estiver com --kiosk-printing + 80mm como padrão)
-  //  - 'pdf': abre o documento 80mm numa aba para salvar/visualizar como PDF
+  //  - 'pdf': baixa o arquivo 80mm diretamente
   //  - 'off': não imprime automaticamente
   type ModoImpressaoComanda = 'impressora' | 'pdf' | 'off';
   const [comandaPrintMode, setComandaPrintMode] = useState<ModoImpressaoComanda>(() => {
@@ -1432,6 +1432,21 @@ export default function App() {
 
   const imprimirComandaTicket = (e: Entrega, modo: ModoImpressaoComanda) => {
     if (modo === 'off') return;
+    if (modo === 'pdf') {
+      void (async () => {
+        const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${encodeURIComponent(e.id)}/comanda.pdf`);
+        if (!response.ok) throw new Error('Não foi possível baixar a comanda. Tente novamente.');
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `comanda-${e.id.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      })().catch(error => avisarErro(error instanceof Error ? error.message : 'Não foi possível baixar a comanda.'));
+      return;
+    }
     const lojaNome = sessao?.nomeLoja || lojaVisualizada?.nome || 'DISTRE';
     const valor = getDeliveryValue(e);
     const itens = (e.itens && e.itens.length) ? e.itens : [];
@@ -2544,8 +2559,8 @@ export default function App() {
                   style={{ width: 'auto', minHeight: '30px', padding: '0 var(--space-2)', fontSize: '0.75rem' }}
                   title="Como a comanda é gerada quando um pedido novo entra na fila"
                 >
-                  <option value="impressora">Impressora 80mm (auto)</option>
-                  <option value="pdf">Abrir PDF</option>
+                  <option value="impressora">Impressora 80mm (diálogo do navegador)</option>
+                  <option value="pdf">Baixar PDF direto</option>
                   <option value="off">Desligada</option>
                 </select>
               </label>

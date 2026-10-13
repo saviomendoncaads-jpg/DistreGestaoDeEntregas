@@ -52,6 +52,15 @@ const request = (path: string, token?: string, method = 'GET', body?: unknown) =
 });
 
 describe('proteção do fluxo operacional', () => {
+  it('baixa a comanda em PDF como arquivo e respeita a loja da sessão', async () => {
+    const response = await request('/api/deliveries/pedido-l1/comanda.pdf', 'loja-test');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toContain('application/pdf');
+    expect(response.headers.get('content-disposition')).toContain('attachment;');
+    expect(Buffer.from(await response.arrayBuffer()).subarray(0, 5).toString()).toBe('%PDF-');
+    expect((await request('/api/deliveries/pedido-l2/comanda.pdf', 'loja-test')).status).toBe(404);
+    expect((await request('/api/deliveries/pedido-l1/comanda.pdf')).status).toBe(401);
+  });
   it('finaliza com um clique sem nome do recebedor e não repete a gravação', async () => {
     deliveries.get('pedido-l1')!.status = 'DESPACHADO';
     const response = await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', {});
