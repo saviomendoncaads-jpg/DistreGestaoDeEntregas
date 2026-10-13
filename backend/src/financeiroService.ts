@@ -1,3 +1,6 @@
+import { criarContratoRede } from './billing/networkContracts';
+import { carenciaValida } from './billing/billingPolicy';
+import { inicializarRecorrencia,executarCicloCobranca } from './billing/recurringBilling';
 import { demoHabilitada } from './security/sessionPolicy';
 import { asyncHandler } from './http/asyncHandler';
 import { Router, Request, Response } from 'express';
@@ -17,112 +20,19 @@ const router = Router();
 // 1. ROTINA DE CRON / VERIFICAÇÃO DE INADIMPLÊNCIA
 // ==========================================
 
-export async function rotinaVerificacaoInadimplencia() {
-  try {
-    if (!pool) return;
-    console.log('[Financeiro] Executando rotina de verificação de faturas vencidas...');
-
-    // 1. Obter dias de carência das configurações
-    let diasCarenciaBloqueio = 5;
-    const configRes = await pool.request().query('SELECT TOP 1 DIAS_CARENCIA_BLOQUEIO FROM CONFIGURACOES_COBRANCA');
-    if (configRes.recordset.length > 0) {
-      diasCarenciaBloqueio = configRes.recordset[0].DIAS_CARENCIA_BLOQUEIO;
-    }
-
-    const hoje = new Date();
-    const hojeStr = hoje.toISOString().split('T')[0]; // YYYY-MM-DD
-
-    // 2. Buscar todas as faturas PENDENTES ou ATRASADAS para reavaliação
-    const faturasRes = await pool.request().query("SELECT * FROM FATURAS WHERE STATUS IN ('PENDENTE', 'ATRASADA')");
-    const faturas = faturasRes.recordset;
-
-    // Guardar empresas afetadas para atualização posterior
-    const empresasComPendencia = new Set<string>();
-    const empresasEmAtrasoCritico = new Set<string>();
-
-    for (const fat of faturas) {
-      const vencimento = new Date(fat.DATA_VENCIMENTO);
-      const vencimentoStr = vencimento.toISOString().split('T')[0];
-
-      if (vencimento < hoje && vencimentoStr !== hojeStr) {
-        // A fatura está vencida!
-        if (fat.STATUS === 'PENDENTE') {
-          console.log(`[Financeiro] Fatura ${fat.ID} vencida. Alterando status de PENDENTE para ATRASADA.`);
-          await pool.request()
-            .input('id', mssql.VarChar, fat.ID)
-            .query("UPDATE FATURAS SET STATUS = 'ATRASADA' WHERE ID = @id");
-          fat.STATUS = 'ATRASADA';
-        }
-
-        empresasComPendencia.add(fat.EMPRESA_ID);
-
-        // Calcular dias de atraso
-        const diffTime = Math.abs(hoje.getTime() - vencimento.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diffDays > diasCarenciaBloqueio) {
-          empresasEmAtrasoCritico.add(fat.EMPRESA_ID);
-        }
-      } else {
-        // Se a data de vencimento é futura e por algum motivo estava como ATRASADA, corrige
-        if (fat.STATUS === 'ATRASADA') {
-          await pool.request()
-            .input('id', mssql.VarChar, fat.ID)
-            .query("UPDATE FATURAS SET STATUS = 'PENDENTE' WHERE ID = @id");
-          fat.STATUS = 'PENDENTE';
-        }
-      }
-    }
-
-    // 3. Atualizar status de cada empresa no banco e na memória
-    for (const emp of empresas) {
-      const statusAnterior = emp.statusFinanceiro;
-
-      // SUSPENSO/CANCELADO são de responsabilidade EXCLUSIVA da máquina de estados
-      // da assinatura (saída desses estados só via pagamento/reativação, que deriva
-      // o status da empresa). A rotina não toca neles — evita o conflito de duas
-      // lógicas brigando pelo STATUS_FINANCEIRO (ex.: rotina resetar SUSPENSO->REGULAR).
-      if (statusAnterior === 'SUSPENSO' || statusAnterior === 'CANCELADO') {
-        continue;
-      }
-
-      let novoStatus = 'REGULAR';
-      if (empresasEmAtrasoCritico.has(emp.id)) {
-        novoStatus = 'INADIMPLENTE';
-      }
-
-      if (statusAnterior !== novoStatus) {
-        console.log(`[Financeiro] Alterando status financeiro da empresa ${emp.nome} (${emp.id}): ${statusAnterior} -> ${novoStatus}`);
-        
-        // Atualiza banco
-        await pool.request()
-          .input('id', mssql.VarChar, emp.id)
-          .input('status', mssql.VarChar, novoStatus)
-          .query('UPDATE EMPRESAS SET STATUS_FINANCEIRO = @status WHERE ID = @id');
-        
-        // Atualiza em memória
-        emp.statusFinanceiro = novoStatus;
-
-        // Bloqueio/revogação pertence ao dunning por loja; uma filial não desloga as outras.
-      }
-    }
-
-    console.log('[Financeiro] Rotina de verificação concluída.');
-  } catch (err) {
-    console.error('[Financeiro] Erro ao executar rotina de inadimplência:', err);
-  }
-}
+export async function rotinaVerificacaoInadimplencia() { await executarCicloCobranca(); }
 
 // Inicializador da rotina e seed
 export async function inicializarFinanceiro() {
   // A rotina deve executar somente na instância responsável pelos jobs.
   await seedFinanceiro();
+  await inicializarRecorrencia();
   if (process.env.RUN_BACKGROUND_JOBS === 'false') return;
   await rotinaVerificacaoInadimplencia();
 
   // Executa a cada 5 minutos
-  setInterval(async () => {
-    await rotinaVerificacaoInadimplencia();
+  setInterval(() => {
+    rotinaVerificacaoInadimplencia().catch(e => console.error('[Financeiro] Falha no ciclo:', e.message));
   }, 5 * 60 * 1000);
 }
 
@@ -298,9 +208,10 @@ router.get('/faturas', verificarAdmin, asyncHandler(async (req: Request, res: Re
     const { status, empresaId, dataInicio, dataFim, page, limit } = req.query;
     
     let query = `
-      SELECT F.*, E.NOME as EmpresaNome, E.CNPJ as EmpresaCNPJ
+      SELECT F.*, E.NOME as EmpresaNome, E.CNPJ as EmpresaCNPJ, L.NOME as LojaNome
       FROM FATURAS F
       JOIN EMPRESAS E ON F.EMPRESA_ID = E.ID
+      LEFT JOIN LOJAS L ON L.ID=F.LOJA_ID
       WHERE 1=1
     `;
 
@@ -681,6 +592,7 @@ router.get('/configuracoes', verificarAdmin, asyncHandler(async (req: Request, r
 router.put('/configuracoes', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { diasCarenciaBloqueio, multaPercentual, jurosMesPercentual, emailNotificacaoDiasAntes, whatsappNotificacaoDiasAtraso } = req.body;
+    carenciaValida(diasCarenciaBloqueio);
     
     await pool.request()
       .input('id', mssql.VarChar, 'default')
@@ -813,14 +725,21 @@ router.get('/relatorios/churn', verificarAdmin, asyncHandler(async (req: Request
   }
 }));
 
+router.post('/contratos',verificarAdmin,asyncHandler(async(req,res)=>{
+ try{if(req.body?.confirmacao!==true){res.status(400).json({error:'Confirme a substituição dos contratos futuros; faturas anteriores permanecem exigíveis.'});return;}
+ const result=await criarContratoRede({...req.body,valor:Number(req.body.valor)});res.status(result.repetido?200:201).json(result);
+ }catch(e){res.status(400).json({error:e instanceof Error?e.message:'Falha no contrato'});}
+}));
+
 // Listar Assinaturas
 router.get('/assinaturas', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const result = await pool.request().query(`
-      SELECT AE.*, P.NOME as PlanoNome, P.VALOR_MENSAL as PlanoValor, E.NOME as EmpresaNome, E.CNPJ as EmpresaCNPJ
+      SELECT AE.*, P.NOME as PlanoNome, P.VALOR_MENSAL as PlanoValor, E.NOME as EmpresaNome, E.CNPJ as EmpresaCNPJ, L.NOME as LojaNome
       FROM ASSINATURAS_EMPRESAS AE
       JOIN PLANOS P ON AE.PLANO_ID = P.ID
       JOIN EMPRESAS E ON AE.EMPRESA_ID = E.ID
+      LEFT JOIN LOJAS L ON L.ID=AE.LOJA_ID
       ORDER BY AE.STATUS, E.NOME
     `);
 
@@ -834,6 +753,9 @@ router.get('/assinaturas', verificarAdmin, asyncHandler(async (req: Request, res
       planoValor: Number(r.PlanoValor),
       valorPersonalizado: r.VALOR_PERSONALIZADO ? Number(r.VALOR_PERSONALIZADO) : null,
       valorEfetivo: r.VALOR_PERSONALIZADO ? Number(r.VALOR_PERSONALIZADO) : Number(r.PlanoValor),
+      escopo: r.LOJA_ID ? 'LOJA' : 'REDE',
+      lojaId: r.LOJA_ID || null,
+      lojaNome: r.LojaNome || null,
       status: r.STATUS,
       diaVencimento: r.DIA_VENCIMENTO,
       proximoFaturamento: r.PROXIMO_FATURAMENTO || undefined,

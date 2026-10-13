@@ -635,7 +635,7 @@ return (
                         ) : (
                           filteredSubscriptions.map(sub => (
                             <tr key={sub.id}>
-                              <td><strong>{sub.empresaNome}</strong></td>
+                              <td><strong>{sub.empresaNome}</strong><small style={{display:"block",color:"#64748b"}}>{sub.escopo==='REDE'?'Contrato da rede · todas as lojas':`Contrato da filial · ${sub.lojaNome||sub.lojaId||'Loja'}`}</small></td>
                               <td className="master-surface-45" >{sub.cnpj}</td>
                               <td><span className="badge-tenant ativo master-text-82" >{sub.planoNome}</span></td>
                               <td className="master-surface-46" >{money.format(sub.valorEfetivo)}</td>

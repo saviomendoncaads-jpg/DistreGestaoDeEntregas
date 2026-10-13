@@ -1,3 +1,4 @@
+import {diaCobranca,proximoMes} from './billingPolicy';
 import crypto from 'crypto';
 import mssql from '../db';
 import { pool } from '../database';
@@ -26,6 +27,8 @@ export async function criarAssinaturaComPrimeiraFatura(opts: {
 }> {
   if (!pool) throw new Error('Banco indisponível');
 
+  const net=(await pool.request().input('emp',mssql.VarChar,opts.empresaId).query("SELECT TOP(1) s.*,p.NOME PlanoNome,p.VALOR_MENSAL FROM ASSINATURAS_EMPRESAS s JOIN PLANOS p ON p.ID=s.PLANO_ID WHERE s.EMPRESA_ID=@emp AND s.LOJA_ID IS NULL AND s.STATUS<>'CANCELADA' ORDER BY s.CRIADO_EM DESC")).recordset[0];
+  if(net)return {assinaturaId:net.ID,faturaId:'',valor:Number(net.VALOR_PERSONALIZADO??net.VALOR_MENSAL),planoNome:net.PlanoNome,vencimento:net.PROXIMO_FATURAMENTO||'',gatewayFaturaId:''};
   // Valida o plano (precisa existir e estar ativo).
   const planoRes = await pool.request()
     .input('id', mssql.VarChar, opts.planoId)
@@ -42,23 +45,22 @@ export async function criarAssinaturaComPrimeiraFatura(opts: {
 
   // Assinatura ATIVA da loja.
   const assinaturaId = `sub-${crypto.randomUUID().substring(0, 8)}`;
-  const proximoFat = new Date(agora.getFullYear(), agora.getMonth() + 1, dia).toISOString();
+  const hoje=diaCobranca();let vencIso=hoje.slice(0,8)+String(dia).padStart(2,'0');if(vencIso<hoje)vencIso=proximoMes(vencIso,dia);
+  const proximoFat=proximoMes(vencIso,dia);
   await pool.request()
     .input('id', mssql.VarChar, assinaturaId)
     .input('empId', mssql.VarChar, opts.empresaId)
     .input('lojaId', mssql.VarChar, opts.lojaId)
     .input('planoId', mssql.VarChar, opts.planoId)
+    .input('valorContrato',mssql.Decimal(10,2),valor)
     .input('dia', mssql.Int, dia)
     .input('criado', mssql.VarChar, agoraIso)
     .input('proximo', mssql.VarChar, proximoFat)
-    .query(`INSERT INTO ASSINATURAS_EMPRESAS (ID, EMPRESA_ID, LOJA_ID, PLANO_ID, STATUS, DIA_VENCIMENTO, CRIADO_EM, PROXIMO_FATURAMENTO)
-            VALUES (@id, @empId, @lojaId, @planoId, 'ATIVA', @dia, @criado, @proximo)`);
+    .query(`INSERT INTO ASSINATURAS_EMPRESAS (ID, EMPRESA_ID, LOJA_ID, PLANO_ID, STATUS, VALOR_PERSONALIZADO, DIA_VENCIMENTO, CRIADO_EM, PROXIMO_FATURAMENTO)
+            VALUES (@id, @empId, @lojaId, @planoId, 'ATIVA', @valorContrato, @dia, @criado, @proximo)`);
 
   // Primeira fatura PENDENTE: vence no dia escolhido (deste mês se ainda não passou; senão, do próximo).
-  const venc = new Date(agora.getFullYear(), agora.getMonth(), dia);
-  if (venc < agora) venc.setMonth(venc.getMonth() + 1);
-  const vencIso = venc.toISOString();
-  const refMesAno = `${String(venc.getMonth() + 1).padStart(2, '0')}/${venc.getFullYear()}`;
+  const refMesAno = vencIso.slice(5,7)+'/'+vencIso.slice(0,4);
   const faturaId = `fat-${crypto.randomUUID().substring(0, 8)}`;
 
   const gateway = getGateway();

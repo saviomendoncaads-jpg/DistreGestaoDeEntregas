@@ -1,4 +1,4 @@
-﻿-- ============================================================================
+-- ============================================================================
 -- Distre — estrutura completa do banco (gerado de DISTRE_PROD em 2026-10-10)
 -- Gerado por backend/scripts/gerar-doc-banco.cjs — NÃO editar à mão; rode o script de novo.
 --
@@ -572,3 +572,13 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ENTREGAS_PEDIDO_ORIGEM' AND object_id = OBJECT_ID('ENTREGAS'))
   CREATE UNIQUE INDEX UX_ENTREGAS_PEDIDO_ORIGEM ON ENTREGAS(PEDIDO_ORIGEM_ID) WHERE PEDIDO_ORIGEM_ID IS NOT NULL;
 GO
+
+-- Recorrência idempotente por contrato/competência. Contratos sem LOJA_ID cobrem a rede.
+IF OBJECT_ID('CICLOS_COBRANCA','U') IS NULL
+CREATE TABLE CICLOS_COBRANCA (
+ ASSINATURA_ID VARCHAR(50) NOT NULL,
+ COMPETENCIA VARCHAR(20) NOT NULL,
+ FATURA_ID VARCHAR(50) NOT NULL,
+ CRIADO_EM DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+ PRIMARY KEY(ASSINATURA_ID,COMPETENCIA)
+);

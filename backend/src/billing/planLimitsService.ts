@@ -84,8 +84,8 @@ export async function obterLimitesDaLoja(lojaId: string): Promise<PlanoLimites |
           AE.STATUS AS STATUS_ASSINATURA
         FROM ASSINATURAS_EMPRESAS AE
         JOIN PLANOS P ON AE.PLANO_ID = P.ID
-        WHERE AE.LOJA_ID = @lojaId AND AE.STATUS <> 'CANCELADA'
-        ORDER BY
+        WHERE (AE.LOJA_ID = @lojaId OR (AE.LOJA_ID IS NULL AND AE.EMPRESA_ID=(SELECT EMPRESA_ID FROM LOJAS WHERE ID=@lojaId))) AND AE.STATUS <> 'CANCELADA'
+        ORDER BY CASE WHEN AE.LOJA_ID=@lojaId THEN 0 ELSE 1 END,
           CASE AE.STATUS
             WHEN 'ATIVA' THEN 0
             WHEN 'TRIAL' THEN 1

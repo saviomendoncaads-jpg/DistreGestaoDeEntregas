@@ -10,6 +10,10 @@ import {
 } from './database';
 import { hashPassword, verifyPassword } from './security/password';
 
+export function lojaBloqueadaFinanceiro(loja: typeof lojas[number]) {
+  const empresa=empresas.find(e=>e.id===loja.empresaId);
+  return ['SUSPENSO','CANCELADO'].includes(loja.statusFinanceiro||'') || ['SUSPENSO','CANCELADO'].includes(empresa?.statusFinanceiro||'');
+}
 const router = Router();
 
 // Sessões ativas em memória (token → Sessao) — caminho de leitura rápido (socket/middleware).
@@ -27,7 +31,7 @@ export async function carregarSessoesDoBanco(): Promise<void> {
       // Não restaura sessão de loja suspensa/cancelada (respeita o gate de inadimplência).
       if (s.tipo === 'loja' && s.lojaId) {
         const loja = lojas.find(l => l.id === s.lojaId);
-        if (loja && (loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO')) continue;
+        if (loja && (lojaBloqueadaFinanceiro(loja))) continue;
       }
       if (!sessaoExpirada(s)) sessions.set(s.token, s);
       n++;
@@ -110,7 +114,7 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
   }
 
   // Bloqueio por inadimplência (cobrança por LOJA): loja suspensa/cancelada não reabre sessão.
-  if (loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO') {
+  if (lojaBloqueadaFinanceiro(loja)) {
     res.status(402).json({
       error: 'Assinatura desta loja suspensa por inadimplência. Regularize o pagamento para acessar o painel.',
       codigo: 'PAYMENT_REQUIRED'
@@ -208,7 +212,7 @@ export function obterSessaoPorToken(token: unknown): Sessao | null {
   if (sessao.tipo === 'loja') {
     const loja = lojas.find(l => l.id === sessao.lojaId);
     const empresa = loja && empresas.find(e => e.id === loja.empresaId);
-    if (!loja || !loja.ativo || !empresa || !empresa.ativo) { sessions.delete(token); return null; }
+    if (!loja || !loja.ativo || !empresa || !empresa.ativo || lojaBloqueadaFinanceiro(loja)) { sessions.delete(token); return null; }
   }
   return sessao;
 }
@@ -233,7 +237,7 @@ export function exigirLojaAdimplente(req: Request & { sessao?: Sessao }, res: Re
   const sessao = obterSessaoDoRequest(req);
   if (sessao?.tipo === 'loja' && sessao.lojaId) {
     const loja = lojas.find(l => l.id === sessao.lojaId);
-    if (loja && (loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO')) {
+    if (loja && (lojaBloqueadaFinanceiro(loja))) {
       res.status(402).json({
         error: 'Assinatura desta loja suspensa por inadimplência. Regularize o pagamento para continuar operando.',
         codigo: 'PAYMENT_REQUIRED'
@@ -282,7 +286,7 @@ export function verificarApiKeyIntegracao(req: Request, res: Response, next: Nex
 
   const empresa = empresas.find(e => e.id === loja.empresaId);
   if (!loja.ativo || !empresa?.ativo) { res.status(403).json({ error: 'Loja ou empresa inativa.' }); return; }
-  if (loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO') {
+  if (lojaBloqueadaFinanceiro(loja)) {
     res.status(402).json({ error: 'Assinatura da loja suspensa.', codigo: 'PAYMENT_REQUIRED' }); return;
   }
   const chave = loja.chaveAcesso || '';
