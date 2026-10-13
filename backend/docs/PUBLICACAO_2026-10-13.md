@@ -1,5 +1,19 @@
 # Publicação de 13/10/2026 — America/Fortaleza
 
+## Atualização: implantação integrada por loja
+
+A continuação foi publicada com código `dca20f8760ddfcd4aa73aa7ee594a3f01f3ed721`, na release `C:/Projetos/Distre-releases/dca20f8760dd`. A descrição demonstrativa abaixo registra a primeira publicação; a versão atual passou a exigir sessão e salvar o progresso por loja.
+
+- Menu da loja e cartão de próxima etapa; primeiro acesso de lojas sem catálogo/operação abre a jornada. Lojas existentes mantêm o painel operacional. Após Go-Live, o menu passa a Ajuda e Treinamentos.
+- Admin Master acompanha etapa, registros pendentes e data de conclusão; ficha da loja mostra progresso e acesso à jornada em modo de acompanhamento.
+- Avanço e histórico persistidos em SQL, em transação, com isolamento por loja e retry idempotente. Tarefas conferem produtos ativos, saldos e imagens do e-commerce. Go-Live revalida esses dados e bloqueia lojas suspensas.
+- Vídeos, modelos e PDF continuam para depois. Sem aula disponível, a loja confirma conhecimento prévio; não há registro de aula assistida. Go-Live registra aceite de preparação, sem criar pedidos, notas, cobranças ou alterar planos.
+- 230 testes aprovados, incluindo 36 SQL; jornada real de navegador validou primeiro acesso, recarga, tarefas pendentes, retorno ao cadastro/estoque, conclusão, Ajuda e Treinamentos e acompanhamento administrativo.
+- Backup restaurado em base temporária; recuperação da versão anterior em `C:/Projetos/Distre-backups/release-1791890458452`. Inicialização em porta separada validou quatro comandas existentes, login e relatórios antes da promoção. CI backend/frontend aprovado no commit promovido.
+- Após publicação, endereço público confirmou login obrigatório, acompanhamento das duas lojas existentes e jornada administrativa em modo de consulta, inclusive layout de celular. Não foram concluídas etapas da operação durante essa verificação.
+
+## Histórico da primeira publicação
+
 Publicação autorizada pela operação e concluída. Código promovido: `6a2b05711b7b62471baf1cfe4631bc5694c45d89`, do PR #2. Inclui as correções anteriores de acesso, relatórios, pedido/entrega/retorno, entrega manual e a estrutura demonstrativa do painel de implantação.
 
 ## Implantação demonstrativa
