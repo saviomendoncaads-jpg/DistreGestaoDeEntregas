@@ -1,0 +1,452 @@
+{
+  "meta": {
+    "titulo": "Importação de produtos",
+    "fps": 30,
+    "largura": 1920,
+    "altura": 1080,
+    "voz": "pt-BR-ThalitaMultilingualNeural",
+    "velocidade": "-5%",
+    "capa": {
+      "titulo": "Importar",
+      "destaque": "produtos",
+      "subtitulo": "Aula 2 da implantação",
+      "selo": "Aula 2",
+      "tela": "4-previa"
+    },
+    "abertura": {
+      "titulo": "Importação de produtos",
+      "subtitulo": "Aula 2 da implantação ·",
+      "destaque": "Distre"
+    },
+    "fecho": {
+      "itens": [
+        "Baixar o modelo",
+        "Preencher a planilha",
+        "Conferir a prévia",
+        "Confirmar"
+      ],
+      "frase": "Catálogo inteiro,",
+      "destaque": "de uma vez só",
+      "rodape": "Próxima etapa: o estoque inicial"
+    },
+    "resumo": "Traga o catálogo inteiro de uma vez com uma planilha CSV, conferindo a prévia antes de salvar."
+  },
+  "cenas": [
+    {
+      "id": "01-abertura",
+      "tipo": "titulo",
+      "titulo": "Importação de produtos",
+      "narracao": "",
+      "duracao_fixa": 3
+    },
+    {
+      "id": "02-ideia",
+      "tipo": "tela",
+      "narracao": "Depois do primeiro cadastro, você pode trazer todos os outros produtos de uma vez, usando uma planilha em formato CSV.",
+      "visual": {
+        "tela": "1-lista",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "tabela",
+            "palavra": "produtos",
+            "zoom": 1.3,
+            "etiqueta": "o catálogo hoje: 1 produto",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "botaoImportar",
+            "palavra": "planilha",
+            "zoom": 2,
+            "etiqueta": "Importar",
+            "lado": "abaixo",
+            "cursor": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "03-janela",
+      "tipo": "tela",
+      "narracao": "Clique em Importar. A janela aceita até quinhentos produtos por arquivo.",
+      "visual": {
+        "segmentos": [
+          {
+            "tela": "1-lista",
+            "plano0": {
+              "x": 0.77,
+              "y": 0.26,
+              "z": 1.9
+            },
+            "pontos": [
+              {
+                "alvo": "botaoImportar",
+                "palavra": "importar",
+                "zoom": 2.2,
+                "etiqueta": "Importar",
+                "lado": "abaixo",
+                "cursor": true
+              }
+            ]
+          },
+          {
+            "tela": "2-dialogo",
+            "palavra": "janela",
+            "atraso": -4,
+            "plano0": {
+              "x": 0.5,
+              "y": 0.5,
+              "z": 1.25
+            },
+            "pontos": [
+              {
+                "alvo": "limite",
+                "palavra": "quinhentos",
+                "zoom": 2,
+                "etiqueta": "até 500 produtos por arquivo",
+                "lado": "abaixo",
+                "cor": "branca"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "04-modelo",
+      "tipo": "tela",
+      "narracao": "Comece por Baixar modelo. É a planilha com as colunas certas, já prontas para preencher.",
+      "visual": {
+        "segmentos": [
+          {
+            "tela": "2-dialogo",
+            "plano0": {
+              "x": 0.45,
+              "y": 0.45,
+              "z": 1.5
+            },
+            "pontos": [
+              {
+                "alvo": "baixarModelo",
+                "palavra": "baixar",
+                "zoom": 2.4,
+                "etiqueta": "Baixar modelo",
+                "lado": "acima",
+                "cursor": true
+              }
+            ]
+          },
+          {
+            "tela": "3a-modelo",
+            "palavra": "planilha",
+            "atraso": -4,
+            "plano0": {
+              "x": 0.5,
+              "y": 0.35,
+              "z": 1
+            },
+            "pontos": [
+              {
+                "alvo": "cabecalho",
+                "palavra": "colunas",
+                "zoom": 1.15,
+                "etiqueta": "as colunas certas",
+                "lado": "acima",
+                "cor": "branca"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "05-obrigatorias",
+      "tipo": "tela",
+      "narracao": "Só três colunas são obrigatórias. São elas o código interno, o nome e o preço. As outras são opcionais, como custo, marca, categoria e EAN.",
+      "visual": {
+        "tela": "3b-planilha",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.42,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "col_codigoInterno",
+            "palavra": "código",
+            "zoom": 1.9,
+            "etiqueta": "Código interno",
+            "lado": "acima",
+            "foco": [
+              0.5,
+              0.12
+            ]
+          },
+          {
+            "alvo": "col_nome",
+            "palavra": "nome",
+            "zoom": 1.7,
+            "etiqueta": "Nome",
+            "lado": "acima",
+            "foco": [
+              0.5,
+              0.12
+            ]
+          },
+          {
+            "alvo": "col_preco",
+            "palavra": "preço",
+            "zoom": 1.9,
+            "etiqueta": "Preço",
+            "lado": "acima",
+            "foco": [
+              0.5,
+              0.12
+            ]
+          },
+          {
+            "alvo": "col_custo",
+            "palavra": "custo",
+            "zoom": 1.9,
+            "etiqueta": "opcional",
+            "lado": "acima",
+            "cor": "branca",
+            "foco": [
+              0.5,
+              0.12
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "06-chave",
+      "tipo": "tela",
+      "narracao": "O código interno é a chave de cada linha. Se ele já existe no catálogo, o produto é atualizado. Se é novo, o produto é criado.",
+      "visual": {
+        "tela": "3b-planilha",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.45,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "col_codigoInterno",
+            "palavra": "chave",
+            "zoom": 1.8,
+            "etiqueta": "a chave de cada linha",
+            "lado": "acima",
+            "moldura": true,
+            "foco": [
+              0.5,
+              0.12
+            ]
+          },
+          {
+            "alvo": "linha0",
+            "palavra": "atualizado",
+            "zoom": 1.7,
+            "etiqueta": "já existe: atualiza",
+            "lado": "acima"
+          },
+          {
+            "alvo": "linha1",
+            "palavra": "criado",
+            "zoom": 1.8,
+            "etiqueta": "novo: cria",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "07-ativar",
+      "tipo": "tela",
+      "narracao": "Para o produto entrar ativo e publicado, preencha também o EAN e a situação. Sem situação, ele entra como rascunho.",
+      "visual": {
+        "tela": "3b-planilha",
+        "plano0": {
+          "x": 0.6,
+          "y": 0.45,
+          "z": 1.2
+        },
+        "pontos": [
+          {
+            "alvo": "col_codigoBarras",
+            "palavra": "ean",
+            "zoom": 1.9,
+            "etiqueta": "EAN",
+            "lado": "acima",
+            "foco": [
+              0.5,
+              0.12
+            ]
+          },
+          {
+            "alvo": "col_situacao",
+            "palavra": "situação",
+            "zoom": 2,
+            "etiqueta": "ativo",
+            "lado": "acima",
+            "foco": [
+              0.5,
+              0.12
+            ]
+          },
+          {
+            "alvo": "col_situacao",
+            "palavra": "rascunho",
+            "zoom": 2,
+            "etiqueta": "vazio = rascunho",
+            "lado": "acima",
+            "cor": "branca",
+            "moldura": false,
+            "foco": [
+              0.5,
+              0.12
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "08-selecionar",
+      "tipo": "tela",
+      "narracao": "Salve o arquivo como CSV, volte ao Distre e clique em Selecionar arquivo CSV.",
+      "visual": {
+        "gravacao": "selecionar",
+        "posicoes": "2-dialogo",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "ate": "clique",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1.3
+        },
+        "pontos": [
+          {
+            "alvo": "selecionar",
+            "palavra": "selecionar",
+            "zoom": 1.7,
+            "etiqueta": "Selecionar arquivo CSV",
+            "lado": "acima",
+            "moldura": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "09-previa",
+      "tipo": "tela",
+      "narracao": "O Distre valida o arquivo antes de salvar e mostra uma prévia: quantos produtos são novos e quantos serão atualizados.",
+      "visual": {
+        "tela": "4-previa",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.55,
+          "z": 1.2
+        },
+        "pontos": [
+          {
+            "alvo": "novos",
+            "palavra": "novos",
+            "zoom": 2.1,
+            "etiqueta": "12 produtos novos",
+            "lado": "acima"
+          },
+          {
+            "alvo": "atualizacoes",
+            "palavra": "atualizados",
+            "zoom": 2.1,
+            "etiqueta": "1 será atualizado",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "10-confirmar",
+      "tipo": "tela",
+      "narracao": "Se estiver tudo certo, clique em Confirmar importação.",
+      "visual": {
+        "gravacao": "confirmar",
+        "posicoes": "4-previa",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "ate": "clique",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.6,
+          "z": 1.2
+        },
+        "pontos": [
+          {
+            "alvo": "confirmar",
+            "palavra": "confirmar",
+            "zoom": 2,
+            "etiqueta": "Confirmar importação",
+            "lado": "acima",
+            "moldura": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "11-pronto",
+      "tipo": "tela",
+      "narracao": "Pronto. Os treze produtos entraram no catálogo de uma só vez.",
+      "visual": {
+        "tela": "5-lista-importada",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.4,
+          "z": 1.1
+        },
+        "pontos": [
+          {
+            "alvo": "aviso",
+            "palavra": "treze",
+            "zoom": 1.7,
+            "etiqueta": "13 produtos importados",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "12-lembrete",
+      "tipo": "quadro",
+      "narracao": "Para lembrar: até quinhentos produtos por arquivo, três colunas obrigatórias, e, se uma linha tiver erro, nada é salvo.",
+      "visual": {
+        "quadro": {
+          "titulo": "Antes de importar",
+          "itens": [
+            "Até 500 produtos por arquivo",
+            "Obrigatórias: código interno, nome e preço",
+            "Erro em uma linha: nada é salvo"
+          ],
+          "palavras": [
+            "quinhentos",
+            "três",
+            "erro"
+          ]
+        }
+      }
+    },
+    {
+      "id": "99-fecho",
+      "tipo": "titulo",
+      "narracao": "Catálogo importado. Na próxima etapa, vamos entender o estoque inicial."
+    }
+  ]
+}

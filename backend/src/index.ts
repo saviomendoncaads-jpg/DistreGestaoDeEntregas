@@ -161,6 +161,9 @@ app.use('/assets', express.static(path.join(frontendDist, 'assets')));
 // Imagens enviadas pelo painel (produtos da vitrine, logomarca da loja).
 app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', immutable: true }));
 
+// Aulas em vídeo e manuais em PDF da implantação (vêm de frontend/public/treinamentos para dentro do build do app).
+app.use('/treinamentos', express.static(path.join(frontendDist, 'treinamentos'), { maxAge: '1h' }));
+
 // APP em /app — SPA: /app e subrotas servem o index.html do app.
 app.get(['/app', '/app/*'], (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
 app.get(['/implantacao', '/implantacao/', '/area-cliente', '/area-cliente/'], (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));

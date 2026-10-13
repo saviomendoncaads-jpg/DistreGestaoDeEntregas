@@ -1,0 +1,98 @@
+{
+  "slug": "cadastro-produtos",
+  "etapa": 1,
+  "titulo": "Como cadastrar e estruturar produtos",
+  "resumo": "Aprenda a cadastrar um produto completo no Distre e a organizar o catálogo que será a base da sua operação.",
+  "tempo": "10 minutos",
+  "antes": [
+    "Separe os dados de pelo menos um produto: **nome**, **código interno**, **EAN (código de barras)**, **preço de venda** e **custo de compra**.",
+    "Entre no Distre com o usuário da loja e abra **Produtos**, no menu lateral."
+  ],
+  "objetivos": [
+    "Cadastrar um produto com nome, código interno, EAN, marca e categoria.",
+    "Informar preço e custo e entender a situação do cadastro (rascunho, ativo ou arquivado).",
+    "Decidir se o produto aparece na vitrine da loja online."
+  ],
+  "passos": [
+    {
+      "titulo": "Abra Produtos",
+      "texto": "No menu lateral, clique em **Produtos**. É aqui que fica o catálogo da loja. Antes do primeiro cadastro, os indicadores aparecem zerados e a lista está vazia.",
+      "tela": "1-lista",
+      "marcas": [
+        { "alvo": "menuProdutos", "texto": "Menu lateral **Produtos**." },
+        { "alvo": "botaoNovo", "texto": "Botão **Novo produto**, no canto superior direito." }
+      ],
+      "recorte": "inteira"
+    },
+    {
+      "titulo": "Identifique o produto",
+      "texto": "Clique em **Novo produto**. Na seção **Informações gerais**, preencha os dados que identificam o produto. O nome aparece para o cliente; o código interno e o EAN são usados pela equipe.",
+      "tela": "gravacao:identificacao",
+      "posicoes": "2-form",
+      "marcas": [
+        { "alvo": "nome", "texto": "**Nome do produto** (obrigatório): marca, dosagem e quantidade ajudam o cliente a reconhecer o item." },
+        { "alvo": "sku", "texto": "**Código interno / SKU**: um código seu, que não pode se repetir na loja. Ex.: `MED-001`." },
+        { "alvo": "ean", "texto": "**EAN / GTIN**: o código de barras da embalagem, com 8, 12, 13 ou 14 dígitos." }
+      ],
+      "atencao": "O EAN é obrigatório para **ativar** o produto e é conferido pelo sistema. Se os dígitos estiverem errados, aparece \"EAN / GTIN inválido. Confira os dígitos da embalagem.\""
+    },
+    {
+      "titulo": "Organize no catálogo",
+      "texto": "Ainda em **Informações gerais**, informe marca, categoria e subcategoria. Elas organizam o catálogo, permitem filtrar a lista e ajudam o cliente a encontrar o produto na vitrine.",
+      "tela": "gravacao:organizacao",
+      "posicoes": "2-form",
+      "marcas": [
+        { "alvo": "marca", "texto": "**Marca** do produto." },
+        { "alvo": "categoria", "texto": "**Categoria** principal. Ex.: Medicamentos, Higiene, Conveniência." },
+        { "alvo": "subcategoria", "texto": "**Subcategoria**, para detalhar. Ex.: Analgésicos e antitérmicos." }
+      ],
+      "dica": "Escolha os nomes das categorias uma vez e repita exatamente igual nos próximos produtos. Assim o filtro e a vitrine ficam organizados."
+    },
+    {
+      "titulo": "Informe preço e custo",
+      "texto": "Abra a seção **Preços e custos**. O preço de venda é obrigatório e precisa ser maior que zero. O custo de aquisição permite ao Distre mostrar a margem estimada.",
+      "tela": "gravacao:precos",
+      "posicoes": "3-precos",
+      "marcas": [
+        { "alvo": "secPrecos", "texto": "Seção **Preços e custos**, no menu à esquerda do formulário." },
+        { "alvo": "preco", "texto": "**Preço de venda (R$)**: quanto o cliente paga." },
+        { "alvo": "custo", "texto": "**Custo de aquisição (R$)**: quanto você paga ao fornecedor." }
+      ],
+      "dica": "Use vírgula para os centavos (12,90). O preço promocional, se usado, precisa ser menor que o preço normal."
+    },
+    {
+      "titulo": "Defina a situação e a publicação",
+      "texto": "Na seção **Publicação e busca**, escolha a situação do cadastro. **Rascunho** guarda o produto sem torná-lo visível; **Ativo** o libera para a operação; **Arquivado** o tira de uso sem apagar o histórico. Marque **Publicar na vitrine** para que ele apareça na loja online.",
+      "tela": "gravacao:publicacao",
+      "posicoes": "4-publicacao",
+      "marcas": [
+        { "alvo": "situacao", "texto": "**Situação do cadastro**: para a implantação, deixe como **Ativo**." },
+        { "alvo": "publicar", "texto": "**Publicar na vitrine**: só produtos ativos podem ser publicados." }
+      ],
+      "atencao": "Produtos em **rascunho** não contam como cadastrados na etapa de implantação."
+    },
+    {
+      "titulo": "Salve o produto",
+      "texto": "Clique em **Salvar produto**, na barra inferior. A lista de produtos reaparece com a mensagem \"Produto cadastrado.\" e o novo item. Se faltar algo, o item mostra o aviso \"Completar\", por exemplo \"Completar: Foto\".",
+      "tela": "6-lista-final",
+      "marcas": [
+        { "alvo": "linha", "texto": "O produto já está no catálogo, com preço, situação **Ativo** e vitrine **Publicado**." }
+      ],
+      "recorte": "inteira"
+    }
+  ],
+  "problemas": [
+    { "p": "\"Informe o nome do produto.\"", "s": "O nome é obrigatório. Preencha o campo **Nome do produto** em Informações gerais." },
+    { "p": "\"Informe um preço maior que zero.\"", "s": "Vá em **Preços e custos** e preencha o **Preço de venda**." },
+    { "p": "\"EAN / GTIN inválido. Confira os dígitos da embalagem.\"", "s": "Digite de novo o código de barras da embalagem (8, 12, 13 ou 14 dígitos), sem espaços." },
+    { "p": "\"Informe o EAN para ativar o produto.\"", "s": "Para o produto ficar **Ativo**, o EAN é obrigatório. Preencha-o ou deixe o produto como **Rascunho** até ter o código." },
+    { "p": "\"Ative o produto antes de publicá-lo na vitrine.\"", "s": "Mude a situação para **Ativo** e depois marque **Publicar na vitrine**." }
+  ],
+  "checklist": [
+    "O produto aparece na lista de **Produtos** com situação **Ativo**.",
+    "Nome, código interno, EAN, marca e categoria estão preenchidos.",
+    "Preço de venda e custo estão corretos.",
+    "Você definiu um padrão de categorias para os próximos cadastros."
+  ],
+  "proximo": "Etapa 2 · Importação de produtos"
+}
