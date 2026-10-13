@@ -6,6 +6,7 @@ import Icon from './Icon';
 import { getSession,implementationRequest,type ImplementationState } from './api';
 import './implementation.css';
 export default function ImplementationPanel(){
+ useEffect(()=>{document.title='Distre - Área do Cliente';},[]);
  const [session]=useState(getSession);const [state,setState]=useState<ImplementationState|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);
  const lojaId=session?.tipo==='admin'?new URLSearchParams(location.search).get('lojaId')||undefined:undefined;
  const requested=new URLSearchParams(location.search).get('secao');
