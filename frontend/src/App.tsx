@@ -2217,6 +2217,12 @@ export default function App() {
           )}
         </div>
         <div className="header-actions">
+          <button
+            className="btn btn-primary"
+            onClick={() => window.location.assign(sessao?.tipo==='admin'&&tenantLojaId?`/area-cliente?lojaId=${encodeURIComponent(tenantLojaId)}`:'/area-cliente')}
+          >
+            Área do Cliente
+          </button>
           {/* Hierarquia: 1 primária (Gerar Pedido), 1 secundária (Entrega Rápida),
               destrutivo e logout rebaixados a ghost p/ não competir nem causar clique acidental. */}
           {/* "Gerar Pedido" e "Entrega Rápida" ocultados a pedido (jun/2026) */}
@@ -2444,7 +2450,6 @@ export default function App() {
               { key: 'estoque', label: 'Estoque', icon: 'stock' as const, onClick: () => setShowEstoqueModal(true) },
             ] : []),
             { key: 'relatorios', label: 'Relatórios', icon: 'reports', onClick: () => { setReportPhase('filters'); setReportModalOpen(true); } },
-            { key: 'area-cliente', label: 'Área do Cliente', icon: 'settings', onClick: () => window.location.assign(sessao?.tipo==='admin'&&tenantLojaId?`/area-cliente?lojaId=${encodeURIComponent(tenantLojaId)}`:'/area-cliente') },
             { key: 'motoristas', label: 'Cadastrar Motoboy', icon: 'drivers', onClick: () => setShowDriverModal(true) },
             { key: 'veiculos', label: 'Tipos de veículo', icon: 'vehicles', onClick: () => setShowVehicleModal(true) },
           ]}
