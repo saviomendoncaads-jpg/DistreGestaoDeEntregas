@@ -1,4 +1,4 @@
-import mssql from '../db';
+import mssql, { Transaction } from '../db';
 import { pool } from '../database';
 import { cifrar, decifrar, decifrarBuffer } from './cofre';
 import { ConfigFiscalLoja, CredenciaisFiscais, ModeloNota, NotaFiscal } from './tipos';
@@ -83,6 +83,8 @@ async function criarTabelas() {
       ALTER TABLE CONFIG_FISCAL_LOJA ADD PERCENTUAL_TRIBUTOS DECIMAL(5,2) NOT NULL CONSTRAINT DF_CFL_TRIBUTOS DEFAULT 0;
     IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('CONFIG_FISCAL_LOJA') AND name = 'EMAIL')
       ALTER TABLE CONFIG_FISCAL_LOJA ADD EMAIL NVARCHAR(120) NULL;
+    IF COL_LENGTH('CONFIG_FISCAL_LOJA', 'SEFAZ_CONFIG') IS NULL
+      ALTER TABLE CONFIG_FISCAL_LOJA ADD SEFAZ_CONFIG NVARCHAR(MAX) NULL;
 
     -- Segredos fiscais da loja, todos CIFRADOS (AES-256-GCM, chave fora do banco — fiscal/cofre.ts).
     IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='CREDENCIAIS_FISCAIS' AND xtype='U')
@@ -129,7 +131,7 @@ function linhaParaConfig(r: any): ConfigFiscalLoja {
     cep: r.CEP,
     telefone: r.TELEFONE || undefined,
     email: r.EMAIL || undefined,
-    provedor: r.PROVEDOR === 'FOCUSNFE' ? 'FOCUSNFE' : 'SIMULADO',
+    provedor: r.PROVEDOR === 'SEFAZ_DIRETA' ? 'SEFAZ_DIRETA' : r.PROVEDOR === 'FOCUSNFE' ? 'FOCUSNFE' : 'SIMULADO',
     ambiente: r.AMBIENTE,
     serieNfce: Number(r.SERIE_NFCE),
     proximoNumeroNfce: Number(r.PROXIMO_NUMERO_NFCE),
@@ -140,6 +142,7 @@ function linhaParaConfig(r: any): ConfigFiscalLoja {
     icmsSituacaoPadrao: r.ICMS_SITUACAO_PADRAO,
     origemPadrao: r.ORIGEM_PADRAO,
     percentualTributos: Number(r.PERCENTUAL_TRIBUTOS ?? 0),
+    sefaz: r.SEFAZ_CONFIG ? JSON.parse(r.SEFAZ_CONFIG) : undefined,
     atualizadoEm: r.ATUALIZADO_EM,
   };
 }
@@ -171,6 +174,7 @@ export async function salvarConfigFiscal(c: ConfigFiscalLoja): Promise<void> {
     .input('telefone', mssql.VarChar, c.telefone ?? null)
     .input('email', mssql.NVarChar, c.email ?? null)
     .input('provedor', mssql.VarChar, c.provedor)
+    .input('sefaz', mssql.NVarChar(mssql.MAX), c.sefaz ? JSON.stringify(c.sefaz) : null)
     .input('tributos', mssql.Decimal(5, 2), c.percentualTributos)
     .input('ambiente', mssql.VarChar, c.ambiente)
     .input('serieNfce', mssql.Int, c.serieNfce)
@@ -192,16 +196,16 @@ export async function salvarConfigFiscal(c: ConfigFiscalLoja): Promise<void> {
       AMBIENTE=@ambiente, PERCENTUAL_TRIBUTOS=@tributos,
       SERIE_NFCE=@serieNfce, PROXIMO_NUMERO_NFCE=@proxNfce, SERIE_NFE=@serieNfe, PROXIMO_NUMERO_NFE=@proxNfe,
       NCM_PADRAO=@ncm, CFOP_PADRAO=@cfop, ICMS_SITUACAO_PADRAO=@icms, ORIGEM_PADRAO=@origem,
-      ATUALIZADO_EM=@agora
+      ATUALIZADO_EM=@agora, SEFAZ_CONFIG=@sefaz
     WHEN NOT MATCHED THEN INSERT (
       LOJA_ID, RAZAO_SOCIAL, NOME_FANTASIA, CNPJ, INSCRICAO_ESTADUAL, REGIME_TRIBUTARIO, LOGRADOURO,
       NUMERO, BAIRRO, MUNICIPIO, UF, CEP, TELEFONE, EMAIL, PROVEDOR, AMBIENTE, PERCENTUAL_TRIBUTOS,
       SERIE_NFCE, PROXIMO_NUMERO_NFCE, SERIE_NFE, PROXIMO_NUMERO_NFE, NCM_PADRAO, CFOP_PADRAO,
-      ICMS_SITUACAO_PADRAO, ORIGEM_PADRAO, ATUALIZADO_EM
+      ICMS_SITUACAO_PADRAO, ORIGEM_PADRAO, ATUALIZADO_EM, SEFAZ_CONFIG
     ) VALUES (
       @lojaId, @razao, @fantasia, @cnpj, @ie, @regime, @logradouro, @numero, @bairro, @municipio, @uf,
       @cep, @telefone, @email, @provedor, @ambiente, @tributos, @serieNfce, @proxNfce, @serieNfe, @proxNfe,
-      @ncm, @cfop, @icms, @origem, @agora
+      @ncm, @cfop, @icms, @origem, @agora, @sefaz
     );
   `);
 }
@@ -321,9 +325,9 @@ function linhaParaNota(r: any): NotaFiscal {
   };
 }
 
-export async function salvarNota(n: NotaFiscal): Promise<void> {
+export async function salvarNota(n: NotaFiscal, transacao?: Transaction): Promise<void> {
   await garantirTabelasFiscais();
-  await pool.request()
+  const resultado = await (transacao ? new mssql.Request(transacao) : pool.request())
     .input('id', mssql.VarChar, n.id)
     .input('lojaId', mssql.VarChar, n.lojaId)
     .input('entregaId', mssql.VarChar, n.entregaId ?? null)
@@ -350,7 +354,7 @@ export async function salvarNota(n: NotaFiscal): Promise<void> {
     .query(`
       MERGE INTO NOTAS_FISCAIS AS t
       USING (SELECT @id AS ID) AS s ON t.ID = s.ID
-      WHEN MATCHED THEN UPDATE SET
+      WHEN MATCHED AND t.LOJA_ID=@lojaId AND (t.STATUS NOT IN ('AUTORIZADA','CANCELADA') OR (t.STATUS='AUTORIZADA' AND @status IN ('AUTORIZADA','CANCELADA')) OR (t.STATUS='CANCELADA' AND @status='CANCELADA')) THEN UPDATE SET
         ENTREGA_ID=@entregaId, NUMERO=@numero, SERIE=@serie, CHAVE=@chave, PROTOCOLO=@protocolo,
         STATUS=@status, DANFE_URL=@danfe, XML_URL=@xml, QRCODE_URL=@qrcode, URL_CONSULTA=@consulta,
         MENSAGEM=@mensagem, DADOS=@dados, EMITIDA_EM=@emitidaEm, ATUALIZADO_EM=@atualizadoEm
@@ -363,7 +367,9 @@ export async function salvarNota(n: NotaFiscal): Promise<void> {
         @ambiente, @provedor, @ref, @valor, @danfe, @xml, @qrcode, @consulta, @mensagem, @dados,
         @emitidaEm, @criadoEm, @atualizadoEm
       );
+      SELECT * FROM NOTAS_FISCAIS WHERE ID=@id AND LOJA_ID=@lojaId;
     `);
+  if(resultado.recordset[0]) Object.assign(n,linhaParaNota(resultado.recordset[0]));
 }
 
 export async function obterNota(id: string): Promise<NotaFiscal | null> {
@@ -383,10 +389,11 @@ export async function listarNotasDaLoja(lojaId: string, desde: string): Promise<
 }
 
 /** Nota ainda válida (autorizada ou em processamento) para a venda — impede emissão em duplicidade. */
-export async function obterNotaAtivaDaVenda(pedidoId: string): Promise<NotaFiscal | null> {
+export async function obterNotaAtivaDaVenda(pedidoId: string, lojaId?: string): Promise<NotaFiscal | null> {
   await garantirTabelasFiscais();
   const r = await pool.request()
     .input('pedidoId', mssql.VarChar, pedidoId)
-    .query(`SELECT TOP 1 * FROM NOTAS_FISCAIS WHERE PEDIDO_ID = @pedidoId AND STATUS IN ('AUTORIZADA','PROCESSANDO') ORDER BY CRIADO_EM DESC`);
+    .input('lojaId', mssql.VarChar, lojaId ?? null)
+    .query(`SELECT TOP 1 * FROM NOTAS_FISCAIS WHERE PEDIDO_ID = @pedidoId AND (@lojaId IS NULL OR LOJA_ID=@lojaId) AND STATUS IN ('AUTORIZADA','PROCESSANDO','CONTINGENCIA') ORDER BY CRIADO_EM DESC`);
   return r.recordset[0] ? linhaParaNota(r.recordset[0]) : null;
 }

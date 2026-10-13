@@ -6,6 +6,7 @@ export interface EnderecoViaCep {
   bairro: string;
   cidade: string;
   uf: string;
+  ibge?: string;
 }
 
 export async function buscarEnderecoPorCep(cep: string): Promise<EnderecoViaCep | null> {
@@ -20,7 +21,8 @@ export async function buscarEnderecoPorCep(cep: string): Promise<EnderecoViaCep 
       logradouro: dados.logradouro || '',
       bairro: dados.bairro || '',
       cidade: dados.localidade || '',
-      uf: dados.uf || ''
+      uf: dados.uf || '',
+      ibge: dados.ibge || undefined,
     };
   } catch {
     return null;

@@ -1728,10 +1728,14 @@ export default function App() {
     }
   };
 
-  const executarFinalizacao = async (id: string, escolha: EscolhaFiscal, destinatario?: DestinatarioNota) => {
+  const imprimirFiscal = async(nota:NotaCompleta)=>{
+    if(nota.provedor==='SEFAZ_DIRETA'&&nota.modelo==='NFE') await fiscalApi?.baixarDanfe(nota.id);
+    else imprimirNota(nota);
+  };
+  const executarFinalizacao = async (id: string, escolha: EscolhaFiscal, destinatario?: DestinatarioNota,contingencia?:{justificativa:string}) => {
     const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${id}/finalize-order`, {
       method: 'POST',
-      body: JSON.stringify(escolha === 'NENHUMA' ? {} : { fiscal: { modelo: escolha, destinatario } })
+      body: JSON.stringify(escolha === 'NENHUMA' ? {} : { fiscal: { modelo: escolha, destinatario,contingencia } })
     });
     const data = await response.json();
     if (!response.ok) {
@@ -1743,7 +1747,7 @@ export default function App() {
     const nota: NotaCompleta | undefined = data.fiscal?.nota;
     if (nota) {
       registrarNota(nota);
-      if (nota.status === 'AUTORIZADA') imprimirNota(nota);
+      if (nota.status === 'AUTORIZADA'||nota.status==='CONTINGENCIA') await imprimirFiscal(nota);
       else avisarNotaPendente(nota);
     }
     if (data.fiscal?.erro) {
@@ -1777,22 +1781,22 @@ export default function App() {
     try {
       const completa = nota.status === 'PROCESSANDO' ? await fiscalApi.atualizar(nota.id) : await fiscalApi.obterNota(nota.id);
       registrarNota(completa);
-      if (completa.status === 'AUTORIZADA') imprimirNota(completa);
+      if (completa.status === 'AUTORIZADA'||completa.status==='CONTINGENCIA') await imprimirFiscal(completa);
       else alert(`${NOME_MODELO[completa.modelo]}: ${completa.status.toLowerCase()}${completa.mensagem ? ` — ${completa.mensagem}` : ''}`);
     } catch (err: any) {
       alert(err.message);
     }
   };
 
-  const confirmarEmissaoFiscal = async (escolha: EscolhaFiscal, destinatario?: DestinatarioNota) => {
+  const confirmarEmissaoFiscal = async (escolha: EscolhaFiscal, destinatario?: DestinatarioNota,contingencia?:{justificativa:string}) => {
     if (!emissaoFiscal) return;
     if (emissaoFiscal.modo === 'separacao') {
-      await executarFinalizacao(emissaoFiscal.comandaId, escolha, destinatario);
+      await executarFinalizacao(emissaoFiscal.comandaId, escolha, destinatario,contingencia);
     } else if (fiscalApi && escolha !== 'NENHUMA') {
       try {
-        const nota = await fiscalApi.emitir(emissaoFiscal.comandaId, escolha, destinatario);
+        const nota = await fiscalApi.emitir(emissaoFiscal.comandaId, escolha, destinatario,contingencia);
         registrarNota(nota);
-        if (nota.status === 'AUTORIZADA') imprimirNota(nota);
+        if (nota.status === 'AUTORIZADA'||nota.status==='CONTINGENCIA') await imprimirFiscal(nota);
         else avisarNotaPendente(nota);
       } catch (err: any) {
         if (err.nota) registrarNota(err.nota); // tentativa com erro fica registrada no card
@@ -2772,6 +2776,7 @@ export default function App() {
           escolhaInicial={emissaoFiscal.escolhaInicial}
           permitirSemNota={emissaoFiscal.modo === 'separacao'}
           simulado={fiscalSimulado || fiscalStatus?.ambiente !== 'PRODUCAO'}
+          sefazDireta={fiscalStatus?.provedor==='SEFAZ_DIRETA'}
           onConfirmar={confirmarEmissaoFiscal}
           onAbrirConfig={() => setShowConfigFiscal(true)}
           onFechar={() => setEmissaoFiscal(null)}

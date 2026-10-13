@@ -57,7 +57,7 @@ interface Props {
 }
 
 const ROTULO_STATUS_NOTA: Record<string, string> = {
-  AUTORIZADA: '', PROCESSANDO: ' · processando', REJEITADA: ' · rejeitada', ERRO: ' · erro', CANCELADA: ' · cancelada',
+  AUTORIZADA: '', PROCESSANDO: ' · processando', CONTINGENCIA:' · contingência pendente', REJEITADA: ' · rejeitada', ERRO: ' · erro', CANCELADA: ' · cancelada',
 };
 
 const STATUS_ROTA = ['DESPACHADO', 'EM_TRANSITO', 'NO_LOCAL', 'ALERTA_INCIDENTE', 'SLA_ALERTA', 'AGUARDANDO_RETORNO_CD'];

@@ -3,6 +3,9 @@ import { obterProdutos, obterPrecosVenda } from '../database';
 import { Entrega, FormaPagamento, Produto } from '../types';
 import { getProvedorFiscal } from './fiscalFactory';
 import { ContextoEmissao } from './FiscalProviderAdapter';
+import { criarNotaSefaz } from './sefaz/repositorio';
+import { certificadoContexto } from './sefaz/transporte';
+import { SefazDiretaAdapter } from './adapters/SefazDiretaAdapter';
 import {
   obterConfigFiscal, obterCredenciais, obterNotaAtivaDaVenda, reservarNumero, salvarNota,
 } from './fiscalRepo';
@@ -173,6 +176,7 @@ export async function montarDadosNota(p: {
       valorTributos: tributos[i] / 100,
       origem: config.origemPadrao,
       icmsSituacao: prod?.icmsSituacao || config.icmsSituacaoPadrao,
+      tributacaoSefaz: prod ? Object.fromEntries((['pisCst','cofinsCst','aliquotaIcms','reducaoBaseIcms','aliquotaPis','aliquotaCofins','aliquotaCreditoSn','rtcCst','rtcClassificacao','aliquotaIbsUf','aliquotaIbsMunicipio','aliquotaCbs'] as const).filter(k=>prod[k]!==undefined).map(k=>[k,prod[k]])) : undefined,
     };
   });
 
@@ -212,6 +216,8 @@ export function normalizarDestinatario(d: any): DestinatarioNota | undefined {
     uf: txt(d.uf, 2)?.toUpperCase(),
     cep: soDigitos(d.cep) || undefined,
     email: txt(d.email, 120),
+    codigoMunicipio: soDigitos(d.codigoMunicipio) || undefined,
+    inscricaoEstadual: soDigitos(d.inscricaoEstadual) || undefined,
   };
   return Object.values(out).some(Boolean) ? out : undefined;
 }
@@ -240,6 +246,9 @@ export async function validarEmissao(lojaId: string, modelo: ModeloNota, destina
     }
   }
   const credenciais = await obterCredenciais(lojaId);
+  if (config.provedor === 'SEFAZ_DIRETA') {
+    try {certificadoContexto(contexto(config,credenciais));}catch(err){throw new ErroFiscal((err as Error).message,412);}
+  }
   const prontidao = calcularProntidao(config, credenciais);
   if (!prontidao.podeEmitir) {
     const pendentes = prontidao.itens.filter(i => i.obrigatorio && !i.ok).map(i => i.detalhe || i.rotulo);
@@ -281,6 +290,14 @@ export function calcularProntidao(config: ConfigFiscalLoja | null, c: Credenciai
   if (!config || config.provedor === 'SIMULADO') {
     itens.push({ chave: 'provedor', rotulo: 'Provedor: SIMULADO (notas sem valor fiscal)', ok: ambiente !== 'PRODUCAO', obrigatorio: true,
       detalhe: ambiente === 'PRODUCAO' ? 'produção exige o provedor Focus NFe' : 'para valer de verdade, escolha Focus NFe' });
+  } else if(config.provedor === 'SEFAZ_DIRETA') {
+    const dias = diasAte(c.certificadoValidoAte);
+    const certOk=!!c.certificadoPfx && !!c.certificadoCnpj && c.certificadoCnpj.slice(0,8)===config.cnpj.slice(0,8) && dias !== undefined && dias>=0;
+    itens.push({chave:'certificado',rotulo:'Certificado A1 válido do emitente',ok:certOk,obrigatorio:true,detalhe:certOk?undefined:'envie certificado A1 válido e senha, com a mesma raiz CNPJ do emitente'});
+    const ibgeOk=!!config.sefaz?.codigoMunicipio && /^\d{7}$/.test(config.sefaz.codigoMunicipio);
+    itens.push({chave:'ibge',rotulo:'Código IBGE do município',ok:ibgeOk,obrigatorio:true,detalhe:ibgeOk?undefined:'informe o código IBGE com sete dígitos'});
+    itens.push({chave:'credenciamento',rotulo:'Credenciamento estadual NF-e / NFC-e',ok:true,obrigatorio:false,detalhe:'o credenciamento será verificado pela SEFAZ ao autorizar; testar serviço não comprova habilitação'});
+    itens.push({chave:'nfce',rotulo:'QR Code e consulta da NFC-e',ok:ambiente==='PRODUCAO'?!!config.sefaz?.qrCodeProducao&&!!config.sefaz?.consultaProducao:!!config.sefaz?.qrCodeHomologacao&&!!config.sefaz?.consultaHomologacao,obrigatorio:false,detalhe:'URLs oficiais do estado são necessárias para NFC-e; NF-e pode ser emitida sem elas'});
   } else {
     const token = ambiente === 'PRODUCAO' ? c.focusTokenProducao : c.focusTokenHomologacao;
     itens.push({ chave: 'token', rotulo: `Token Focus NFe de ${amb}`, ok: !!token, obrigatorio: true, detalhe: token ? undefined : `informe o token de ${amb} da Focus NFe (ou use "Sincronizar com a Focus")` });
@@ -308,17 +325,19 @@ export function calcularProntidao(config: ConfigFiscalLoja | null, c: Credenciai
 
 // ─── Emissão ──────────────────────────────────────────────────────────────────
 
-function contexto(config: ConfigFiscalLoja, c: CredenciaisFiscais, ambiente = config.ambiente): ContextoEmissao {
+export function contexto(config: ConfigFiscalLoja, c: CredenciaisFiscais, ambiente = config.ambiente): ContextoEmissao {
   return {
     ambiente,
     cnpjEmitente: config.cnpj,
     uf: config.uf,
+    lojaId: config.lojaId,
+    credenciais: c,
     tokenProvedor: ambiente === 'PRODUCAO' ? c.focusTokenProducao : c.focusTokenHomologacao,
   };
 }
 
 /** Provedor que EMITIU a nota (para consultar/cancelar no mesmo lugar, mesmo se a loja trocar depois). */
-const provedorDaNota = (n: NotaFiscal) => getProvedorFiscal(n.provedor === 'FOCUSNFE' ? 'FOCUSNFE' : 'SIMULADO');
+const provedorDaNota = (n: NotaFiscal) => getProvedorFiscal(n.provedor === 'SEFAZ_DIRETA' ? 'SEFAZ_DIRETA' : n.provedor === 'FOCUSNFE' ? 'FOCUSNFE' : 'SIMULADO');
 
 /** Id da VENDA: pedido de origem quando a entrega nasceu de um pedido; senão a própria entrega. */
 export function vendaIdDaEntrega(entrega: Entrega): string {
@@ -333,10 +352,11 @@ export async function emitirNotaDaVenda(p: {
   vendaId: string;
   modelo: ModeloNota;
   destinatario?: DestinatarioNota;
+  contingencia?: {justificativa:string};
 }): Promise<NotaFiscal> {
   const { config, credenciais } = await validarEmissao(p.lojaId, p.modelo, p.destinatario);
 
-  const ativa = await obterNotaAtivaDaVenda(p.vendaId);
+  const ativa = await obterNotaAtivaDaVenda(p.vendaId,p.lojaId);
   if (ativa) {
     const tipo = ativa.modelo === 'NFCE' ? 'NFC-e' : 'NF-e';
     throw new ErroFiscal(
@@ -347,9 +367,15 @@ export async function emitirNotaDaVenda(p: {
   }
 
   const dados = await montarDadosNota({ entrega: p.entrega, config, modelo: p.modelo, destinatario: p.destinatario, vendaId: p.vendaId });
+  if(p.contingencia) {
+    if(config.provedor!=='SEFAZ_DIRETA'||p.modelo!=='NFCE') throw new ErroFiscal('Contingência offline disponível para NFC-e com SEFAZ direta.');
+    const justificativa=String(p.contingencia.justificativa||'').trim();
+    if(justificativa.length<15||justificativa.length>256) throw new ErroFiscal('Justificativa da contingência deve ter de 15 a 256 caracteres.');
+    dados.contingencia={justificativa};
+  }
   const provedor = getProvedorFiscal(config.provedor);
   const serie = p.modelo === 'NFCE' ? config.serieNfce : config.serieNfe;
-  const numero = provedor.numeracaoLocal ? await reservarNumero(config.lojaId, p.modelo) : undefined;
+  const numero = provedor.numeracaoLocal && config.provedor !== 'SEFAZ_DIRETA' ? await reservarNumero(config.lojaId, p.modelo) : undefined;
   const agora = new Date().toISOString();
   const id = `nf-${crypto.randomBytes(6).toString('hex')}`;
 
@@ -373,10 +399,11 @@ export async function emitirNotaDaVenda(p: {
   };
   // Grava antes de chamar o provedor: se o processo cair no meio, a nota fica
   // rastreável como PROCESSANDO e pode ser reconsultada (sem emissão fantasma).
-  await salvarNota(nota);
+  if(config.provedor === 'SEFAZ_DIRETA') await criarNotaSefaz(nota);
+  else await salvarNota(nota);
 
   try {
-    const r = await provedor.emitir({ ref: nota.refProvedor, numero, serie, dados, ctx: contexto(config, credenciais, nota.ambiente) });
+    const r = await provedor.emitir({ ref: nota.refProvedor, numero:nota.numero, serie, dados, emitidaEm:nota.criadoEm, ctx: contexto(config, credenciais, nota.ambiente) });
     Object.assign(nota, {
       status: r.status,
       numero: r.numero ?? nota.numero,
@@ -391,7 +418,7 @@ export async function emitirNotaDaVenda(p: {
       emitidaEm: r.emitidaEm,
     });
   } catch (err: any) {
-    nota.status = 'ERRO';
+    nota.status = config.provedor === 'SEFAZ_DIRETA' ? 'PROCESSANDO' : 'ERRO';
     nota.mensagem = err?.message || String(err);
     console.error(`[Fiscal] Falha ao emitir ${p.modelo} da venda ${p.vendaId}:`, nota.mensagem);
   }
@@ -405,7 +432,7 @@ export async function atualizarNota(nota: NotaFiscal): Promise<NotaFiscal> {
   const config = await obterConfigFiscal(nota.lojaId);
   if (!config) throw new ErroFiscal('Configuração fiscal da loja não encontrada.', 412);
   const cred = await obterCredenciais(nota.lojaId);
-  const r = await provedorDaNota(nota).consultar(nota.refProvedor, nota.modelo, contexto(config, cred, nota.ambiente));
+  const r = await provedorDaNota(nota).consultar(nota.refProvedor, nota.modelo, contexto({...config,...nota.dados.emitente,lojaId:nota.lojaId}, cred, nota.ambiente));
   Object.assign(nota, {
     status: r.status,
     numero: r.numero ?? nota.numero,
@@ -431,7 +458,7 @@ export async function cancelarNota(nota: NotaFiscal, justificativa: string): Pro
   const config = await obterConfigFiscal(nota.lojaId);
   if (!config) throw new ErroFiscal('Configuração fiscal da loja não encontrada.', 412);
   const cred = await obterCredenciais(nota.lojaId);
-  const r = await provedorDaNota(nota).cancelar(nota.refProvedor, nota.modelo, j, contexto(config, cred, nota.ambiente));
+  const r = await provedorDaNota(nota).cancelar(nota.refProvedor, nota.modelo, j, contexto({...config,...nota.dados.emitente,lojaId:nota.lojaId}, cred, nota.ambiente));
   if (r.status !== 'CANCELADA') {
     throw new ErroFiscal(`Cancelamento não homologado: ${r.mensagem || r.status}`, 502);
   }

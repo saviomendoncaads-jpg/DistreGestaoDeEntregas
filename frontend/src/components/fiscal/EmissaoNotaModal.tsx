@@ -25,7 +25,8 @@ interface Props {
   escolhaInicial: EscolhaFiscal;
   permitirSemNota: boolean;
   simulado: boolean;
-  onConfirmar: (escolha: EscolhaFiscal, destinatario?: DestinatarioNota) => Promise<void>;
+  sefazDireta?:boolean;
+  onConfirmar: (escolha: EscolhaFiscal, destinatario?: DestinatarioNota,contingencia?:{justificativa:string}) => Promise<void>;
   onAbrirConfig: () => void;
   onFechar: () => void;
 }
@@ -49,7 +50,7 @@ const mascaraDoc = (v: string) => {
 };
 
 export default function EmissaoNotaModal({
-  titulo, comanda, escolhaInicial, permitirSemNota, simulado, onConfirmar, onAbrirConfig, onFechar,
+  titulo, comanda, escolhaInicial, permitirSemNota, simulado, sefazDireta, onConfirmar, onAbrirConfig, onFechar,
 }: Props) {
   const [escolha, setEscolha] = useState<EscolhaFiscal>(escolhaInicial);
   const end = separarEndereco(comanda.endereco || '');
@@ -67,6 +68,7 @@ export default function EmissaoNotaModal({
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [precisaConfig, setPrecisaConfig] = useState(false);
+  const [offline,setOffline]=useState(false),[justificativa,setJustificativa]=useState('');
 
   const campo = (k: keyof DestinatarioNota) => ({
     value: dest[k] || '',
@@ -85,6 +87,7 @@ export default function EmissaoNotaModal({
           bairro: p.bairro || r.bairro,
           municipio: r.cidade || p.municipio,
           uf: r.uf || p.uf,
+          codigoMunicipio: r.ibge || p.codigoMunicipio,
         }));
       }
     }
@@ -106,7 +109,8 @@ export default function EmissaoNotaModal({
     }
     setEnviando(true);
     try {
-      await onConfirmar(escolha, destinatario);
+      if(offline&&escolha==='NFCE'&&justificativa.trim().length<15) throw new Error('Descreva a falha técnica da contingência com pelo menos 15 caracteres.');
+      await onConfirmar(escolha, destinatario,offline&&escolha==='NFCE'?{justificativa:justificativa.trim()}:undefined);
     } catch (e: any) {
       setErro(e?.message || 'Falha ao processar.');
       if (e?.status === 412 || /Dados fiscais da loja/.test(e?.message || '')) setPrecisaConfig(true);
@@ -176,10 +180,12 @@ export default function EmissaoNotaModal({
             <label className="fiscal-campo"><span>Número</span><input className="form-input" {...campo('numero')} /></label>
             <label className="fiscal-campo"><span>Bairro</span><input className="form-input" {...campo('bairro')} /></label>
             <label className="fiscal-campo"><span>Município</span><input className="form-input" {...campo('municipio')} /></label>
+            <label className="fiscal-campo"><span>Código IBGE do município</span><input className="form-input" inputMode="numeric" maxLength={7} {...campo('codigoMunicipio')} /></label>
+            <label className="fiscal-campo"><span>Inscrição estadual (se contribuinte)</span><input className="form-input" inputMode="numeric" {...campo('inscricaoEstadual')} /></label>
             <label className="fiscal-campo"><span>UF</span>
               <input className="form-input" maxLength={2} value={dest.uf || ''} onChange={ev => setDest(p => ({ ...p, uf: ev.target.value.toUpperCase() }))} />
             </label>
-            <label className="fiscal-campo fiscal-campo--full"><span>E-mail (opcional, recebe o XML)</span><input className="form-input" type="email" {...campo('email')} /></label>
+            <label className="fiscal-campo fiscal-campo--full"><span>E-mail do destinatário (opcional)</span><input className="form-input" type="email" {...campo('email')} /></label>
           </div>
         )}
 
@@ -189,6 +195,7 @@ export default function EmissaoNotaModal({
             {precisaConfig && <button type="button" className="fiscal-link" onClick={onAbrirConfig}>Abrir dados fiscais</button>}
           </div>
         )}
+        {sefazDireta&&escolha==='NFCE'&&<div className="fiscal-documento-detalhe"><label><input type="checkbox" checked={offline} onChange={e=>setOffline(e.target.checked)}/> Emitir em contingência offline por falha de comunicação</label>{offline&&<><p className="fiscal-dica">A NFC-e será assinada e ficará pendente de autorização. Transmita em Notas e eventos assim que a conexão retornar, dentro do prazo da sua UF.</p><label className="fiscal-campo"><span>Motivo da falha técnica</span><textarea className="form-input" rows={3} maxLength={256} value={justificativa} onChange={e=>setJustificativa(e.target.value)}/></label></>}</div>}
 
         <div className="kanban-modal-actions">
           <button className="kanban-btn kanban-btn-ghost" onClick={onFechar} disabled={enviando}>Cancelar</button>

@@ -16,6 +16,13 @@ import {
 } from './fiscalService';
 import { notaParaImpressao, resumoNota } from './notaApresentacao';
 import { ConfigFiscalLoja, ModeloNota } from './tipos';
+import { normalizarOpcoesSefaz } from './sefaz/configuracao';
+import { coberturaSefaz } from './sefaz/catalogo';
+import { obterDocumento, obterEvento, listarEventosSefaz, proximosNumerosSefaz } from './sefaz/repositorio';
+import { SefazDiretaAdapter } from './adapters/SefazDiretaAdapter';
+import { contexto } from './fiscalService';
+import { salvarNota } from './fiscalRepo';
+import { gerarDanfeNfe } from './sefaz/danfe';
 
 // ============================================================================
 // MÓDULO FISCAL — /api/fiscal
@@ -62,6 +69,7 @@ function responderErro(res: Response, err: any, contexto: string) {
 /** Configuração + resumo das credenciais (sem segredos) + checklist de prontidão. */
 async function estadoFiscal(lojaId: string) {
   const [config, cred] = await Promise.all([obterConfigFiscal(lojaId), obterCredenciais(lojaId)]);
+  if(config?.provedor==='SEFAZ_DIRETA') Object.assign(config,await proximosNumerosSefaz(config));
   return { config, credenciais: resumoCredenciais(cred), prontidao: calcularProntidao(config, cred) };
 }
 
@@ -91,9 +99,10 @@ function validarConfig(body: any, lojaId: string): ConfigFiscalLoja | { erro: st
   const bairro = txt(body?.bairro, 120);
   const municipio = txt(body?.municipio, 120);
   if (!logradouro || !bairro || !municipio) return { erro: 'Endereço completo do emitente é obrigatório (logradouro, bairro, município).' };
-  const provedor = body?.provedor === 'FOCUSNFE' ? 'FOCUSNFE' : 'SIMULADO';
+  if(body?.provedor && !['SIMULADO','FOCUSNFE','SEFAZ_DIRETA'].includes(body.provedor)) return {erro:'Provedor fiscal inválido.'};
+  const provedor = body?.provedor === 'SEFAZ_DIRETA' ? 'SEFAZ_DIRETA' : body?.provedor === 'FOCUSNFE' ? 'FOCUSNFE' : 'SIMULADO';
   const ambiente = body?.ambiente === 'PRODUCAO' ? 'PRODUCAO' : 'HOMOLOGACAO';
-  if (ambiente === 'PRODUCAO' && provedor === 'SIMULADO') return { erro: 'Produção exige o provedor Focus NFe — o modo simulado não transmite à SEFAZ.' };
+  if (ambiente === 'PRODUCAO' && provedor === 'SIMULADO') return { erro: 'Produção exige emissão SEFAZ direta ou Focus NFe.' };
   const percentualTributos = Number(String(body?.percentualTributos ?? 0).replace(',', '.'));
   if (!Number.isFinite(percentualTributos) || percentualTributos < 0 || percentualTributos > 99) return { erro: 'Percentual de tributos aproximados deve estar entre 0 e 99.' };
   const email = txt(body?.email, 120);
@@ -113,8 +122,11 @@ function validarConfig(body: any, lojaId: string): ConfigFiscalLoja | { erro: st
   if ([serieNfce, serieNfe].some(s => s < 0 || s > 999)) return { erro: 'Série deve estar entre 0 e 999.' };
   if ([proximoNumeroNfce, proximoNumeroNfe].some(n => n < 1 || n > 999999999)) return { erro: 'Próximo número inválido.' };
 
+  let sefaz;
+  try {sefaz=normalizarOpcoesSefaz(body?.sefaz,uf);} catch(err) {return {erro:(err as Error).message};}
   return {
     lojaId,
+    sefaz,
     razaoSocial,
     nomeFantasia: txt(body?.nomeFantasia, 200) || undefined,
     cnpj,
@@ -178,8 +190,8 @@ router.put('/config', exigirLojaAdimplente, asyncHandler(async (req: RequestComS
     // Numeração nunca retrocede: evita reaproveitar número já usado na SEFAZ.
     const atual = await obterConfigFiscal(lojaId);
     if (atual) {
-      validado.proximoNumeroNfce = Math.max(validado.proximoNumeroNfce, validado.serieNfce === atual.serieNfce ? atual.proximoNumeroNfce : 1);
-      validado.proximoNumeroNfe = Math.max(validado.proximoNumeroNfe, validado.serieNfe === atual.serieNfe ? atual.proximoNumeroNfe : 1);
+      validado.proximoNumeroNfce = Math.max(validado.proximoNumeroNfce, validado.ambiente===atual.ambiente&&validado.serieNfce === atual.serieNfce ? atual.proximoNumeroNfce : 1);
+      validado.proximoNumeroNfe = Math.max(validado.proximoNumeroNfe, validado.ambiente===atual.ambiente&&validado.serieNfe === atual.serieNfe ? atual.proximoNumeroNfe : 1);
     }
     // Virar a chave para produção só com tudo pronto (token de produção etc.).
     if (validado.ambiente === 'PRODUCAO') {
@@ -229,6 +241,7 @@ router.put('/credenciais', exigirLojaAdimplente, asyncHandler(async (req: Reques
         res.status(400).json({ error: `Este certificado venceu em ${new Date(info.validoAte).toLocaleDateString('pt-BR')}.` });
         return;
       }
+      if(Date.parse(info.validoDe)>Date.now()) {res.status(400).json({error:'O certificado ainda não está no período de validade.'});return;}
       const config = await obterConfigFiscal(lojaId);
       if (config && info.cnpj && info.cnpj.slice(0, 8) !== config.cnpj.slice(0, 8)) {
         res.status(400).json({ error: `O certificado é do CNPJ ${info.cnpj}, diferente do emitente (${config.cnpj}).` });
@@ -282,6 +295,7 @@ router.post('/credenciais/testar', asyncHandler(async (req: RequestComSessao, re
     const ambiente = req.body?.ambiente === 'PRODUCAO' ? 'PRODUCAO' : req.body?.ambiente === 'HOMOLOGACAO' ? 'HOMOLOGACAO' : config.ambiente;
     const r = await getProvedorFiscal(config.provedor).testarConexao({
       ambiente, cnpjEmitente: config.cnpj, uf: config.uf,
+      lojaId,credenciais:cred,modelo:req.body?.modelo==='NFCE'?'NFCE':req.body?.modelo==='NFE'?'NFE':undefined,
       tokenProvedor: ambiente === 'PRODUCAO' ? cred.focusTokenProducao : cred.focusTokenHomologacao,
     });
     res.json(r);
@@ -370,6 +384,7 @@ router.post('/emitir', exigirLojaAdimplente, asyncHandler(async (req: RequestCom
       vendaId: vendaIdDaEntrega(entrega),
       modelo: modelo as ModeloNota,
       destinatario: normalizarDestinatario(req.body?.destinatario),
+      contingencia:req.body?.contingencia,
     });
     const falhou = nota.status === 'ERRO' || nota.status === 'REJEITADA';
     res.status(falhou ? 502 : 201).json({
@@ -402,6 +417,74 @@ router.post('/notas/:id/cancelar', exigirLojaAdimplente, asyncHandler(async (req
   } catch (err) {
     responderErro(res, err, 'Erro ao cancelar nota');
   }
+}));
+
+router.get('/sefaz/cobertura', (_req,res)=>res.json({estados:coberturaSefaz()}));
+router.get('/sefaz/eventos',asyncHandler(async(req:RequestComSessao,res:Response)=>{
+  const lojaId=resolverLojaId(req);if(!lojaId){res.status(400).json({error:'Loja obrigatória.'});return;}
+  res.json({eventos:await listarEventosSefaz(lojaId)});
+}));
+
+router.get('/notas/:id/xml',asyncHandler(async(req:RequestComSessao,res:Response)=>{
+  const nota=await obterNota(req.params.id as string);
+  if(!nota||!podeAcessarLoja(req,nota.lojaId)||nota.provedor!=='SEFAZ_DIRETA') {res.status(404).json({error:'Documento não encontrado.'});return;}
+  const doc=await obterDocumento(nota.refProvedor,nota.lojaId);
+  if(!doc?.xmlAutorizado) {res.status(409).json({error:'XML autorizado ainda não disponível; consulte a nota.'});return;}
+  res.setHeader('Cache-Control','no-store');res.setHeader('Content-Disposition',`attachment; filename="${doc.chave}-procNFe.xml"`);
+  res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?>'+doc.xmlAutorizado);
+}));
+
+router.get('/notas/:id/danfe.pdf',asyncHandler(async(req:RequestComSessao,res:Response)=>{
+  const nota=await obterNota(req.params.id as string);
+  if(!nota||!podeAcessarLoja(req,nota.lojaId)||nota.provedor!=='SEFAZ_DIRETA') {res.status(404).json({error:'Nota não encontrada.'});return;}
+  const doc=await obterDocumento(nota.refProvedor,nota.lojaId);
+  if(!doc?.xmlAutorizado||nota.modelo!=='NFE') {res.status(409).json({error:'DANFE PDF exige NF-e com XML autorizado.'});return;}
+  res.setHeader('Cache-Control','no-store');res.setHeader('Content-Disposition',`attachment; filename="${doc.chave}-danfe.pdf"`);res.type('application/pdf').send(await gerarDanfeNfe(nota,doc));
+}));
+
+router.post('/notas/:id/recuperar',exigirLojaAdimplente,asyncHandler(async(req:RequestComSessao,res:Response)=>{
+  try {
+    const nota=await obterNota(req.params.id as string);
+    if(!nota||!podeAcessarLoja(req,nota.lojaId)||nota.provedor!=='SEFAZ_DIRETA') {res.status(404).json({error:'Nota não encontrada.'});return;}
+    if(!['PROCESSANDO','CONTINGENCIA'].includes(nota.status)) {res.status(409).json({error:'Apenas notas pendentes podem ter envio recuperado.'});return;}
+    const ctx=contexto({...nota.dados.emitente,lojaId:nota.lojaId} as ConfigFiscalLoja,await obterCredenciais(nota.lojaId),nota.ambiente);
+    const adapter=getProvedorFiscal('SEFAZ_DIRETA') as SefazDiretaAdapter;
+    const doc=await obterDocumento(nota.refProvedor,nota.lojaId);
+    const r=doc?await adapter.reenviar(nota.refProvedor,nota.modelo,ctx):await adapter.emitir({ref:nota.refProvedor,numero:nota.numero,serie:nota.serie!,emitidaEm:nota.criadoEm,dados:nota.dados,ctx});
+    Object.assign(nota,r,{atualizadoEm:new Date().toISOString()});await salvarNota(nota);
+    res.json({nota:await notaParaImpressao(nota)});
+  } catch(err) {responderErro(res,err,'Erro ao recuperar envio');}
+}));
+
+router.post('/notas/:id/correcao',exigirLojaAdimplente,asyncHandler(async(req:RequestComSessao,res:Response)=>{
+  try {
+    const nota=await obterNota(req.params.id as string);
+    if(!nota||!podeAcessarLoja(req,nota.lojaId)||nota.provedor!=='SEFAZ_DIRETA') {res.status(404).json({error:'Nota não encontrada.'});return;}
+    if(nota.modelo!=='NFE'||nota.status!=='AUTORIZADA') {res.status(409).json({error:'Carta de correção exige NF-e autorizada.'});return;}
+    const ctx=contexto({...nota.dados.emitente,lojaId:nota.lojaId} as ConfigFiscalLoja,await obterCredenciais(nota.lojaId),nota.ambiente);
+    const r=await (getProvedorFiscal('SEFAZ_DIRETA') as SefazDiretaAdapter).corrigir(nota.refProvedor,String(req.body?.correcao||''),Number(req.body?.sequencia),ctx);
+    res.status(r.autorizado?200:422).json({success:!!r.autorizado,id:r.id,mensagem:r.mensagem,protocolo:r.protocolo});
+  } catch(err) {responderErro(res,err,'Erro ao registrar carta de correção');}
+}));
+
+router.post('/sefaz/inutilizar',exigirLojaAdimplente,asyncHandler(async(req:RequestComSessao,res:Response)=>{
+  try {
+    const lojaId=resolverLojaId(req);if(!lojaId) {res.status(400).json({error:'Loja obrigatória.'});return;}
+    const config=await obterConfigFiscal(lojaId);
+    if(config?.provedor!=='SEFAZ_DIRETA') {res.status(412).json({error:'Configure emissão SEFAZ direta primeiro.'});return;}
+    if(!['NFE','NFCE'].includes(req.body?.modelo)) {res.status(400).json({error:'Modelo fiscal inválido.'});return;}
+    const r=await (getProvedorFiscal('SEFAZ_DIRETA') as SefazDiretaAdapter).inutilizar({modelo:req.body.modelo,serie:Number(req.body.serie),ano:Number(req.body.ano),inicio:Number(req.body.inicio),fim:Number(req.body.fim),justificativa:String(req.body.justificativa||'')},contexto(config,await obterCredenciais(lojaId)));
+    res.status(r.autorizado?200:422).json({success:!!r.autorizado,id:r.id,mensagem:r.mensagem,protocolo:r.protocolo});
+  } catch(err) {responderErro(res,err,'Erro ao inutilizar numeração');}
+}));
+
+router.get('/sefaz/eventos/:id/xml',asyncHandler(async(req:RequestComSessao,res:Response)=>{
+  const lojaId=resolverLojaId(req);if(!lojaId) {res.status(400).json({error:'Loja obrigatória.'});return;}
+  const e=await obterEvento(req.params.id as string,lojaId);
+  if(!e?.autorizado||!e.resposta) {res.status(404).json({error:'Evento autorizado não encontrado.'});return;}
+  const root=e.tipo==='INUTILIZACAO'?'procInutNFe':'procEventoNFe';
+  res.setHeader('Cache-Control','no-store');res.setHeader('Content-Disposition',`attachment; filename="evento-fiscal.xml"`);
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><${root} xmlns="http://www.portalfiscal.inf.br/nfe" versao="${e.tipo==='INUTILIZACAO'?'4.00':'1.00'}">${e.xml}${e.resposta}</${root}>`);
 }));
 
 export default router;

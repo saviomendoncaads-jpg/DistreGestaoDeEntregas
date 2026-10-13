@@ -1425,6 +1425,7 @@ router.post('/deliveries/:id/finalize-order', asyncHandler(async (req: Request, 
           vendaId: order.id,
           modelo: modeloFiscal!,
           destinatario: destinatarioFiscal,
+          contingencia: req.body?.fiscal?.contingencia,
         });
         fiscal = { nota: await notaParaImpressao(nota), erro: nota.status === 'ERRO' || nota.status === 'REJEITADA' ? nota.mensagem : undefined };
       } catch (err: any) {

@@ -13,7 +13,7 @@ export interface InfoCertificado {
 
 export class ErroCertificado extends Error {}
 
-export function lerCertificadoA1(pfx: Buffer, senha: string): InfoCertificado {
+export function materialCertificadoA1(pfx: Buffer, senha: string): InfoCertificado & { chavePem: string; certPem: string; cadeiaPem: string } {
   let p12: forge.pkcs12.Pkcs12Pfx;
   try {
     const asn1 = forge.asn1.fromDer(forge.util.createBuffer(pfx.toString('binary')));
@@ -33,10 +33,16 @@ export function lerCertificadoA1(pfx: Buffer, senha: string): InfoCertificado {
 
   // O certificado do titular é o que não é autoridade certificadora.
   const certs = bolsas.map(b => b.cert).filter((c): c is forge.pki.Certificate => !!c);
+  const chave = chaves.map(b => b.key).find(k => k && certs.some(c => {
+    const pub = c.publicKey as forge.pki.rsa.PublicKey;
+    return 'n' in k && pub.n?.equals((k as forge.pki.rsa.PrivateKey).n);
+  })) as forge.pki.rsa.PrivateKey | undefined;
+  if (!chave) throw new ErroCertificado('Chave privada não corresponde ao certificado.');
   const cert = certs.find(c => {
+    const pub = c.publicKey as forge.pki.rsa.PublicKey;
     const bc = c.getExtension('basicConstraints') as { cA?: boolean } | undefined;
-    return !bc?.cA;
-  }) || certs[0];
+    return !bc?.cA && pub.n?.equals(chave.n);
+  });
   if (!cert) throw new ErroCertificado('Nenhum certificado encontrado no arquivo.');
 
   const cn = String(cert.subject.getField('CN')?.value || '');
@@ -50,5 +56,13 @@ export function lerCertificadoA1(pfx: Buffer, senha: string): InfoCertificado {
     emissor,
     validoDe: cert.validity.notBefore.toISOString(),
     validoAte: cert.validity.notAfter.toISOString(),
+    chavePem: forge.pki.privateKeyToPem(chave),
+    certPem: forge.pki.certificateToPem(cert),
+    cadeiaPem: [cert,...certs.filter(c=>c!==cert)].map(c=>forge.pki.certificateToPem(c)).join('\n'),
   };
+}
+
+export function lerCertificadoA1(pfx: Buffer, senha: string): InfoCertificado {
+  const {chavePem: _k, certPem: _c, cadeiaPem: _chain, ...info} = materialCertificadoA1(pfx,senha);
+  return info;
 }

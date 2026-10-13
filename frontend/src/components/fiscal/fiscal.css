@@ -1,7 +1,7 @@
 /* Módulo Fiscal — modais (sobre o tema escuro do .kanban-modal) e selo da nota no card. */
 
-.fiscal-modal { max-width: 460px; max-height: calc(100vh - 2rem); overflow-y: auto; }
-.fiscal-modal--config { max-width: 560px; }
+.kanban-modal.fiscal-modal { width:min(520px,calc(100vw - 32px)); max-width:520px; max-height: calc(100vh - 2rem); overflow-y: auto; }
+.kanban-modal.fiscal-modal--config { width:min(760px,calc(100vw - 32px)); max-width:760px; }
 
 .fiscal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.8rem; }
 .fiscal-sub { font-size: 0.72rem; color: var(--text-secondary); }
@@ -46,7 +46,7 @@
   color: var(--color-cyan); font: inherit; font-weight: 700; text-decoration: underline;
 }
 
-.fiscal-abas { display: flex; gap: 0.3rem; margin: 0.4rem 0 0.2rem; border-bottom: 1px solid var(--border-thin); }
+.fiscal-abas { display: flex; flex-wrap:wrap; gap: 0.3rem; margin: 0.4rem 0 0.2rem; border-bottom: 1px solid var(--border-thin); }
 .fiscal-aba {
   background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); cursor: pointer;
   font: inherit; font-size: 0.74rem; font-weight: 700; padding: 0.45rem 0.6rem; margin-bottom: -1px;
@@ -79,7 +79,11 @@
   font-family: inherit;
 }
 .kanban-nota:hover { filter: brightness(1.15); }
-.kanban-nota--PROCESSANDO { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.35); }
+.kanban-nota--PROCESSANDO, .kanban-nota--CONTINGENCIA { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.35); }
 .kanban-nota--ERRO, .kanban-nota--REJEITADA { background: rgba(225, 29, 72, 0.12); color: #fb7185; border-color: rgba(225, 29, 72, 0.35); }
 .kanban-nota--CANCELADA { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border-color: rgba(148, 163, 184, 0.3); text-decoration: line-through; }
 .kanban-nota--emitir { background: transparent; color: var(--color-cyan); border-color: rgba(14, 154, 174, 0.45); }
+.fiscal-documentos-lista { display:grid; gap:8px; max-height:250px; overflow:auto; margin:16px 0; }
+.fiscal-documento-item { display:flex; flex-direction:column; gap:5px; text-align:left; padding:12px; border:1px solid var(--border-color,#cbd5e1); border-radius:8px; color:var(--text-primary); background:var(--bg-card,#fff); cursor:pointer; }
+.fiscal-documento-item.ativa { border-color:#2563eb; }
+.fiscal-documento-detalhe { padding:14px; border:1px solid var(--border-color,#cbd5e1); border-radius:8px; margin:14px 0; overflow-wrap:anywhere; }

@@ -33,6 +33,7 @@ export function gerarChaveAcesso(p: {
   serie: number;
   numero: number;
   codigoNumerico?: string;
+  tipoEmissao?: '1' | '9';
 }): string {
   const cUF = CODIGO_UF[p.uf.toUpperCase()];
   if (!cUF) throw new Error(`UF inválida para a chave de acesso: ${p.uf}`);
@@ -41,7 +42,7 @@ export function gerarChaveAcesso(p: {
   const mod = p.modelo === 'NFCE' ? '65' : '55';
   const serie = String(p.serie).padStart(3, '0');
   const nNF = String(p.numero).padStart(9, '0');
-  const tpEmis = '1'; // emissão normal
+  const tpEmis = p.tipoEmissao || '1';
   const cNF = p.codigoNumerico ?? String(crypto.randomInt(0, 99999999)).padStart(8, '0');
   const base = `${cUF}${aamm}${cnpj}${mod}${serie}${nNF}${tpEmis}${cNF}`;
   return base + digitoVerificador(base);

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { buscarEnderecoPorCep, mascararCep } from '../../cliente/services/cep';
 import type { ConfigFiscal, CredenciaisEnvio, EstadoFiscal, FiscalApi } from './fiscalApi';
 import './fiscal.css';
+import SefazConfiguracao, { PADRAO_SEFAZ } from './SefazConfiguracao';
+import DocumentosFiscais from './DocumentosFiscais';
 
 /**
  * Dados fiscais da loja — tudo que a empresa precisa para emitir NFC-e/NF-e:
@@ -19,7 +21,7 @@ const PADRAO: ConfigFiscal = {
   ncmPadrao: '21069090', cfopPadrao: '5102', icmsSituacaoPadrao: '102', origemPadrao: '0', percentualTributos: 0,
 };
 
-type Aba = 'emitente' | 'emissao' | 'credenciais';
+type Aba = 'emitente' | 'emissao' | 'credenciais' | 'documentos';
 
 interface Props {
   api: FiscalApi;
@@ -74,7 +76,7 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
     set('cep', cep);
     if (cep.replace(/\D/g, '').length === 8) {
       const r = await buscarEnderecoPorCep(cep);
-      if (r) setC(p => ({ ...p, logradouro: r.logradouro || p.logradouro, bairro: r.bairro || p.bairro, municipio: r.cidade || p.municipio, uf: r.uf || p.uf }));
+      if (r) setC(p => ({ ...p, logradouro: r.logradouro || p.logradouro, bairro: r.bairro || p.bairro, municipio: r.cidade || p.municipio, uf: r.uf || p.uf, sefaz: {...PADRAO_SEFAZ,...p.sefaz,codigoMunicipio:r.ibge||p.sefaz?.codigoMunicipio||''} }));
     }
   };
 
@@ -99,7 +101,7 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
 
   const salvarCredenciais = () => executar('cred', async () => {
     const envio: CredenciaisEnvio = {};
-    for (const [k, v] of Object.entries(cred)) if (typeof v === 'string' && v.trim()) (envio as any)[k] = v.trim();
+    for (const [k, v] of Object.entries(cred)) if (typeof v === 'string' && v.trim()) (envio as any)[k] = k==='certificadoSenha'?v:v.trim();
     if (arquivoCert) {
       if (!cred.certificadoSenha) throw new Error('Informe a senha do certificado.');
       envio.certificadoBase64 = await lerArquivoBase64(arquivoCert);
@@ -165,7 +167,7 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
         )}
 
         <div className="fiscal-abas" role="tablist">
-          {([['emitente', '1. Emitente'], ['emissao', '2. Emissão'], ['credenciais', '3. Credenciais']] as [Aba, string][]).map(([k, r]) => (
+          {([['emitente', 'Emitente'], ['emissao', 'Emissão'], ['credenciais', 'Credenciais'], ['documentos', 'Notas e eventos']] as [Aba, string][]).map(([k, r]) => (
             <button key={k} type="button" role="tab" aria-selected={aba === k} className={`fiscal-aba ${aba === k ? 'ativa' : ''}`} onClick={() => setAba(k)}>{r}</button>
           ))}
         </div>
@@ -186,7 +188,7 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
                   </select>
                 </label>
                 <label className="fiscal-campo"><span>Telefone</span><input className="form-input" inputMode="tel" {...txt('telefone')} /></label>
-                <label className="fiscal-campo fiscal-campo--full"><span>E-mail (recebe cópia dos XML)</span><input className="form-input" type="email" {...txt('email')} /></label>
+                <label className="fiscal-campo fiscal-campo--full"><span>E-mail do emitente</span><input className="form-input" type="email" {...txt('email')} /></label>
                 <label className="fiscal-campo"><span>CEP</span><input className="form-input" inputMode="numeric" value={c.cep} onChange={ev => aoMudarCep(ev.target.value)} /></label>
                 <label className="fiscal-campo"><span>Número</span><input className="form-input" {...txt('numero')} /></label>
                 <label className="fiscal-campo fiscal-campo--full"><span>Logradouro</span><input className="form-input" {...txt('logradouro')} /></label>
@@ -200,6 +202,9 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
               <>
                 <h4 className="fiscal-secao">Provedor de emissão</h4>
                 <div className="fiscal-opcoes" role="radiogroup">
+                  <button type="button" role="radio" aria-checked={c.provedor === 'SEFAZ_DIRETA'} className={`fiscal-opcao ${c.provedor === 'SEFAZ_DIRETA' ? 'ativa' : ''}`} onClick={() => setC(p=>({...p,provedor:'SEFAZ_DIRETA',sefaz:{...PADRAO_SEFAZ,...p.sefaz}}))}>
+                    <span className="fiscal-opcao-titulo">Distre · SEFAZ direta</span><span className="fiscal-opcao-desc">Certificado A1 da empresa. Transmissão pelo Distre.</span>
+                  </button>
                   <button type="button" role="radio" aria-checked={c.provedor === 'SIMULADO'} className={`fiscal-opcao ${c.provedor === 'SIMULADO' ? 'ativa' : ''}`}
                     onClick={() => setC(p => ({ ...p, provedor: 'SIMULADO', ambiente: 'HOMOLOGACAO' }))}>
                     <span className="fiscal-opcao-titulo">Simulado</span>
@@ -242,6 +247,7 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
                   </label>
                 </div>
                 <p className="fiscal-dica">NCM/CEST/código de barras de cada produto: Vitrine &amp; Produtos → Editar produto → Dados fiscais. Confirme os códigos com seu contador.</p>
+                {c.provedor==='SEFAZ_DIRETA'&&<SefazConfiguracao config={c} onChange={setC}/>}
               </>
             )}
 
@@ -263,7 +269,7 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
                   <label className="fiscal-campo"><span>Senha do certificado</span><input className="form-input" type="password" {...credCampo('certificadoSenha')} /></label>
                 </div>
 
-                <h4 className="fiscal-secao">CSC da NFC-e (portal da SEFAZ do seu estado)</h4>
+                <h4 className="fiscal-secao">{c.provedor==='SEFAZ_DIRETA'?'CSC da NFC-e (somente QR Code versão 2)':'CSC da NFC-e (portal da SEFAZ do seu estado)'}</h4>
                 <div className="fiscal-form">
                   <label className="fiscal-campo"><span>ID CSC homologação {cr?.cscHomologacao.configurado ? `(✓ id ${cr.cscHomologacao.id})` : ''}</span><input className="form-input" inputMode="numeric" {...credCampo('cscIdHomologacao')} /></label>
                   <label className="fiscal-campo"><span>CSC homologação</span><input className="form-input" type="password" {...credCampo('cscHomologacao')} placeholder={cr?.cscHomologacao.configurado ? '••••••' : ''} /></label>
@@ -271,7 +277,7 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
                   <label className="fiscal-campo"><span>CSC produção</span><input className="form-input" type="password" {...credCampo('cscProducao')} placeholder={cr?.cscProducao.configurado ? '••••••' : ''} /></label>
                 </div>
 
-                <h4 className="fiscal-secao">Focus NFe</h4>
+                {c.provedor==='FOCUSNFE'&&<><h4 className="fiscal-secao">Focus NFe</h4>
                 <div className="fiscal-form">
                   <label className="fiscal-campo"><span>Token homologação {ok(cr?.focusTokenHomologacao)}</span><input className="form-input" type="password" {...credCampo('focusTokenHomologacao')} /></label>
                   <label className="fiscal-campo"><span>Token produção {ok(cr?.focusTokenProducao)}</span><input className="form-input" type="password" {...credCampo('focusTokenProducao')} /></label>
@@ -281,16 +287,17 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
                   Duas formas: <b>(a)</b> cadastre certificado e CSC no painel da Focus e cole aqui os tokens de homologação/produção; ou
                   <b> (b)</b> envie certificado + CSC + token principal aqui e clique em <b>Sincronizar com a Focus</b> — os tokens de emissão chegam sozinhos.
                   {cr?.sincronizadoEm && ` Última sincronização: ${new Date(cr.sincronizadoEm).toLocaleString('pt-BR')}.`}
-                </p>
+                </p></>}
                 <div className="fiscal-acoes">
                   <button type="button" className="kanban-btn kanban-btn-emerald" disabled={ocupadoAlgo} onClick={salvarCredenciais}>{ocupado === 'cred' ? 'Salvando…' : 'Salvar credenciais'}</button>
-                  <button type="button" className="kanban-btn kanban-btn-ghost" disabled={ocupadoAlgo || !cr?.focusTokenPrincipal} onClick={sincronizar} title="Precisa do token principal e do certificado salvos">{ocupado === 'sync' ? 'Sincronizando…' : 'Sincronizar com a Focus'}</button>
-                  <button type="button" className="kanban-btn kanban-btn-ghost" disabled={ocupadoAlgo || c.provedor !== 'FOCUSNFE'} onClick={() => testar('HOMOLOGACAO')}>{ocupado === 'teste-HOMOLOGACAO' ? 'Testando…' : 'Testar homologação'}</button>
-                  <button type="button" className="kanban-btn kanban-btn-ghost" disabled={ocupadoAlgo || c.provedor !== 'FOCUSNFE'} onClick={() => testar('PRODUCAO')}>{ocupado === 'teste-PRODUCAO' ? 'Testando…' : 'Testar produção'}</button>
+                  {c.provedor==='FOCUSNFE'&&<button type="button" className="kanban-btn kanban-btn-ghost" disabled={ocupadoAlgo || !cr?.focusTokenPrincipal} onClick={sincronizar} title="Precisa do token principal e do certificado salvos">{ocupado === 'sync' ? 'Sincronizando…' : 'Sincronizar com a Focus'}</button>}
+                  <button type="button" className="kanban-btn kanban-btn-ghost" disabled={ocupadoAlgo || c.provedor === 'SIMULADO'} onClick={() => testar('HOMOLOGACAO')}>{ocupado === 'teste-HOMOLOGACAO' ? 'Testando…' : 'Testar homologação'}</button>
+                  <button type="button" className="kanban-btn kanban-btn-ghost" disabled={ocupadoAlgo || c.provedor === 'SIMULADO'} onClick={() => testar('PRODUCAO')}>{ocupado === 'teste-PRODUCAO' ? 'Testando…' : 'Testar produção'}</button>
                 </div>
                 <p className="fiscal-dica">🔒 Certificado, senha, CSC e tokens ficam cifrados (AES-256) e nunca são exibidos de volta.</p>
               </>
             )}
+            {aba==='documentos'&&<DocumentosFiscais api={api} provedor={c.provedor} ambiente={c.ambiente}/>}
           </>
         )}
 
@@ -298,7 +305,7 @@ export default function ConfigFiscalModal({ api, nomeLoja, onSalvo, onFechar }: 
 
         <div className="kanban-modal-actions">
           <button className="kanban-btn kanban-btn-ghost" onClick={onFechar} disabled={ocupadoAlgo}>Fechar</button>
-          {aba !== 'credenciais' && (
+          {aba !== 'credenciais' && aba !== 'documentos' && (
             <button className="kanban-btn kanban-btn-emerald" onClick={salvarConfig} disabled={ocupadoAlgo || carregando}>{ocupado === 'config' ? 'Salvando…' : 'Salvar dados fiscais'}</button>
           )}
         </div>

@@ -233,6 +233,18 @@ export interface Produto {
   cest?: string;         // 7 dígitos (produtos com substituição tributária)
   cfop?: string;         // 4 dígitos
   icmsSituacao?: string; // CSOSN (Simples) ou CST (Regime Normal)
+  pisCst?: string;
+  cofinsCst?: string;
+  aliquotaIcms?: number;
+  reducaoBaseIcms?: number;
+  aliquotaPis?: number;
+  aliquotaCofins?: number;
+  aliquotaCreditoSn?: number;
+  rtcCst?: string;
+  rtcClassificacao?: string;
+  aliquotaIbsUf?: number;
+  aliquotaIbsMunicipio?: number;
+  aliquotaCbs?: number;
   unidade?: string;      // UN, CX, KG...
   codigoBarras?: string; // GTIN/EAN (8, 12, 13 ou 14 dígitos)
 }

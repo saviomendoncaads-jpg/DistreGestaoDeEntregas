@@ -1194,7 +1194,7 @@ export async function salvarTipoVeiculo(vt: TipoVeiculo) {
   }
 }
 
-const CAMPOS_CATALOGO = ['marca', 'fabricante', 'custo', 'precoPromocional', 'imagens', 'estoqueMinimo', 'peso', 'altura', 'largura', 'comprimento', 'seoTitulo', 'seoDescricao'] as const;
+const CAMPOS_CATALOGO = ['marca', 'fabricante', 'custo', 'precoPromocional', 'imagens', 'estoqueMinimo', 'peso', 'altura', 'largura', 'comprimento', 'seoTitulo', 'seoDescricao','pisCst','cofinsCst','aliquotaIcms','reducaoBaseIcms','aliquotaPis','aliquotaCofins','aliquotaCreditoSn','rtcCst','rtcClassificacao','aliquotaIbsUf','aliquotaIbsMunicipio','aliquotaCbs'] as const;
 function linhaParaProduto(row: any): Produto {
   let extras: any = {};
   try { extras = JSON.parse(row.DADOS_CATALOGO || '{}'); } catch { /* cadastro anterior */ }

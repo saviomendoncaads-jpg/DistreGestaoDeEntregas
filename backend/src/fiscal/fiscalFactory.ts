@@ -1,6 +1,7 @@
 import { FiscalProviderAdapter } from './FiscalProviderAdapter';
 import { MockFiscalAdapter } from './adapters/MockFiscalAdapter';
 import { FocusNfeAdapter } from './adapters/FocusNfeAdapter';
+import { SefazDiretaAdapter } from './adapters/SefazDiretaAdapter';
 import { ProvedorFiscal } from './tipos';
 
 // O provedor é escolhido POR LOJA, no painel (Dados fiscais → Provedor):
@@ -14,7 +15,7 @@ const instancias: Partial<Record<ProvedorFiscal, FiscalProviderAdapter>> = {};
 export function getProvedorFiscal(nome: ProvedorFiscal): FiscalProviderAdapter {
   const existente = instancias[nome];
   if (existente) return existente;
-  const nova = nome === 'FOCUSNFE' ? new FocusNfeAdapter() : new MockFiscalAdapter();
+  const nova = nome === 'SEFAZ_DIRETA' ? new SefazDiretaAdapter() : nome === 'FOCUSNFE' ? new FocusNfeAdapter() : new MockFiscalAdapter();
   instancias[nome] = nova;
   return nova;
 }
@@ -23,4 +24,5 @@ export function getProvedorFiscal(nome: ProvedorFiscal): FiscalProviderAdapter {
 export function _resetProvedorFiscal() {
   delete instancias.SIMULADO;
   delete instancias.FOCUSNFE;
+  delete instancias.SEFAZ_DIRETA;
 }

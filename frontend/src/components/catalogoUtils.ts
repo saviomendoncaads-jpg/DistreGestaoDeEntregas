@@ -3,6 +3,8 @@ export interface ProdutoCatalogo {
   marca?: string; fabricante?: string; ativo: boolean; situacao?: 'rascunho' | 'ativo' | 'arquivado'; publicado?: boolean;
   imagemUrl?: string; imagens?: string[]; categoria?: string; subcategoria?: string; codigoBarras?: string;
   ncm?: string; cest?: string; cfop?: string; icmsSituacao?: string; unidade?: string;
+  pisCst?:string;cofinsCst?:string;rtcCst?:string;rtcClassificacao?:string;
+  aliquotaIcms?:number;reducaoBaseIcms?:number;aliquotaPis?:number;aliquotaCofins?:number;aliquotaCreditoSn?:number;aliquotaIbsUf?:number;aliquotaIbsMunicipio?:number;aliquotaCbs?:number;
   estoqueMinimo?: number; peso?: number; altura?: number; largura?: number; comprimento?: number; seoTitulo?: string; seoDescricao?: string;
 }
 export const moeda = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -14,7 +16,7 @@ export const publicado = (p: ProdutoCatalogo) => (p.publicado ?? p.ativo) && sit
 export const pendencias = (p: ProdutoCatalogo) => [!gtinValido(p.codigoBarras || '') && 'EAN', !p.imagemUrl && 'Foto', !p.categoria && 'Categoria'].filter((s): s is string => !!s);
 export const fiscalProduto = (p: ProdutoCatalogo) => [p.ncm, p.cfop, p.icmsSituacao, p.unidade].every(Boolean) ? 'Específico' : [p.ncm, p.cfop, p.icmsSituacao, p.unidade, p.cest].some(Boolean) ? 'Parcial / padrão da loja' : 'Padrão da loja';
 export const imagem = (url: string | undefined, backend: string) => url?.startsWith('/') ? backend + url : url;
-export const COLUNAS_CSV = ['codigoInterno', 'nome', 'preco', 'precoPromocional', 'custo', 'marca', 'fabricante', 'descricao', 'imagemUrl', 'imagens', 'categoria', 'subcategoria', 'codigoBarras', 'ncm', 'cest', 'cfop', 'icmsSituacao', 'unidade', 'situacao', 'publicado', 'estoqueMinimo', 'peso', 'altura', 'largura', 'comprimento', 'seoTitulo', 'seoDescricao'] as const;
+export const COLUNAS_CSV = ['codigoInterno', 'nome', 'preco', 'precoPromocional', 'custo', 'marca', 'fabricante', 'descricao', 'imagemUrl', 'imagens', 'categoria', 'subcategoria', 'codigoBarras', 'ncm', 'cest', 'cfop', 'icmsSituacao', 'unidade', 'pisCst', 'cofinsCst', 'rtcCst', 'rtcClassificacao', 'aliquotaIcms', 'reducaoBaseIcms', 'aliquotaPis', 'aliquotaCofins', 'aliquotaCreditoSn', 'aliquotaIbsUf', 'aliquotaIbsMunicipio', 'aliquotaCbs', 'situacao', 'publicado', 'estoqueMinimo', 'peso', 'altura', 'largura', 'comprimento', 'seoTitulo', 'seoDescricao'] as const;
 export function gerarCsv(produtos: Partial<ProdutoCatalogo>[]) {
   // Evita execução de fórmulas ao abrir a exportação em Excel.
   const celula = (v: unknown) => { const t = v === undefined || v === null ? '' : String(v); return '"' + (/^[=+@\-\t\r]/.test(t) ? "'" + t : t).replace(/"/g, '""') + '"'; };

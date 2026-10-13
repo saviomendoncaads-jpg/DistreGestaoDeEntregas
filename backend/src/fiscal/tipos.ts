@@ -4,12 +4,33 @@
 
 export type ModeloNota = 'NFCE' | 'NFE';
 
-export type StatusNota = 'AUTORIZADA' | 'PROCESSANDO' | 'REJEITADA' | 'CANCELADA' | 'ERRO';
+export type StatusNota = 'AUTORIZADA' | 'PROCESSANDO' | 'CONTINGENCIA' | 'REJEITADA' | 'CANCELADA' | 'ERRO';
 
 export type AmbienteFiscal = 'HOMOLOGACAO' | 'PRODUCAO';
 
 /** Quem transmite a nota à SEFAZ: SIMULADO (local, sem valor fiscal) ou Focus NFe (real). */
-export type ProvedorFiscal = 'SIMULADO' | 'FOCUSNFE';
+export type ProvedorFiscal = 'SIMULADO' | 'FOCUSNFE' | 'SEFAZ_DIRETA';
+
+export interface OpcoesSefaz {
+  codigoMunicipio: string;
+  qrCodeHomologacao?: string;
+  qrCodeProducao?: string;
+  consultaHomologacao?: string;
+  consultaProducao?: string;
+  versaoQrCode: 2 | 3;
+  pisCst: string;
+  cofinsCst: string;
+  aliquotaIcms: number;
+  reducaoBaseIcms: number;
+  aliquotaPis: number;
+  aliquotaCofins: number;
+  aliquotaCreditoSn: number;
+  rtcCst?: string;
+  rtcClassificacao?: string;
+  aliquotaIbsUf?: number;
+  aliquotaIbsMunicipio?: number;
+  aliquotaCbs?: number;
+}
 
 /** Dados fiscais do emitente (uma configuração por loja). */
 export interface ConfigFiscalLoja {
@@ -41,6 +62,7 @@ export interface ConfigFiscalLoja {
   // Lei 12.741/2012 (De Olho no Imposto): % aproximado de tributos sobre o valor da venda
   // (tabela IBPT). 0 = não informa.
   percentualTributos: number;
+  sefaz?: OpcoesSefaz;
   atualizadoEm?: string;
 }
 
@@ -88,6 +110,8 @@ export interface Prontidao {
 }
 
 export interface DestinatarioNota {
+  codigoMunicipio?: string;
+  inscricaoEstadual?: string;
   nome?: string;
   documento?: string;        // CPF (11) ou CNPJ (14), só dígitos
   logradouro?: string;
@@ -100,6 +124,7 @@ export interface DestinatarioNota {
 }
 
 export interface ItemNota {
+  tributacaoSefaz?: Partial<OpcoesSefaz>;
   numero: number;
   codigo: string;
   descricao: string;
@@ -126,6 +151,7 @@ export interface PagamentoNota {
 
 /** Snapshot completo do documento — persistido em NOTAS_FISCAIS.DADOS e usado na impressão do DANFE. */
 export interface DadosNota {
+  contingencia?: {justificativa:string};
   modelo: ModeloNota;
   naturezaOperacao: string;
   emitente: Omit<ConfigFiscalLoja, 'proximoNumeroNfce' | 'proximoNumeroNfe'>;

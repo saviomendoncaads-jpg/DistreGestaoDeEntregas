@@ -25,12 +25,12 @@ export function prepararProduto(body: Record<string, unknown>, atual?: Produto):
     if (v.length > max) erros[k] = `Use até ${max} caracteres.`;
     return v || undefined;
   };
-  const numero = (k: string, max: number, inteiro = false) => {
+  const numero = (k: string, max: number, inteiro = false, casas = 2) => {
     const raw = dados[k];
     if (raw === '' || raw === undefined || raw === null) return undefined;
     const v = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw.replace(',', '.')) : NaN;
     if (!Number.isFinite(v) || v < 0 || v > max || (inteiro && !Number.isInteger(v))) erros[k] = inteiro ? 'Informe um número inteiro positivo ou zero.' : 'Informe um valor válido, positivo ou zero.';
-    return inteiro ? v : Math.round(v * 100) / 100;
+    return inteiro ? v : Math.round(v * 10**casas) / 10**casas;
   };
   const situacao = dados.situacao ?? (atual ? 'ativo' : 'rascunho');
   if (!['rascunho', 'ativo', 'arquivado'].includes(String(situacao))) erros.situacao = 'Escolha rascunho, ativo ou arquivado.';
@@ -60,6 +60,11 @@ export function prepararProduto(body: Record<string, unknown>, atual?: Produto):
     fiscal[k] = v;
   }
   const categoria = texto('categoria', 120);
+  for(const k of ['pisCst','cofinsCst','rtcCst','rtcClassificacao'] as const) {
+    const tamanho=k==='rtcClassificacao'?6:k==='rtcCst'?3:2;
+    const v=texto(k,tamanho);if(v&&!new RegExp(`^\\d{${tamanho}}$`).test(v)) erros[k]=`Use ${tamanho} dígitos.`;fiscal[k]=v;
+  }
+  for(const k of ['aliquotaIcms','reducaoBaseIcms','aliquotaPis','aliquotaCofins','aliquotaCreditoSn','aliquotaIbsUf','aliquotaIbsMunicipio','aliquotaCbs'] as const) fiscal[k]=numero(k,100,false,4);
   const imagensRaw = dados.imagens ?? (dados.imagemUrl ? [dados.imagemUrl] : []);
   if (!Array.isArray(imagensRaw) || imagensRaw.length > 8 || imagensRaw.some(u => typeof u !== 'string' || u.length > 600 || !/^(\/uploads\/|https?:\/\/)/i.test(u))) erros.imagens = 'Use até 8 imagens com endereço válido.';
   const imagens = Array.isArray(imagensRaw) ? [...new Set(imagensRaw.filter((u): u is string => typeof u === 'string' && !!u))] : [];

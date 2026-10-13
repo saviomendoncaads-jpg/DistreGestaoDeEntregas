@@ -28,6 +28,7 @@ function faixaSemValor(n: NotaCompleta): string {
 }
 
 function faixaStatus(n: NotaCompleta): string {
+  if(n.status==='CONTINGENCIA') return '<div class="homolog">EMITIDA EM CONTINGÊNCIA — PENDENTE DE AUTORIZAÇÃO</div>';
   if (n.status === 'CANCELADA') return '<div class="homolog">NOTA CANCELADA</div>';
   if (n.status !== 'AUTORIZADA') return `<div class="homolog">${esc(n.status)} — ${esc(n.mensagem || 'nota não autorizada')}</div>`;
   return '';

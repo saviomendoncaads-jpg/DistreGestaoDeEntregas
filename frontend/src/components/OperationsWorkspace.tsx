@@ -99,6 +99,7 @@ function BadgeFiscal({ nota, sit, onClick }: { nota?: NotaResumo; sit: Situacao;
   const mapa: Record<string, [string, string, ReactNode]> = {
     AUTORIZADA: ['autorizada', 'Autorizada', <IcoCheck />],
     PROCESSANDO: ['pendente', 'Processando', <IcoClock />],
+    CONTINGENCIA: ['pendente', 'Contingência pendente', <IcoClock />],
     REJEITADA: ['rejeitada', 'Rejeitada', <IcoX />],
     ERRO: ['rejeitada', 'Erro', <IcoX />],
     CANCELADA: ['neutro', 'Cancelada', <IcoX />],

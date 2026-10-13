@@ -2,21 +2,25 @@
 // molde do PaymentGatewayAdapter do billing: o fiscalService NUNCA importa um
 // provedor concreto. Trocar de provedor = trocar FISCAL_PROVIDER no .env.
 
-import { AmbienteFiscal, DadosNota, ModeloNota, StatusNota } from './tipos';
+import { AmbienteFiscal, CredenciaisFiscais, DadosNota, ModeloNota, StatusNota } from './tipos';
 
-export type NomeProvedorFiscal = 'MOCK' | 'FOCUSNFE';
+export type NomeProvedorFiscal = 'MOCK' | 'FOCUSNFE' | 'SEFAZ_DIRETA';
 
 export interface ContextoEmissao {
   ambiente: AmbienteFiscal;
   cnpjEmitente: string;
   uf: string;
   tokenProvedor?: string;
+  lojaId?: string;
+  credenciais?: CredenciaisFiscais;
+  modelo?: ModeloNota;
 }
 
 export interface EmissaoInput {
   ref: string;               // referência única nossa (idempotência no provedor)
   numero?: number;           // só quando o provedor usa numeração local (Mock)
   serie: number;
+  emitidaEm?: string;
   dados: DadosNota;
   ctx: ContextoEmissao;
 }

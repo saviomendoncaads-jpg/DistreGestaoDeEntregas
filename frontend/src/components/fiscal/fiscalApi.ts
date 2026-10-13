@@ -1,10 +1,12 @@
 // Cliente HTTP do Módulo Fiscal (/api/fiscal) — tipos espelham o backend (fiscal/tipos.ts).
 
 export type ModeloNota = 'NFCE' | 'NFE';
-export type StatusNota = 'AUTORIZADA' | 'PROCESSANDO' | 'REJEITADA' | 'CANCELADA' | 'ERRO';
+export type StatusNota = 'AUTORIZADA' | 'PROCESSANDO' | 'CONTINGENCIA' | 'REJEITADA' | 'CANCELADA' | 'ERRO';
 export type EscolhaFiscal = ModeloNota | 'NENHUMA';
 
 export interface DestinatarioNota {
+  codigoMunicipio?: string;
+  inscricaoEstadual?: string;
   nome?: string;
   documento?: string;
   logradouro?: string;
@@ -30,7 +32,7 @@ export interface ConfigFiscal {
   cep: string;
   telefone?: string;
   email?: string;
-  provedor: 'SIMULADO' | 'FOCUSNFE';
+  provedor: 'SIMULADO' | 'FOCUSNFE' | 'SEFAZ_DIRETA';
   ambiente: 'HOMOLOGACAO' | 'PRODUCAO';
   serieNfce: number;
   proximoNumeroNfce: number;
@@ -41,6 +43,13 @@ export interface ConfigFiscal {
   icmsSituacaoPadrao: string;
   origemPadrao: string;
   percentualTributos: number;
+  sefaz?: {
+    codigoMunicipio:string; versaoQrCode:2|3;
+    qrCodeHomologacao?:string;qrCodeProducao?:string;consultaHomologacao?:string;consultaProducao?:string;
+    pisCst:string;cofinsCst:string;aliquotaIcms:number;reducaoBaseIcms:number;
+    aliquotaPis:number;aliquotaCofins:number;aliquotaCreditoSn:number;
+    rtcCst?:string;rtcClassificacao?:string;aliquotaIbsUf?:number;aliquotaIbsMunicipio?:number;aliquotaCbs?:number;
+  };
 }
 
 /** O que o painel vê das credenciais — nunca os segredos. */
@@ -77,7 +86,7 @@ export interface CredenciaisEnvio {
   focusTokenPrincipal?: string;
 }
 
-export interface StatusFiscal { provedor: 'SIMULADO' | 'FOCUSNFE'; simulado: boolean; ambiente: 'HOMOLOGACAO' | 'PRODUCAO'; podeEmitir: boolean }
+export interface StatusFiscal { provedor: 'SIMULADO' | 'FOCUSNFE' | 'SEFAZ_DIRETA'; simulado: boolean; ambiente: 'HOMOLOGACAO' | 'PRODUCAO'; podeEmitir: boolean }
 
 export interface ItemNota {
   numero: number;
@@ -136,6 +145,7 @@ export interface NotaCompleta extends NotaResumo {
 }
 
 export const NOME_MODELO: Record<ModeloNota, string> = { NFCE: 'NFC-e', NFE: 'NF-e' };
+export interface EventoFiscal {id:string;tipo:string;autorizado:boolean;mensagem?:string;protocolo?:string;atualizadoEm:string}
 
 export class FiscalApi {
   private backendUrl: string;
@@ -173,17 +183,31 @@ export class FiscalApi {
   obterEstado() { return this.req<EstadoFiscal>('GET', '/config'); }
   salvarConfig(c: Partial<ConfigFiscal>) { return this.req<EstadoFiscal>('PUT', '/config', c); }
   salvarCredenciais(c: CredenciaisEnvio) { return this.req<EstadoFiscal>('PUT', '/credenciais', c); }
-  testarConexao(ambiente?: 'HOMOLOGACAO' | 'PRODUCAO') {
-    return this.req<{ ok: boolean; mensagem: string }>('POST', '/credenciais/testar', { ambiente });
+  testarConexao(ambiente?: 'HOMOLOGACAO' | 'PRODUCAO',modelo?:ModeloNota) {
+    return this.req<{ ok: boolean; mensagem: string }>('POST', '/credenciais/testar', { ambiente,modelo });
   }
   sincronizarFocus() { return this.req<EstadoFiscal & { mensagem: string }>('POST', '/credenciais/sincronizar-focus', {}); }
   listarNotas(dias = 2) { return this.req<{ notas: NotaResumo[] }>('GET', `/notas?dias=${dias}`).then(r => r.notas); }
+  listarEventos() {return this.req<{eventos:EventoFiscal[]}>('GET','/sefaz/eventos').then(r=>r.eventos);}
   obterNota(id: string) { return this.req<{ nota: NotaCompleta }>('GET', `/notas/${encodeURIComponent(id)}`).then(r => r.nota); }
-  emitir(entregaId: string, modelo: ModeloNota, destinatario?: DestinatarioNota) {
-    return this.req<{ nota: NotaCompleta }>('POST', '/emitir', { entregaId, modelo, destinatario }).then(r => r.nota);
+  emitir(entregaId: string, modelo: ModeloNota, destinatario?: DestinatarioNota,contingencia?:{justificativa:string}) {
+    return this.req<{ nota: NotaCompleta }>('POST', '/emitir', { entregaId, modelo, destinatario,contingencia }).then(r => r.nota);
   }
   atualizar(id: string) { return this.req<{ nota: NotaCompleta }>('POST', `/notas/${encodeURIComponent(id)}/atualizar`).then(r => r.nota); }
   cancelar(id: string, justificativa: string) {
     return this.req<{ nota: NotaResumo }>('POST', `/notas/${encodeURIComponent(id)}/cancelar`, { justificativa }).then(r => r.nota);
+  }
+  recuperar(id:string) {return this.req<{nota:NotaCompleta}>('POST',`/notas/${encodeURIComponent(id)}/recuperar`).then(r=>r.nota);}
+  corrigir(id:string,correcao:string,sequencia:number) {return this.req<{success:boolean;id:string;mensagem:string;protocolo?:string}>('POST',`/notas/${encodeURIComponent(id)}/correcao`,{correcao,sequencia});}
+  inutilizar(p:{modelo:ModeloNota;serie:number;inicio:number;fim:number;ano:number;justificativa:string}) {return this.req<{success:boolean;id:string;mensagem:string;protocolo?:string}>('POST','/sefaz/inutilizar',p);}
+  async baixarXml(id:string,evento=false) {
+    const res=await fetch(this.url(evento?`/sefaz/eventos/${encodeURIComponent(id)}/xml`:`/notas/${encodeURIComponent(id)}/xml`),{headers:{Authorization:`Bearer ${this.token}`}});
+    if(!res.ok) {const e=await res.json().catch(()=>({}));throw new Error(e.error||'Não foi possível baixar o XML.');}
+    const url=URL.createObjectURL(await res.blob()),a=document.createElement('a');a.href=url;a.download=evento?'evento-fiscal.xml':`${id}.xml`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+  async baixarDanfe(id:string) {
+    const res=await fetch(this.url(`/notas/${encodeURIComponent(id)}/danfe.pdf`),{headers:{Authorization:`Bearer ${this.token}`}});
+    if(!res.ok) {const e=await res.json().catch(()=>({}));throw new Error(e.error||'DANFE não disponível.');}
+    const url=URL.createObjectURL(await res.blob()),a=document.createElement('a');a.href=url;a.download=`${id}-danfe.pdf`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
 }
