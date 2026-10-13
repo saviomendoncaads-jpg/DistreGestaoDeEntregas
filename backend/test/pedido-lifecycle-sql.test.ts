@@ -49,6 +49,32 @@ describe.skipIf(process.env.RUN_SQL_ESTOQUE_TESTS !== '1')('ciclo pedido→entre
     expect((await onboarding.lerImplantacao(loja)).history[0]).toMatchObject({passo:1,modalidade:'conhecimento_previo_confirmado',autor:'operador'});
     expect((await onboarding.lerImplantacao('outra-loja')).completed).toBe(0);
   });
+  it('dashboard cruza pagamentos e vencimentos sem atribuir fatura de outra filial',async()=>{
+    async function invoice(id:string,tenant:string|null,status:string,payment:string|null,due:string){
+      await banco.pool.request().input('id',mssql.VarChar,id).input('loja',mssql.VarChar,tenant)
+       .input('status',mssql.VarChar,status).input('pago',mssql.VarChar,payment).input('vence',mssql.VarChar,due)
+       .query(`INSERT INTO FATURAS(ID,EMPRESA_ID,LOJA_ID,VALOR_BRUTO,VALOR_DESCONTO,STATUS,DATA_EMISSAO,DATA_VENCIMENTO,DATA_PAGAMENTO,REFERENCIA_MES_ANO,CRIADO_EM)
+       VALUES(@id,'empresa-fixture',@loja,100,10,@status,'2026-10-01',@vence,@pago,'10/2026','2026-10-01')`);
+    }
+    await invoice('paid-'+seq,loja,'PAGA','2026-10-03T12:00:00Z','2026-10-05');
+    await invoice('other-'+seq,'outra-filial','PAGA','2026-09-01T12:00:00Z','2026-09-05');
+    await invoice('pending-'+seq,loja,'PENDENTE',null,'2026-10-10');
+    await invoice('future-'+seq,loja,'PENDENTE',null,'2026-11-10');
+    let row=(await onboarding.lerIndicadoresImplantacao()).find((r:any)=>r.lojaId===loja);
+    expect(row).toMatchObject({primeiroPagamentoFaturaId:'paid-'+seq,pagamentoEscopo:'loja',faturaId:'pending-'+seq,faturaEscopo:'loja',faturaValor:90,comandas30Dias:1});
+    expect(row.primeiroPagamentoVencimento).toBe('2026-10-05');
+    await invoice('legacy-'+seq,null,'PAGA','2026-08-01T12:00:00Z','2026-08-05');
+    row=(await onboarding.lerIndicadoresImplantacao()).find((r:any)=>r.lojaId===loja);
+    expect(row).toMatchObject({primeiroPagamentoFaturaId:'legacy-'+seq,pagamentoEscopo:'empresa'});
+    await banco.pool.request().input('id',mssql.VarChar,'legacy-'+seq).query('DELETE FROM FATURAS WHERE ID=@id');
+  });
+  it('dashboard não duplica a contagem operacional pelo vínculo pedido e entrega',async()=>{
+    const child={...pedido,id:'delivery-indicator-'+seq,tipoComanda:'entrega',pedidoOrigemId:pedido.id,status:'ENTREGUE'};
+    await banco.salvarEntrega(child as Entrega);
+    const row=(await onboarding.lerIndicadoresImplantacao()).find((r:any)=>r.lojaId===loja);
+    expect(row.comandas30Dias).toBe(1);expect(row.ultimaOperacaoEm).toBeTruthy();expect(row.ultimaAlteracaoCatalogoEm).toBeTruthy();
+    expect(row.primeiroPagamentoEm).toBeNull();
+  });
   it('implantação rejeita saltos e confirmação ausente, sem alterar progresso',async()=>{
     await onboarding.iniciarImplantacao(loja);
     await expect(onboarding.concluirEtapa(loja,2,true,'operador')).rejects.toThrow('anterior');
