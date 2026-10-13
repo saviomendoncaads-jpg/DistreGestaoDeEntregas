@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default function CarrinhoDrawer({ aberto, onFechar, onIrParaCheckout }: Props) {
-  const { itens, subtotal, incrementar, decrementar, remover, definirObservacao } = useCarrinho();
+  const { itens, subtotal, incrementar, decrementar, remover } = useCarrinho();
 
   // Esc fecha a sacola; trava o scroll da página enquanto o drawer está aberto.
   useEffect(() => {
@@ -48,7 +48,7 @@ export default function CarrinhoDrawer({ aberto, onFechar, onIrParaCheckout }: P
             <span aria-hidden="true">🛒</span>
             <p>Sua sacola está vazia.</p>
             <button type="button" className="v-btn-secundario" onClick={onFechar}>
-              Ver cardápio
+              Ver produtos
             </button>
           </div>
         ) : (
@@ -72,14 +72,6 @@ export default function CarrinhoDrawer({ aberto, onFechar, onIrParaCheckout }: P
                       {item.quantidade} × {formatarPreco(item.produto.preco)} ={' '}
                       <strong>{formatarPreco(item.produto.preco * item.quantidade)}</strong>
                     </span>
-                    <input
-                      type="text"
-                      className="v-input v-input--observacao"
-                      placeholder="Alguma observação? Ex.: sem cebola"
-                      maxLength={120}
-                      value={item.observacao ?? ''}
-                      onChange={e => definirObservacao(item.produto.id, e.target.value)}
-                    />
                   </div>
                   <div className="v-stepper v-stepper--drawer" role="group" aria-label={`Quantidade de ${item.produto.nome}`}>
                     <button type="button" onClick={() => decrementar(item.produto.id)} aria-label="Diminuir quantidade">

@@ -1066,11 +1066,6 @@ body:has(.v-pagina) {
   min-height: 72px;
 }
 
-.v-input--observacao {
-  font-size: 0.82rem;
-  padding: 8px 12px;
-}
-
 /* Cards de forma de pagamento */
 .v-pagamentos {
   display: grid;
