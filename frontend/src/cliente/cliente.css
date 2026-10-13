@@ -1522,3 +1522,6 @@ body:has(.v-pagina) {
     animation: none;
   }
 }
+
+.vt-anuncio { background: var(--v-cobalto); color: white; text-align: center; padding: 12px 18px; border-radius: 12px; margin-bottom: 14px; font-size: 14px; overflow-wrap: anywhere; }
+.vt-banner-texto h2, .vt-banner-texto p, .v-footer p { overflow-wrap: anywhere; }

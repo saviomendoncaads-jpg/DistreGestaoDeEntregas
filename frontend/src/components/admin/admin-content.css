@@ -1,0 +1,94 @@
+/* Shared static presentation extracted from the administrator sections. */
+.master-app .master-text-1, .master-dialog .master-text-1 { color:var(--color-emerald); }
+.master-app .master-surface-2, .master-dialog .master-surface-2 { margin-bottom:1.5rem;padding:1.5rem;background:var(--bg-card);border:1px solid var(--border-thin); }
+.master-app .master-title-3, .master-dialog .master-title-3 { font-size:1rem;margin-bottom:1rem;color:var(--color-cyan); }
+.master-app .master-grid-4, .master-dialog .master-grid-4 { display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:1rem;align-items:end; }
+.master-app .master-surface-5, .master-dialog .master-surface-5 { margin-bottom:0; }
+.master-app .master-label-6, .master-dialog .master-label-6 { font-size:0.75rem;color:var(--text-secondary); }
+.master-app .master-button-7, .master-dialog .master-button-7 { height:38px; }
+.master-app .master-surface-8, .master-dialog .master-surface-8 { text-align:center;padding:3rem;color:var(--text-secondary);background:var(--bg-card);border:1px dashed var(--border-thin);border-radius:12px; }
+.master-app .master-text-9, .master-dialog .master-text-9 { font-size:0.75rem;color:var(--text-secondary);margin-right:1rem; }
+.master-app .master-layout-10, .master-dialog .master-layout-10 { display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem; }
+.master-app .master-title-11, .master-dialog .master-title-11 { font-size:0.85rem;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em; }
+.master-app .master-surface-12, .master-dialog .master-surface-12 { margin-bottom:1.5rem;padding:1rem;background:rgba(0, 0, 0, 0.3);border:1px solid var(--border-thin);border-radius:8px; }
+.master-app .master-title-13, .master-dialog .master-title-13 { font-size:0.8rem;color:var(--color-cyan);margin-bottom:0.75rem; }
+.master-app .master-grid-14, .master-dialog .master-grid-14 { display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:0.75rem;align-items:end; }
+.master-app .master-label-15, .master-dialog .master-label-15 { font-size:0.7rem;color:var(--text-secondary); }
+.master-app .master-layout-16, .master-dialog .master-layout-16 { margin-bottom:0;display:flex;align-items:center;gap:0.4rem;height:34px; }
+.master-app .master-surface-17, .master-dialog .master-surface-17 { accent-color:var(--color-cyan);cursor:pointer;width:15px;height:15px; }
+.master-app .master-label-18, .master-dialog .master-label-18 { font-size:0.75rem;color:var(--text-secondary);cursor:pointer;margin-bottom:0; }
+.master-app .master-button-19, .master-dialog .master-button-19 { height:34px; }
+.master-app .master-surface-20, .master-dialog .master-surface-20 { text-align:center;padding:1.5rem;color:var(--text-secondary);font-size:0.8rem; }
+.master-app .master-surface-21, .master-dialog .master-surface-21 { text-align:right; }
+.master-app .master-surface-22, .master-dialog .master-surface-22 { font-size:0.78rem; }
+.master-app .master-surface-23, .master-dialog .master-surface-23 { color:var(--text-muted); }
+.master-app .master-surface-24, .master-dialog .master-surface-24 { font-size:0.78rem;color:var(--text-secondary); }
+.master-app .master-layout-25, .master-dialog .master-layout-25 { display:flex;gap:0.5rem;justify-content:flex-end; }
+.master-app .master-button-26, .master-dialog .master-button-26 { font-size:0.7rem;padding:0.15rem 0.4rem;background:var(--color-cyan);color:#fff; }
+.master-app .master-button-27, .master-dialog .master-button-27 { font-size:0.7rem;padding:0.15rem 0.4rem;background:var(--bg-secondary);color:var(--text-primary);border:1px solid rgba(255,255,255,0.08); }
+.master-app .master-layout-28, .master-dialog .master-layout-28 { display:flex;flex-direction:column;gap:1.5rem; }
+.master-app .master-surface-29, .master-dialog .master-surface-29 { grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); }
+.master-app .master-surface-30, .master-dialog .master-surface-30 { border-left:4px solid var(--color-cyan); }
+.master-app .master-text-31, .master-dialog .master-text-31 { color:var(--color-cyan); }
+.master-app .master-surface-32, .master-dialog .master-surface-32 { border-left:4px solid var(--color-amber); }
+.master-app .master-text-33, .master-dialog .master-text-33 { color:var(--color-amber); }
+.master-app .master-surface-34, .master-dialog .master-surface-34 { border-left:4px solid var(--color-rose); }
+.master-app .master-text-35, .master-dialog .master-text-35 { color:var(--color-rose); }
+.master-app .master-surface-36, .master-dialog .master-surface-36 { border-left:4px solid var(--color-emerald); }
+.master-app .master-layout-37, .master-dialog .master-layout-37 { display:flex;flex-direction:column;gap:1rem; }
+.master-app .master-layout-38, .master-dialog .master-layout-38 { padding:1rem;background:var(--bg-card);border:1px solid var(--border-thin);display:flex;flex-wrap:wrap;gap:1rem;align-items:end;justify-content:space-between; }
+.master-app .master-layout-39, .master-dialog .master-layout-39 { display:flex;flex-wrap:wrap;gap:0.75rem;align-items:end; }
+.master-app .master-surface-40, .master-dialog .master-surface-40 { height:34px;padding:0 0.5rem;background:var(--bg-primary);border:1px solid var(--border-thin);color:var(--text-primary);border-radius:4px; }
+.master-app .master-button-41, .master-dialog .master-button-41 { height:34px;background:var(--accent);color:#fff;border:none;font-weight:600; }
+.master-app .master-surface-42, .master-dialog .master-surface-42 { background:var(--bg-card);border:1px solid var(--border-thin);overflow:hidden; }
+.master-app .master-surface-43, .master-dialog .master-surface-43 { text-align:center;padding:3rem;color:var(--text-secondary); }
+.master-app .master-surface-44, .master-dialog .master-surface-44 { font-family:var(--font-mono);font-size:0.75rem; }
+.master-app .master-surface-45, .master-dialog .master-surface-45 { color:var(--text-secondary); }
+.master-app .master-surface-46, .master-dialog .master-surface-46 { font-family:var(--font-mono); }
+.master-app .master-surface-47, .master-dialog .master-surface-47 { font-family:var(--font-mono);color:var(--color-rose); }
+.master-app .master-surface-48, .master-dialog .master-surface-48 { font-family:var(--font-mono);font-weight:600; }
+.master-app .master-layout-49, .master-dialog .master-layout-49 { display:flex;gap:0.25rem;justify-content:flex-end; }
+.master-app .master-button-50, .master-dialog .master-button-50 { font-size:0.7rem;padding:0.2rem 0.4rem;background:var(--color-emerald);color:#fff; }
+.master-app .master-button-51, .master-dialog .master-button-51 { font-size:0.7rem;padding:0.2rem 0.4rem;background:rgba(139, 92, 246, 0.2);color:var(--color-purple);border:1px solid rgba(139, 92, 246, 0.3); }
+.master-app .master-button-52, .master-dialog .master-button-52 { font-size:0.7rem;padding:0.2rem 0.4rem;background:rgba(244, 63, 94, 0.2);color:var(--color-rose);border:1px solid rgba(244, 63, 94, 0.3); }
+.master-app .master-layout-53, .master-dialog .master-layout-53 { display:flex;justify-content:space-between;align-items:center;padding:1rem;border-top:1px solid var(--border-thin); }
+.master-app .master-layout-54, .master-dialog .master-layout-54 { display:flex;gap:0.5rem; }
+.master-app .master-grid-55, .master-dialog .master-grid-55 { display:grid;grid-template-columns:repeat(auto-fit, minmax(400px, 1fr));gap:1.5rem; }
+.master-app .master-surface-56, .master-dialog .master-surface-56 { padding:1.25rem;background:var(--bg-card);border:1px solid var(--border-thin); }
+.master-app .master-title-57, .master-dialog .master-title-57 { font-size:0.9rem;color:var(--text-primary);margin-bottom:1rem;font-weight:600; }
+.master-app .master-surface-58, .master-dialog .master-surface-58 { padding:3rem;text-align:center;color:var(--text-secondary); }
+.master-app .master-surface-59, .master-dialog .master-surface-59 { overflow:visible; }
+.master-app .master-layout-60, .master-dialog .master-layout-60 { display:flex;gap:1rem;justify-content:center;margin-top:1rem; }
+.master-app .master-layout-61, .master-dialog .master-layout-61 { display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;color:var(--text-secondary); }
+.master-app .master-text-62, .master-dialog .master-text-62 { width:12px;height:12px;background:var(--color-blue);border-radius:2px;border:1px solid var(--color-blue); }
+.master-app .master-text-63, .master-dialog .master-text-63 { width:12px;height:12px;background:var(--color-emerald);border-radius:2px;border:1px solid var(--color-emerald); }
+.master-app .master-surface-64, .master-dialog .master-surface-64 { text-align:center;margin-top:1rem;font-size:0.75rem;color:var(--text-secondary); }
+.master-app .master-surface-65, .master-dialog .master-surface-65 { font-size:0.8rem; }
+.master-app .master-surface-66, .master-dialog .master-surface-66 { text-align:center;padding:1.5rem;color:var(--text-secondary); }
+.master-app .master-surface-67, .master-dialog .master-surface-67 { font-weight:600; }
+.master-app .master-surface-68, .master-dialog .master-surface-68 { color:var(--color-cyan);font-weight:600; }
+.master-app .master-surface-69, .master-dialog .master-surface-69 { color:var(--color-emerald);font-weight:600; }
+.master-app .master-text-70, .master-dialog .master-text-70 { font-size:0.65rem;color:var(--text-secondary); }
+.master-app .master-grid-71, .master-dialog .master-grid-71 { display:grid;grid-template-columns:1fr 1fr;gap:1rem; }
+.master-app .master-button-72, .master-dialog .master-button-72 { margin-top:0.5rem;background:var(--accent);color:#fff;border:none;font-weight:600; }
+.master-app .master-layout-73, .master-dialog .master-layout-73 { padding:1.25rem;background:var(--bg-card);border:1px solid var(--border-thin);display:flex;flex-direction:column;gap:1rem; }
+.master-app .master-layout-74, .master-dialog .master-layout-74 { display:flex;justify-content:space-between;align-items:center; }
+.master-app .master-title-75, .master-dialog .master-title-75 { font-size:0.9rem;color:var(--text-primary);font-weight:600; }
+.master-app .master-layout-76, .master-dialog .master-layout-76 { display:flex;flex-direction:column;gap:0.75rem; }
+.master-app .master-layout-77, .master-dialog .master-layout-77 { padding:0.75rem;background:var(--bg-primary);border:1px solid var(--border-thin);border-radius:6px;display:flex;justify-content:space-between;align-items:center; }
+.master-app .master-text-78, .master-dialog .master-text-78 { font-size:0.85rem;margin-left:0.5rem;color:var(--text-primary);font-family:var(--font-mono); }
+.master-app .master-surface-79, .master-dialog .master-surface-79 { font-size:0.7rem;color:var(--text-secondary);margin-top:0.2rem; }
+.master-app .master-button-80, .master-dialog .master-button-80 { padding:0.2rem 0.5rem;font-size:0.7rem; }
+.master-app .master-surface-81, .master-dialog .master-surface-81 { padding:1.25rem;background:var(--bg-card);border:1px solid var(--border-thin);grid-column:span 2; }
+.master-app .master-text-82, .master-dialog .master-text-82 { background:var(--color-purple); }
+.master-app .master-surface-83, .master-dialog .master-surface-83 { max-width:480px; }
+.master-app .master-layout-84, .master-dialog .master-layout-84 { display:flex;flex-direction:column;gap:0.8rem; }
+.master-app .master-surface-85, .master-dialog .master-surface-85 { color:var(--color-rose);font-size:0.75rem; }
+.master-app .master-button-86, .master-dialog .master-button-86 { width:100%;margin-top:0.5rem;background:var(--accent);color:#fff;border:none;font-weight:600; }
+.master-app .master-surface-87, .master-dialog .master-surface-87 { resize:vertical;min-height:60px; }
+.master-app .master-button-88, .master-dialog .master-button-88 { width:100%;margin-top:0.5rem; }
+.master-app .master-surface-89, .master-dialog .master-surface-89 { resize:vertical;min-height:80px; }
+.master-app .master-button-90, .master-dialog .master-button-90 { width:100%;margin-top:0.5rem;background:var(--color-purple);border:1px solid var(--color-purple);color:#fff; }
+.master-app .master-grid-91, .master-dialog .master-grid-91 { display:grid;grid-template-columns:1fr 1fr;gap:0.6rem; }
+.master-app .master-grid-92, .master-dialog .master-grid-92 { display:grid;grid-template-columns:2fr 1fr;gap:0.6rem; }
+.master-app .master-layout-93, .master-dialog .master-layout-93 { display:flex;align-items:center;gap:0.4rem; }

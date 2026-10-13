@@ -1,7 +1,12 @@
+import type { ConfigVitrine } from './configVitrine';
 // Tipos do Painel do Cliente (vitrine pública).
 // Espelham os contratos do backend em backend/src/vitrine.ts.
 
 export interface ProdutoVitrine {
+  fabricante?: string;
+  codigoInterno?: string;
+  codigoBarras?: string;
+  unidade?: string;
   precoOriginal?: number;
   marca?: string;
   imagens?: string[];
@@ -16,6 +21,7 @@ export interface ProdutoVitrine {
 }
 
 export interface LojaVitrine {
+  configVitrine?: ConfigVitrine;
   id: string;
   nome: string;
   bairro?: string;

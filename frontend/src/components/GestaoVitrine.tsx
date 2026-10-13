@@ -1,335 +1,63 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { configPadrao } from '../cliente/configVitrine';
+import type { ConfigVitrine, BannerLoja } from '../cliente/configVitrine';
+import type { CardapioResposta } from '../cliente/types';
+import { VitrinePrevia } from '../cliente/PainelCliente';
+import './gestao-vitrine.css';
 
-// ============================================================================
-// CONFIGURAÇÃO DA VITRINE — modal do painel da loja (aberto pelo menu lateral).
-// Configura logomarca, link público e visibilidade dos produtos.
-// O cadastro e os dados fiscais ficam na área Produtos.
-// Consome as rotas autenticadas /api/gestao/* (gestaoVitrine.ts no backend).
-// ============================================================================
-
-interface ProdutoGestao {
-  id: string;
-  nome: string;
-  preco: number;
-  descricao?: string;
-  imagemUrl?: string;
-  ativo: boolean;
-  publicado?: boolean;
-  situacao?: 'rascunho' | 'ativo' | 'arquivado';
-  categoria?: string;
-  subcategoria?: string;
-  ncm?: string;
-  cest?: string;
-  cfop?: string;
-  icmsSituacao?: string;
-  unidade?: string;
-  codigoBarras?: string;
+interface Produto { id: string; nome: string; categoria?: string; codigoInterno?: string; codigoBarras?: string; ativo: boolean; publicado?: boolean; situacao?: string }
+interface Props { backendUrl: string; token: string; lojaId: string; nomeLoja: string; onClose: () => void; onProdutos?: () => void; onDirtyChange?: (dirty: boolean) => void }
+const SECOES = [['identidade','Identidade visual','Nome, logomarca e cor'],['inicio','Página inicial','Avisos e ordem das seções'],['banners','Banners','Campanhas e chamadas'],['destaques','Curadoria','Categorias e produtos'],['atendimento','Atendimento','Contato e regras de compra'],['buscadores','Buscadores','Título e descrição']] as const;
+const nomes = { banners: 'Banners de campanha', categorias: 'Categorias em destaque', destaques: 'Produtos em destaque' };
+const bannerNovo = (): BannerLoja => ({ titulo: 'Conheça nossa seleção', texto: '', botao: 'Ver produtos', categoria: '', imagemUrl: '', ativo: true });
+function Campo({ titulo, ajuda, children }: { titulo: string; ajuda?: string; children: ReactNode }) { return <label className="sv-campo"><span>{titulo}</span>{children}{ajuda && <small>{ajuda}</small>}</label>; }
+function Previa({ cardapio, onClose }: { cardapio: CardapioResposta; onClose: () => void }) {
+  const [mobile, setMobile] = useState(false); const [frame, setFrame] = useState<HTMLIFrameElement | null>(null); const [pronto, setPronto] = useState(false);
+  useEffect(() => { const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; document.addEventListener('keydown',tecla); return () => document.removeEventListener('keydown',tecla); },[onClose]);
+  const carregar = () => { const doc = frame?.contentDocument; if (!doc) return; document.querySelectorAll('link[rel="stylesheet"],style').forEach(e => doc.head.appendChild(e.cloneNode(true))); setPronto(true); };
+  return createPortal(<div className="sv-overlay" role="dialog" aria-modal="true" aria-label="Prévia da vitrine"><div className="sv-preview"><header><div><strong>Prévia da vitrine</strong><small>Simulação da configuração atual · compras desativadas</small></div><div className="sv-acoes"><button onClick={() => setMobile(false)} aria-pressed={!mobile}>Computador</button><button onClick={() => setMobile(true)} aria-pressed={mobile}>Celular</button><button autoFocus onClick={onClose}>Fechar prévia</button></div></header><div className="sv-preview-fundo"><iframe title="Sua vitrine" ref={setFrame} onLoad={carregar} srcDoc='<!doctype html><html lang="pt-BR"><head><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head><body style="margin:0"><div id="previa"></div></body></html>' style={{ width: mobile ? 390 : '100%', maxWidth: '100%', height: '100%', border: 0, background: '#eef2f9' }} />{pronto && frame?.contentDocument?.getElementById('previa') && createPortal(<VitrinePrevia cardapio={cardapio} />,frame.contentDocument.getElementById('previa')!)}</div></div></div>, document.body);
 }
-
-interface Props {
-  backendUrl: string;
-  token: string;
-  lojaId: string;
-  nomeLoja: string;
-  onClose: () => void;
-}
-
-const MAX_IMAGEM_BYTES = 3 * 1024 * 1024;
-
-const estiloInput: React.CSSProperties = {
-  width: '100%',
-  background: 'var(--bg-secondary)',
-  border: '1px solid var(--border-thin)',
-  borderRadius: '8px',
-  padding: '0.55rem 0.75rem',
-  color: 'var(--text-primary)',
-  fontSize: '0.85rem',
-  outline: 'none'
-};
-
-const estiloLabel: React.CSSProperties = {
-  fontSize: '0.72rem',
-  color: 'var(--text-secondary)',
-  display: 'block',
-  marginBottom: '0.3rem',
-  fontWeight: 600
-};
-
-const estiloBotaoPrimario: React.CSSProperties = {
-  background: 'var(--accent)',
-  color: 'var(--accent-contrast)',
-  border: 'none',
-  borderRadius: '8px',
-  padding: '0.55rem 1rem',
-  fontWeight: 700,
-  fontSize: '0.82rem',
-  cursor: 'pointer'
-};
-
-const estiloBotaoSuave: React.CSSProperties = {
-  background: 'transparent',
-  color: 'var(--text-secondary)',
-  border: '1px solid var(--border-thin)',
-  borderRadius: '8px',
-  padding: '0.5rem 0.9rem',
-  fontSize: '0.8rem',
-  cursor: 'pointer'
-};
-
-export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onClose }: Props) {
-  const [produtos, setProdutos] = useState<ProdutoGestao[]>([]);
-  const [logoUrl, setLogoUrl] = useState<string>('');
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
-  const [enviandoImagem, setEnviandoImagem] = useState(false);
-  const [busca, setBusca] = useState('');
-  const [alterandoProduto, setAlterandoProduto] = useState<string | null>(null);
-  const inputLogoRef = useRef<HTMLInputElement>(null);
-
-  const linkVitrine = `${window.location.origin}/loja/${lojaId}`;
-
-  async function gestaoFetch(caminho: string, options: RequestInit = {}): Promise<any> {
-    const res = await fetch(`${backendUrl}${caminho}`, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        ...(options.headers || {})
-      }
-    });
-    const corpo = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(corpo?.error || `Erro ${res.status} ao comunicar com o servidor.`);
-    return corpo;
-  }
-
-  // URLs de /uploads são relativas ao backend (em dev o painel roda no Vite).
-  function urlImagem(url?: string): string | undefined {
-    if (!url) return undefined;
-    return url.startsWith('/') ? `${backendUrl}${url}` : url;
-  }
-
-  useEffect(() => {
-    let ativo = true;
-    (async () => {
-      try {
-        const [lista, cardapio] = await Promise.all([
-          gestaoFetch('/api/gestao/produtos'),
-          fetch(`${backendUrl}/api/vitrine/${encodeURIComponent(lojaId)}`).then(r => (r.ok ? r.json() : null))
-        ]);
-        if (!ativo) return;
-        setProdutos(Array.isArray(lista) ? lista : []);
-        setLogoUrl(cardapio?.loja?.logoUrl || '');
-      } catch (e: any) {
-        if (ativo) setErro(e.message || 'Erro ao carregar o catálogo.');
-      } finally {
-        if (ativo) setCarregando(false);
-      }
-    })();
-    return () => {
-      ativo = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lojaId]);
-
-  function mostrarAviso(texto: string) {
-    setAviso(texto);
-    window.setTimeout(() => setAviso(null), 3500);
-  }
-
-  // Lê o arquivo, valida e envia ao backend; devolve a URL pública (/uploads/...).
-  async function enviarImagem(arquivo: File): Promise<string | null> {
-    if (!/^image\/(png|jpe?g|webp)$/.test(arquivo.type)) {
-      setErro('Envie uma imagem PNG, JPG ou WEBP.');
-      return null;
-    }
-    if (arquivo.size > MAX_IMAGEM_BYTES) {
-      setErro('A imagem deve ter no máximo 3 MB.');
-      return null;
-    }
-    setErro(null);
-    setEnviandoImagem(true);
-    try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const leitor = new FileReader();
-        leitor.onload = () => resolve(String(leitor.result));
-        leitor.onerror = () => reject(new Error('Não foi possível ler o arquivo.'));
-        leitor.readAsDataURL(arquivo);
-      });
-      const resp = await gestaoFetch('/api/gestao/upload', {
-        method: 'POST',
-        body: JSON.stringify({ dataUrl })
-      });
-      return resp.url as string;
-    } catch (e: any) {
-      setErro(e.message || 'Erro ao enviar a imagem.');
-      return null;
-    } finally {
-      setEnviandoImagem(false);
-    }
-  }
-
-  async function aoEscolherLogo(e: React.ChangeEvent<HTMLInputElement>) {
-    const arquivo = e.target.files?.[0];
-    e.target.value = '';
-    if (!arquivo) return;
-    const url = await enviarImagem(arquivo);
-    if (!url) return;
-    try {
-      await gestaoFetch('/api/gestao/loja', { method: 'PUT', body: JSON.stringify({ logoUrl: url }) });
-      setLogoUrl(url);
-      mostrarAviso('Logomarca atualizada! Ela já aparece na vitrine.');
-    } catch (e: any) {
-      setErro(e.message);
-    }
-  }
-
-  async function removerLogo() {
-    try {
-      await gestaoFetch('/api/gestao/loja', { method: 'PUT', body: JSON.stringify({ logoUrl: '' }) });
-      setLogoUrl('');
-      mostrarAviso('Logomarca removida — a vitrine volta a mostrar a inicial da loja.');
-    } catch (e: any) {
-      setErro(e.message);
-    }
-  }
-
-  async function alternarPublicacao(p: ProdutoGestao) {
-    setErro(null);
-    setAlterandoProduto(p.id);
-    try {
-      const salvo: ProdutoGestao = await gestaoFetch(`/api/gestao/produtos/${p.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ publicado: !(p.publicado ?? p.ativo) })
-      });
-      setProdutos(lista => lista.map(item => (item.id === salvo.id ? salvo : item)));
-      mostrarAviso(salvo.publicado ? 'Produto exibido na vitrine.' : 'Produto oculto da vitrine.');
-    } catch (e: any) {
-      setErro(e.message);
-    } finally {
-      setAlterandoProduto(null);
-    }
-  }
-
-  async function copiarLink() {
-    try {
-      await navigator.clipboard.writeText(linkVitrine);
-      mostrarAviso('Link copiado! Cole no WhatsApp, Instagram ou gere um QR code.');
-    } catch {
-      mostrarAviso('Não consegui copiar automaticamente — selecione e copie o link acima.');
-    }
-  }
-
-  function Miniatura({ url, nome, tamanho }: { url?: string; nome: string; tamanho: number }) {
-    const src = urlImagem(url);
-    const base: React.CSSProperties = {
-      width: tamanho,
-      height: tamanho,
-      borderRadius: '8px',
-      flexShrink: 0,
-      objectFit: 'cover',
-      border: '1px solid var(--border-thin)'
-    };
-    if (src) return <img src={src} alt={nome} style={base} />;
-    return (
-      <div
-        style={{
-          ...base,
-          display: 'grid',
-          placeItems: 'center',
-          background: 'var(--bg-secondary)',
-          color: 'var(--color-amber)',
-          fontWeight: 800,
-          fontSize: tamanho * 0.42
-        }}
-        aria-hidden="true"
-      >
-        {nome.charAt(0).toUpperCase()}
-      </div>
-    );
-  }
-
-  return createPortal(
-    <div className="report-modal-overlay" onClick={onClose}>
-      <div className="report-modal-content" role="dialog" aria-modal="true" aria-labelledby="GestaoVitrine-titulo" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px' }}>
-        <div className="report-modal-header">
-          <h2>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--color-amber)', marginRight: '0.5rem' }}>
-              <path d="M3 9 L4.4 4.5 H19.6 L21 9" />
-              <path d="M4.5 9 V19.5 H19.5 V9" />
-              <path d="M9.5 19.5 V14 H14.5 V19.5" />
-            </svg>
-            Configuração da vitrine — {nomeLoja}
-          </h2>
-          <button className="report-modal-close-btn" aria-label="Fechar" onClick={onClose}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="report-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem', maxHeight: '70vh', overflowY: 'auto' }}>
-          {/* Link público da vitrine */}
-          <section>
-            <label style={estiloLabel}>Link do cardápio (divulgue aos clientes)</label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input readOnly value={linkVitrine} style={{ ...estiloInput, fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }} onFocus={e => e.target.select()} />
-              <button style={estiloBotaoPrimario} onClick={copiarLink}>Copiar</button>
-              <a href={linkVitrine} target="_blank" rel="noreferrer" style={{ ...estiloBotaoSuave, textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-                Abrir
-              </a>
-            </div>
-          </section>
-
-          {/* Logomarca */}
-          <section>
-            <label style={estiloLabel}>Logomarca da loja (aparece no topo da vitrine)</label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-              <Miniatura url={logoUrl} nome={nomeLoja} tamanho={52} />
-              <button style={estiloBotaoSuave} onClick={() => inputLogoRef.current?.click()} disabled={enviandoImagem}>
-                {enviandoImagem ? 'Enviando…' : logoUrl ? 'Trocar logo' : 'Enviar logo'}
-              </button>
-              {logoUrl && (
-                <button style={{ ...estiloBotaoSuave, color: 'var(--color-rose)' }} onClick={removerLogo}>
-                  Remover
-                </button>
-              )}
-              <input ref={inputLogoRef} type="file" accept="image/png,image/jpeg,image/webp" style={{ display: 'none' }} onChange={aoEscolherLogo} />
-            </div>
-          </section>
-
-          <section>
-            <label style={estiloLabel} htmlFor="vitrine-busca">Produtos exibidos na vitrine</label>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>Cadastre e edite os dados dos produtos na área Produtos. Aqui você escolhe quais produtos ativos aparecem no catálogo público. Rascunhos e arquivados devem ser ativados em Produtos.</p>
-            <input id="vitrine-busca" type="search" style={estiloInput} value={busca} onChange={e => setBusca(e.target.value)} placeholder="Pesquisar pelo nome" />
-            {carregando ? <p>Carregando produtos…</p> : produtos.filter(p => p.nome.toLocaleLowerCase('pt-BR').includes(busca.toLocaleLowerCase('pt-BR'))).length === 0 ? <p>Nenhum produto encontrado.</p> : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
-                {produtos.filter(p => p.nome.toLocaleLowerCase('pt-BR').includes(busca.toLocaleLowerCase('pt-BR'))).map(p => (
-                  <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.7rem', padding: '0.6rem', border: '1px solid var(--border-thin)', borderRadius: '8px' }}>
-                    <Miniatura url={p.imagemUrl} nome={p.nome} tamanho={40} />
-                    <div style={{ flex: 1 }}><strong>{p.nome}</strong><div style={estiloLabel}>{(p.publicado ?? p.ativo) ? 'Visível na vitrine' : 'Oculto da vitrine'}</div></div>
-                    <button style={estiloBotaoSuave} disabled={alterandoProduto !== null || p.situacao === 'rascunho' || p.situacao === 'arquivado'} onClick={() => alternarPublicacao(p)}>{alterandoProduto === p.id ? 'Salvando…' : (p.publicado ?? p.ativo) ? 'Ocultar' : 'Exibir'}</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {erro && (
-            <p style={{ color: 'var(--color-rose)', fontSize: '0.8rem', background: 'rgba(244, 63, 94, 0.08)', border: '1px solid rgba(244, 63, 94, 0.3)', borderRadius: '8px', padding: '0.6rem 0.8rem', margin: 0 }} role="alert">
-              {erro}
-            </p>
-          )}
-          {aviso && (
-            <p style={{ color: 'var(--color-emerald)', fontSize: '0.8rem', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: '8px', padding: '0.6rem 0.8rem', margin: 0 }} role="status">
-              {aviso}
-            </p>
-          )}
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
+export default function GestaoVitrine({ backendUrl, token, lojaId, nomeLoja, onClose, onProdutos, onDirtyChange }: Props) {
+  const [config, setConfig] = useState<ConfigVitrine>(configPadrao); const [logo, setLogo] = useState(''); const [salvo, setSalvo] = useState('');
+  const [produtos, setProdutos] = useState<Produto[]>([]); const [cardapio, setCardapio] = useState<CardapioResposta | null>(null);
+  const [secao, setSecao] = useState<string>('identidade'); const [busca, setBusca] = useState(''); const [erro, setErro] = useState(''); const [aviso, setAviso] = useState('');
+  const [carregando, setCarregando] = useState(true); const [salvando, setSalvando] = useState(false); const [upload, setUpload] = useState(false); const [previa, setPrevia] = useState(false);
+  const serializado = JSON.stringify({ logoUrl: logo, configVitrine: config }); const dirty = !!salvo && serializado !== salvo;
+  const link = `${window.location.origin}/loja/${encodeURIComponent(lojaId)}`;
+  async function api(caminho: string, init: RequestInit = {}) { const r = await fetch(`${backendUrl}/api/gestao/${caminho}${caminho.includes('?') ? '&' : '?'}lojaId=${encodeURIComponent(lojaId)}`, { ...init, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }); const body = await r.json(); if (!r.ok) throw new Error(body.error || 'Não foi possível concluir.'); return body; }
+  useEffect(() => { let ativo = true; setCarregando(true); Promise.all([api('loja'), api('produtos'), fetch(`${backendUrl}/api/vitrine/${encodeURIComponent(lojaId)}`).then(async r => { if (!r.ok) throw new Error('Não foi possível carregar a prévia.'); return r.json(); })]).then(([loja, itens, publico]) => { if (!ativo) return; const c = { ...configPadrao(), ...loja.configVitrine }; setConfig(c); setLogo(loja.logoUrl || ''); setSalvo(JSON.stringify({ logoUrl: loja.logoUrl || '', configVitrine: c })); setProdutos(itens); setCardapio(publico); }).catch(e => { if (ativo) setErro(e.message); }).finally(() => { if (ativo) setCarregando(false); }); return () => { ativo = false; }; },[backendUrl,token,lojaId]);
+  useEffect(() => { onDirtyChange?.(dirty); return () => onDirtyChange?.(false); },[dirty,onDirtyChange]);
+  useEffect(() => { const sair = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } }; window.addEventListener('beforeunload',sair); return () => window.removeEventListener('beforeunload',sair); },[dirty]);
+  const mudar = <K extends keyof ConfigVitrine>(key: K, value: ConfigVitrine[K]) => { setConfig(c => ({ ...c, [key]: value })); setAviso(''); };
+  const visiveis = produtos.filter(p => p.ativo && (p.situacao || 'ativo') === 'ativo' && (p.publicado ?? p.ativo));
+  const categorias = [...new Set(visiveis.map(p => p.categoria).filter((s): s is string => !!s))].sort((a,b) => a.localeCompare(b,'pt-BR'));
+  const termo = (s: string) => s.normalize('NFD').replace(/\p{M}/gu,'').toLowerCase();
+  const resultados = visiveis.filter(p => termo(`${p.nome} ${p.codigoInterno || ''} ${p.codigoBarras || ''}`).includes(termo(busca)));
+  const preview = useMemo(() => cardapio ? { ...cardapio, outrasLojas: [], loja: { ...cardapio.loja, nome: config.nomePublico || nomeLoja, logoUrl: logo, telefone: config.whatsapp || cardapio.loja.telefone, aceitandoPedidos: (cardapio.loja.aceitandoPedidos || !!cardapio.loja.configVitrine?.pausada) && !config.pausada, configVitrine: config } } : null,[cardapio,config,logo,nomeLoja]);
+  async function enviarImagem(file: File | undefined, aplicar: (url: string) => void) { if (!file) return; setErro(''); if (!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size > 3*1024*1024) { setErro('Envie PNG, JPG ou WEBP de até 3 MB.'); return; } setUpload(true); try { const dataUrl = await new Promise<string>((resolve,reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result)); r.onerror = () => reject(new Error('Não foi possível ler a imagem.')); r.readAsDataURL(file); }); const r = await api('upload',{ method:'POST', body:JSON.stringify({ dataUrl }) }); aplicar(r.url); } catch (e) { setErro((e as Error).message); } finally { setUpload(false); } }
+  async function salvar() { setErro(''); setAviso(''); setSalvando(true); try { const r = await api('loja',{ method:'PUT', body:serializado }); setConfig(r.configVitrine); setLogo(r.logoUrl); setSalvo(JSON.stringify({ logoUrl:r.logoUrl, configVitrine:r.configVitrine })); setAviso('Vitrine publicada. As alterações já aparecem para seus clientes.'); const rPublico = await fetch(`${backendUrl}/api/vitrine/${encodeURIComponent(lojaId)}`); if (rPublico.ok) setCardapio(await rPublico.json()); } catch (e) { setErro((e as Error).message); } finally { setSalvando(false); } }
+  function sair() { if (dirty && !window.confirm('Descartar as alterações não publicadas da vitrine?')) return; onClose(); }
+  function mover<T>(itens: T[], i: number, delta: number): T[] { const n = [...itens]; const j = i+delta; if (j < 0 || j >= n.length) return n; [n[i],n[j]] = [n[j],n[i]]; return n; }
+  function editarBanner(i: number, valor: Partial<BannerLoja>) { mudar('banners',config.banners.map((b,k) => k===i ? { ...b,...valor } : b)); }
+  const ordem = (itens: string[], aplicar: (itens: string[]) => void) => <div className="sv-ordem">{itens.map((id,i) => <div key={id}><span>{i+1}. {produtos.find(p => p.id===id)?.nome || id}</span><button disabled={!i} onClick={() => aplicar(mover(itens,i,-1))} aria-label={`Subir ${id}`}>↑</button><button disabled={i===itens.length-1} onClick={() => aplicar(mover(itens,i,1))} aria-label={`Descer ${id}`}>↓</button><button onClick={() => aplicar(itens.filter(x => x!==id))} aria-label={`Remover ${id}`}>×</button></div>)}</div>;
+  if (carregando) return <div className="sv-page"><p role="status">Carregando configuração da vitrine…</p></div>;
+  return <div className="sv-page">
+    <header className="sv-topo"><div><span className="sv-kicker">LOJA ONLINE / {nomeLoja}</span><h1>Configuração da vitrine</h1><p>Monte a experiência que seus clientes encontram ao visitar sua loja.</p></div><div className="sv-acoes"><button onClick={sair}>Voltar aos pedidos</button><button onClick={() => setPrevia(true)} disabled={!preview}>Prévia da vitrine</button><a href={link} target="_blank" rel="noreferrer">Abrir loja ↗</a></div></header>
+    {erro && <div className="sv-erro" role="alert">{erro}</div>}{aviso && <div className="sv-sucesso" role="status">{aviso}</div>}
+    <div className="sv-link"><div><strong>Link da sua loja</strong><span>{link}</span></div><button onClick={async () => { try { await navigator.clipboard.writeText(link); setAviso('Link copiado.'); } catch { setErro('Não foi possível copiar. Selecione o link da loja.'); } }}>Copiar link</button><span className={`sv-status ${config.pausada ? 'sv-pausada' : ''}`}>{config.pausada ? 'Pedidos pausados' : 'Pedidos habilitados'}</span></div>
+    <div className="sv-layout"><nav className="sv-nav" aria-label="Seções da vitrine">{SECOES.map(([id,titulo,sub],i) => <button key={id} className={secao===id ? 'is-ativa' : ''} onClick={() => setSecao(id)}><i>{String(i+1).padStart(2,'0')}</i><span>{titulo}<small>{sub}</small></span></button>)}<div className="sv-dica">O cadastro, o preço e a publicação dos produtos continuam na área <strong>Produtos</strong>. Aqui você organiza sua apresentação.</div></nav>
+    <main className="sv-conteudo"><div className="sv-secao-titulo"><h2>{SECOES.find(s => s[0]===secao)?.[1]}</h2><span>Alterações entram no ar ao publicar.</span></div>
+    <fieldset disabled={salvando || upload || !salvo}>
+    {secao==='identidade' && <><div className="sv-logo"><div>{logo ? <img src={logo.startsWith('/') ? `${backendUrl}${logo}` : logo} alt="Logomarca da loja" /> : <span>Logo</span>}</div><label className="sv-upload">{upload ? 'Enviando…' : 'Enviar logomarca'}<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { void enviarImagem(e.target.files?.[0],setLogo); e.target.value=''; }} /></label><button onClick={() => setLogo('')} disabled={!logo}>Remover</button></div><p className="sv-ajuda">PNG, JPG ou WEBP até 3 MB. Prefira uma imagem quadrada, sem margens excessivas.</p><Campo titulo="Nome exibido na loja" ajuda="Não altera o nome do estabelecimento nos pedidos e documentos fiscais."><input maxLength={100} placeholder={nomeLoja} value={config.nomePublico} onChange={e => mudar('nomePublico',e.target.value)} /></Campo><Campo titulo="Cor principal"><div className="sv-cor"><input type="color" value={config.cor} onChange={e => mudar('cor',e.target.value)} /><input aria-label="Código da cor" maxLength={7} value={config.cor} onChange={e => mudar('cor',e.target.value)} /><span style={{ background:config.cor }}>Sua marca</span></div></Campo><Campo titulo="Sobre a loja" ajuda="Apresentação exibida no rodapé da vitrine."><textarea maxLength={1000} rows={4} placeholder="Conte um pouco sobre sua loja e o que seus clientes encontram aqui." value={config.sobre} onChange={e => mudar('sobre',e.target.value)} /></Campo></>}
+    {secao==='inicio' && <><Campo titulo="Faixa de aviso" ajuda={`${config.anuncio.length}/180 caracteres. Deixe em branco para ocultar.`}><input maxLength={180} placeholder="Ex.: Confira nossa seleção da semana" value={config.anuncio} onChange={e => mudar('anuncio',e.target.value)} /></Campo><h3>Seções da página inicial</h3><p className="sv-ajuda">Escolha quais seções aparecem e ajuste a ordem com as setas. O catálogo completo continua acessível pela busca.</p><div className="sv-ordem">{config.secoes.map((id,i) => <div key={id}><strong>{i+1}. {nomes[id]}</strong><button disabled={!i} onClick={() => mudar('secoes',mover(config.secoes,i,-1))} aria-label={`Subir ${nomes[id]}`}>↑</button><button disabled={i===config.secoes.length-1} onClick={() => mudar('secoes',mover(config.secoes,i,1))} aria-label={`Descer ${nomes[id]}`}>↓</button><button onClick={() => mudar('secoes',config.secoes.filter(x => x!==id))}>Ocultar</button></div>)}</div><div className="sv-acoes">{(['banners','categorias','destaques'] as const).filter(id => !config.secoes.includes(id)).map(id => <button key={id} onClick={() => mudar('secoes',[...config.secoes,id])}>+ {nomes[id]}</button>)}</div></>}
+    {secao==='banners' && <><div className="sv-acoes"><p className="sv-ajuda">Até 6 campanhas. O botão leva ao catálogo ou à categoria escolhida.</p><button onClick={() => mudar('banners',[...config.banners,bannerNovo()])} disabled={config.banners.length>=6}>+ Adicionar banner</button></div>{!config.banners.length && <div className="sv-vazio"><strong>Apresente sua loja com uma campanha</strong><p>Enquanto não houver banners cadastrados, a vitrine usa uma apresentação neutra do catálogo.</p></div>}{config.banners.map((b,i) => <article className="sv-banner" key={i}><header><strong>Banner {i+1}</strong><div className="sv-acoes"><label><input type="checkbox" checked={b.ativo} onChange={e => editarBanner(i,{ ativo:e.target.checked })} /> Exibir</label><button disabled={!i} aria-label={`Subir banner ${i+1}`} onClick={() => mudar('banners',mover(config.banners,i,-1))}>↑</button><button disabled={i===config.banners.length-1} aria-label={`Descer banner ${i+1}`} onClick={() => mudar('banners',mover(config.banners,i,1))}>↓</button><button onClick={() => mudar('banners',config.banners.filter((_,k) => k!==i))}>Excluir</button></div></header><Campo titulo="Título"><input maxLength={100} value={b.titulo} onChange={e => editarBanner(i,{ titulo:e.target.value })} /></Campo><Campo titulo="Texto de apoio"><textarea maxLength={220} rows={2} value={b.texto} onChange={e => editarBanner(i,{ texto:e.target.value })} /></Campo><div className="sv-dupla"><Campo titulo="Texto do botão"><input maxLength={40} value={b.botao} onChange={e => editarBanner(i,{ botao:e.target.value })} /></Campo><Campo titulo="Destino do botão"><select value={b.categoria} onChange={e => editarBanner(i,{ categoria:e.target.value })}><option value="">Todos os produtos</option>{categorias.map(c => <option key={c}>{c}</option>)}</select></Campo></div><div className="sv-banner-img">{b.imagemUrl && <img src={b.imagemUrl.startsWith('/') ? `${backendUrl}${b.imagemUrl}` : b.imagemUrl} alt={`Imagem do banner ${i+1}`} />}<label className="sv-upload">Enviar imagem<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => { void enviarImagem(e.target.files?.[0],url => editarBanner(i,{ imagemUrl:url })); e.target.value=''; }} /></label>{b.imagemUrl && <button onClick={() => editarBanner(i,{ imagemUrl:'' })}>Remover imagem</button>}<small>Imagem de apoio · até 3 MB · PNG, JPG ou WEBP</small></div></article>)}</>}
+    {secao==='destaques' && <><h3>Categorias em destaque</h3><p className="sv-ajuda">Sem seleção, todas as categorias publicadas aparecem automaticamente. Ao selecionar, você define a ordem.</p><div className="sv-selecao">{categorias.map(c => <label key={c}><input type="checkbox" checked={config.categoriasDestaque.includes(c)} disabled={!config.categoriasDestaque.includes(c) && config.categoriasDestaque.length>=24} onChange={e => mudar('categoriasDestaque',e.target.checked ? [...config.categoriasDestaque,c] : config.categoriasDestaque.filter(x => x!==c))} />{c}</label>)}</div>{ordem(config.categoriasDestaque,itens => mudar('categoriasDestaque',itens))}<h3>Produtos selecionados pela loja</h3><p className="sv-ajuda">Escolha até 24 produtos ativos e publicados. Sem seleção, a vitrine usa o ranking de vendas, quando disponível.</p><Campo titulo="Pesquisar por nome, código ou EAN"><input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Pesquisar produtos publicados" /></Campo><div className="sv-produtos">{resultados.map(p => <label key={p.id}><input type="checkbox" checked={config.produtosDestaque.includes(p.id)} disabled={!config.produtosDestaque.includes(p.id) && config.produtosDestaque.length>=24} onChange={e => mudar('produtosDestaque',e.target.checked ? [...config.produtosDestaque,p.id] : config.produtosDestaque.filter(x => x!==p.id))} /><span>{p.nome}<small>{p.codigoInterno} · {p.categoria || 'Sem categoria'}</small></span></label>)}{!resultados.length && <p>Nenhum produto publicado encontrado.</p>}</div>{ordem(config.produtosDestaque,itens => mudar('produtosDestaque',itens))}<Campo titulo="Quantidade de produtos em cada destaque"><input type="number" min={1} max={24} value={config.limiteDestaques} onChange={e => mudar('limiteDestaques',Number(e.target.value))} /></Campo><button onClick={() => { if (dirty && !window.confirm('Descartar as alterações não publicadas da vitrine?')) return; onProdutos?.(); }}>Gerenciar cadastro e publicação em Produtos ↗</button></>}
+    {secao==='atendimento' && <><div className="sv-switch"><div><strong>Receber pedidos online</strong><p>Ao pausar, o catálogo permanece visível e novas compras ficam bloqueadas.</p></div><label><input type="checkbox" checked={!config.pausada} onChange={e => mudar('pausada',!e.target.checked)} /> Habilitado</label></div>{config.pausada && <Campo titulo="Mensagem quando os pedidos estiverem pausados"><input maxLength={200} value={config.mensagemPausa} onChange={e => mudar('mensagemPausa',e.target.value)} /></Campo>}<div className="sv-dupla"><Campo titulo="WhatsApp com DDD" ajuda="Em branco, utiliza o contato já cadastrado na empresa."><input maxLength={25} placeholder="(81) 99999-9999" value={config.whatsapp} onChange={e => mudar('whatsapp',e.target.value)} /></Campo><Campo titulo="Instagram"><input maxLength={300} placeholder="https://www.instagram.com/sualoja" value={config.instagram} onChange={e => mudar('instagram',e.target.value)} /></Campo></div><Campo titulo="Horário de atendimento informado aos clientes" ajuda="Texto informativo no rodapé. Para interromper novas compras, use o controle de pedidos acima."><input maxLength={200} placeholder="Segunda a sábado, das 8h às 20h" value={config.horarioTexto} onChange={e => mudar('horarioTexto',e.target.value)} /></Campo><Campo titulo="Pedido mínimo em produtos (R$)" ajuda="Zero permite pedidos de qualquer valor. A entrega continua combinada com a loja."><input type="number" min={0} max={100000} step="0.01" value={config.pedidoMinimo} onChange={e => mudar('pedidoMinimo',Number(e.target.value))} /></Campo><h3>Formas de pagamento aceitas</h3><p className="sv-ajuda">PIX com chave enviada pela loja, cartão na entrega e dinheiro ao receber. Selecione ao menos uma opção.</p><div className="sv-selecao">{(['pix','cartao','dinheiro'] as const).map(p => <label key={p}><input type="checkbox" checked={config.pagamentos.includes(p)} onChange={e => mudar('pagamentos',e.target.checked ? [...config.pagamentos,p] : config.pagamentos.filter(x => x!==p))} />{p==='pix' ? 'PIX' : p==='cartao' ? 'Cartão' : 'Dinheiro'}</label>)}</div></>}
+    {secao==='buscadores' && <><Campo titulo="Título da página" ajuda={`${config.seoTitulo.length}/70 caracteres. Em branco, utiliza o nome da loja.`}><input maxLength={70} placeholder={`${nomeLoja} • Loja online`} value={config.seoTitulo} onChange={e => mudar('seoTitulo',e.target.value)} /></Campo><Campo titulo="Descrição da página" ajuda={`${config.seoDescricao.length}/160 caracteres. Usada na identificação da página; buscadores podem escolher outro trecho.`}><textarea maxLength={160} rows={3} value={config.seoDescricao} onChange={e => mudar('seoDescricao',e.target.value)} /></Campo><div className="sv-search-preview"><small>{link}</small><strong>{config.seoTitulo || `${nomeLoja} • Loja online`}</strong><p>{config.seoDescricao || `Conheça os produtos de ${config.nomePublico || nomeLoja}.`}</p></div></>}
+    </fieldset></main></div>
+    <footer className="sv-savebar"><div><strong>{dirty ? 'Alterações ainda não publicadas' : 'Configuração publicada'}</strong><small>{dirty ? 'Confira a prévia antes de colocar as alterações no ar.' : 'A vitrine utiliza a última configuração salva.'}</small></div><div className="sv-acoes"><button disabled={!dirty || salvando || upload} onClick={() => { if (!window.confirm('Descartar as alterações não publicadas?')) return; const old = JSON.parse(salvo); setConfig(old.configVitrine); setLogo(old.logoUrl); setErro(''); }}>Descartar</button><button onClick={() => setPrevia(true)} disabled={!preview || upload}>Visualizar</button><button className="sv-primary" disabled={!dirty || salvando || upload || !salvo} onClick={() => void salvar()}>{salvando ? 'Publicando…' : 'Publicar alterações'}</button></div></footer>
+    {previa && preview && <Previa cardapio={preview} onClose={() => setPrevia(false)} />}
+  </div>;
 }

@@ -1,9 +1,10 @@
+import { validarConfigVitrine, lerConfigVitrine, urlVitrine, ErroConfigVitrine } from './configVitrine';
 import { Router, Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { obterSessaoDoRequest, exigirLojaAdimplente } from './auth';
-import { obterProdutosDaLoja, salvarProduto, salvarProdutosEmLote, historicoProduto, deletarProduto, salvarLoja } from './database';
+import { obterProdutosDaLoja, salvarProduto, salvarProdutosEmLote, historicoProduto, deletarProduto, salvarConfiguracaoVitrine } from './database';
 import { lojas } from './tenants';
 import { Produto, Sessao } from './types';
 import { prepararProduto, verificarIdentificadores, ErroCatalogo } from './catalogoProduto';
@@ -213,21 +214,27 @@ router.delete('/produtos/:id', exigirLojaAdimplente, async (req: RequestComSessa
   }
 });
 
-// PUT /api/gestao/loja — configurações da vitrine (hoje: logomarca)
+router.get('/loja', (req: RequestComSessao, res: Response) => {
+  const loja = lojas.find(l => l.id === resolverLojaId(req));
+  if (!loja) { res.status(404).json({ error: 'Loja não encontrada.' }); return; }
+  res.json({ logoUrl: loja.logoUrl || '', configVitrine: lerConfigVitrine(loja.configVitrine) });
+});
 router.put('/loja', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
   try {
-    const lojaId = resolverLojaId(req);
-    const loja = lojas.find(l => l.id === lojaId);
-    if (!loja) {
-      res.status(404).json({ error: 'Loja não encontrada.' });
-      return;
+    const loja = lojas.find(l => l.id === resolverLojaId(req));
+    if (!loja) { res.status(404).json({ error: 'Loja não encontrada.' }); return; }
+    const nova = { ...loja };
+    if ('logoUrl' in (req.body || {})) nova.logoUrl = urlVitrine(req.body.logoUrl) || undefined;
+    if ('configVitrine' in (req.body || {})) {
+      nova.configVitrine = validarConfigVitrine(req.body.configVitrine);
+      const catalogo = await obterProdutosDaLoja(loja.id);
+      if (nova.configVitrine.produtosDestaque.some(id => !catalogo.some(p => p.id === id && p.ativo && (p.situacao || 'ativo') === 'ativo' && (p.publicado ?? p.ativo)))) throw new ErroConfigVitrine('Selecione destaques entre os produtos ativos e publicados desta loja.');
     }
-    if ('logoUrl' in (req.body || {})) {
-      loja.logoUrl = textoLimpo(req.body.logoUrl, 600) || undefined;
-    }
-    await salvarLoja(loja);
-    res.json({ success: true, logoUrl: loja.logoUrl });
-  } catch (err: any) {
+    await salvarConfiguracaoVitrine(nova);
+    Object.assign(loja, { logoUrl: nova.logoUrl, configVitrine: nova.configVitrine });
+    res.json({ success: true, logoUrl: loja.logoUrl || '', configVitrine: lerConfigVitrine(loja.configVitrine) });
+  } catch (err) {
+    if (err instanceof ErroConfigVitrine) { res.status(400).json({ error: err.message }); return; }
     console.error('[GestaoVitrine] Erro ao salvar loja:', err);
     res.status(500).json({ error: 'Erro ao salvar as configurações da loja.' });
   }

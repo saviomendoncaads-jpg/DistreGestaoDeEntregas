@@ -15,6 +15,9 @@ import {
   type DestinatarioNota, type EscolhaFiscal, type NotaCompleta, type NotaResumo, type StatusFiscal,
 } from './components/fiscal/fiscalApi';
 import { imprimirNota } from './components/fiscal/danfe';
+import LoginScreen from './components/LoginScreen';
+import AdminMaster from './components/admin/AdminMaster';
+import type { Empresa, Loja } from './components/admin/admin-types';
 import './App.css';
 
 declare const L: any;
@@ -255,37 +258,9 @@ interface DadoPerformanceHistorico {
 // Histórico de performance baseado apenas em entregas reais — sem dados mockados estáticos
 const HISTORICO_PERFORMANCE: DadoPerformanceHistorico[] = [];
 
-interface Empresa {
-  id: string;
-  nome: string;
-  cnpj: string;
-  telefone?: string;
-  email?: string;
-  ativo: boolean;
-  criadoEm: string;
-  totalLojas?: number;
-  lojasAtivas?: number;
-}
 
-interface Loja {
-  id: string;
-  empresaId: string;
-  nome: string;
-  cnpj?: string;
-  endereco?: string;
-  numero?: string;
-  bairro?: string;
-  cidade?: string;
-  uf?: string;
-  cep?: string;
-  usuario: string;
-  chaveAcesso: string;
-  ativo: boolean;
-  criadoEm: string;
-  recebePedidos?: boolean;
-  latitude?: number;
-  longitude?: number;
-}
+
+
 
 interface Sessao {
   tipo: 'admin' | 'loja';
@@ -370,6 +345,8 @@ export default function App() {
   const [lojaVisualizada, setLojaVisualizada] = useState<{ id: string; nome: string; nomeEmpresa: string } | null>(null);
 
   // --- ESTADOS DO MÓDULO FINANCEIRO ---
+  const [adminDataState, setAdminDataState] = useState<Record<string, 'loading' | 'refreshing' | 'ready' | 'error'>>({});
+  const adminRequestVersions = useRef<Record<string, number>>({});
   const [adminSubView, setAdminSubView] = useState<'operacional' | 'financeiro'>('operacional');
   const [finSubTab, setFinSubTab] = useState<'faturas' | 'relatorios' | 'planos_config'>('faturas');
   
@@ -507,125 +484,75 @@ export default function App() {
     localStorage.removeItem('distre_driver_location');
   };
 
-  const carregarEmpresas = async () => {
+  // Each dataset keeps its own status and ignores obsolete responses.
+  const loadAdminData = async <T,>(key: string, url: string, apply: (data: T) => void) => {
+    const version = (adminRequestVersions.current[key] ?? 0) + 1;
+    adminRequestVersions.current[key] = version;
+    setAdminDataState(previous => ({ ...previous, [key]: previous[key] === 'ready' || previous[key] === 'refreshing' ? 'refreshing' : 'loading' }));
     try {
-      const res = await apiFetch(`${BACKEND_URL}/api/empresas`);
-      if (res.ok) {
-        const data = await res.json();
-        setEmpresas(data);
+      const response = await apiFetch(url);
+      if (!response.ok) throw new Error('Não foi possível consultar os dados.');
+      const data: T = await response.json();
+      if (adminRequestVersions.current[key] !== version) return;
+      apply(data);
+      setAdminDataState(previous => ({ ...previous, [key]: 'ready' }));
+    } catch {
+      if (adminRequestVersions.current[key] === version) {
+        setAdminDataState(previous => ({ ...previous, [key]: 'error' }));
       }
-    } catch (err) {
-      console.error('Erro ao carregar empresas:', err);
     }
   };
 
-  const carregarLojas = async (empresaId: string) => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/empresas/${empresaId}/lojas`);
-      if (res.ok) {
-        const data = await res.json();
-        setLojasDaEmpresa(prev => ({ ...prev, [empresaId]: data }));
-      }
-    } catch (err) {
-      console.error(`Erro ao carregar lojas da empresa ${empresaId}:`, err);
-    }
-  };
+  const carregarEmpresas = () => loadAdminData('empresas', BACKEND_URL + '/api/empresas', setEmpresas);
 
-  // --- FUNÇÕES E EFEITOS DO MÓDULO FINANCEIRO ---
+  const carregarLojas = (empresaId: string) => loadAdminData<Loja[]>('lojas:' + empresaId,
+    BACKEND_URL + '/api/empresas/' + empresaId + '/lojas',
+    data => setLojasDaEmpresa(previous => ({ ...previous, [empresaId]: data })));
 
-  const carregarFinanceiroDashboard = async () => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/dashboard`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinDashboard(data);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar dashboard financeiro:', err);
-    }
-  };
+  const carregarFinanceiroDashboard = () => loadAdminData('dashboard', BACKEND_URL + '/api/admin/financeiro/dashboard', setFinDashboard);
 
-  const carregarFinanceiroFaturas = async () => {
-    try {
-      const queryParams = new URLSearchParams({
-        status: finFaturasFiltros.status,
-        empresaId: finFaturasFiltros.empresaId,
-        dataInicio: finFaturasFiltros.dataInicio,
-        dataFim: finFaturasFiltros.dataFim,
-        page: finPaginaAtual.toString(),
-        limit: finFaturasFiltros.limit.toString()
-      });
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/faturas?${queryParams.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinFaturas(data.faturas || []);
-        setFinTotalPaginas(data.paginacao?.paginas || 1);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar faturas:', err);
-    }
+  const carregarFinanceiroFaturas = () => {
+    const query = new URLSearchParams({
+      status: finFaturasFiltros.status, empresaId: finFaturasFiltros.empresaId,
+      dataInicio: finFaturasFiltros.dataInicio, dataFim: finFaturasFiltros.dataFim,
+      page: String(finPaginaAtual), limit: String(finFaturasFiltros.limit)
+    });
+    return loadAdminData<{ faturas?: typeof finFaturas; paginacao?: { paginas: number } }>('faturas', BACKEND_URL + '/api/admin/financeiro/faturas?' + query, data => {
+      setFinFaturas(data.faturas || []);
+      setFinTotalPaginas(data.paginacao?.paginas || 1);
+    });
   };
 
   const carregarFinanceiroRelatorios = async () => {
+    const key = 'relatorios';
+    const version = (adminRequestVersions.current[key] ?? 0) + 1;
+    adminRequestVersions.current[key] = version;
+    setAdminDataState(previous => ({ ...previous, [key]: previous[key] === 'ready' || previous[key] === 'refreshing' ? 'refreshing' : 'loading' }));
     try {
-      const [resFat, resInad, resChurn, resPrev] = await Promise.all([
-        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/faturamento`),
-        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/inadimplencia`),
-        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/churn`),
-        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/previsibilidade`)
-      ]);
-      if (resFat.ok) setFinRelFaturamento(await resFat.json());
-      if (resInad.ok) setFinRelInadimplencia(await resInad.json());
-      if (resChurn.ok) setFinRelChurn(await resChurn.json());
-      if (resPrev.ok) setFinRelPrevisibilidade(await resPrev.json());
-    } catch (err) {
-      console.error('Erro ao carregar relatórios financeiros:', err);
+      const responses = await Promise.all(['faturamento', 'inadimplencia', 'churn', 'previsibilidade'].map(report =>
+        apiFetch(BACKEND_URL + '/api/admin/financeiro/relatorios/' + report)));
+      if (responses.some(response => !response.ok)) throw new Error('Relatórios indisponíveis');
+      const [faturamento, inadimplencia, churn, previsibilidade] = await Promise.all(responses.map(response => response.json()));
+      if (adminRequestVersions.current[key] !== version) return;
+      setFinRelFaturamento(faturamento); setFinRelInadimplencia(inadimplencia);
+      setFinRelChurn(churn); setFinRelPrevisibilidade(previsibilidade);
+      setAdminDataState(previous => ({ ...previous, [key]: 'ready' }));
+    } catch {
+      if (adminRequestVersions.current[key] === version) setAdminDataState(previous => ({ ...previous, [key]: 'error' }));
     }
   };
 
-  const carregarFinanceiroConfig = async () => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/configuracoes`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinConfiguracoes(data);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar configurações de cobrança:', err);
-    }
+  const carregarFinanceiroConfig = () => loadAdminData('configuracoes', BACKEND_URL + '/api/admin/financeiro/configuracoes', setFinConfiguracoes);
+  const carregarFinanceiroAssinaturas = () => loadAdminData('assinaturas', BACKEND_URL + '/api/admin/financeiro/assinaturas', setFinAssinaturas);
+  const carregarFinanceiroPlanos = () => loadAdminData('planos', BACKEND_URL + '/api/admin/financeiro/planos', setFinPlanos);
+
+  const carregarTodosDadosFinanceiros = async () => {
+    await Promise.all([carregarFinanceiroDashboard(), carregarFinanceiroFaturas(), carregarFinanceiroRelatorios(),
+      carregarFinanceiroConfig(), carregarFinanceiroAssinaturas(), carregarFinanceiroPlanos()]);
   };
 
-  const carregarFinanceiroAssinaturas = async () => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/assinaturas`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinAssinaturas(data);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar assinaturas:', err);
-    }
-  };
-
-  const carregarFinanceiroPlanos = async () => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/planos`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinPlanos(data);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar planos:', err);
-    }
-  };
-
-  const carregarTodosDadosFinanceiros = () => {
-    carregarFinanceiroDashboard();
-    carregarFinanceiroFaturas();
-    carregarFinanceiroRelatorios();
-    carregarFinanceiroConfig();
-    carregarFinanceiroAssinaturas();
-    carregarFinanceiroPlanos();
+  const refreshAdminData = async () => {
+    await Promise.all([carregarEmpresas(), carregarTodosDadosFinanceiros(), ...expandedEmpresas.map(carregarLojas)]);
   };
 
   const handleCobrarManual = async (e: React.FormEvent) => {
@@ -803,16 +730,16 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (sessao?.tipo === 'admin' && !lojaVisualizada && adminSubView === 'financeiro') {
+    if (sessao?.tipo === 'admin' && !lojaVisualizada) {
       carregarTodosDadosFinanceiros();
     }
-  }, [sessao, lojaVisualizada, adminSubView]);
+  }, [sessao, lojaVisualizada]);
 
   useEffect(() => {
     if (sessao?.tipo === 'admin' && !lojaVisualizada && adminSubView === 'financeiro') {
       carregarFinanceiroFaturas();
     }
-  }, [finPaginaAtual, finFaturasFiltros]);
+  }, [finPaginaAtual, finFaturasFiltros, adminSubView]);
 
   const toggleEmpresaExpandida = (empresaId: string) => {
     if (expandedEmpresas.includes(empresaId)) {
@@ -3034,1638 +2961,158 @@ export default function App() {
   const isWithinGeofenceMobile = distanceMobile < 3;
 
   if (!sessao) {
-    return (
-      <div className="login-page">
-        <div className="login-card">
-          <div className="login-logo">
-            <div className="login-brand">
-              <svg className="login-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-                <rect width="48" height="48" rx="10" fill="#070f1d" />
-                <path d="m5 11 12 13L5 37h9l12-13L14 11Zm16 0 12 13-12 13h9l12-13L30 11Z" fill="#2878ff" />
-              </svg>
-              <span className="login-word">DISTRE</span>
-            </div>
-            <p>Orquestração e Gestão de Entregas</p>
-          </div>
-          
-          <div className="login-tabs">
-            <button 
-              type="button" 
-              className={`login-tab ${loginTab === 'loja' ? 'active' : ''}`}
-              onClick={() => { setLoginTab('loja'); setLoginError(null); }}
-            >
-              Portal da Loja
-            </button>
-            <button 
-              type="button" 
-              className={`login-tab ${loginTab === 'admin' ? 'active' : ''}`}
-              onClick={() => { setLoginTab('admin'); setLoginError(null); }}
-            >
-              Administrador Master
-            </button>
-          </div>
-
-          <form className="login-form" onSubmit={handleLogin}>
-            <div className="form-group">
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Usuário</label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder={loginTab === 'admin' ? 'admin' : 'usuario_da_loja'}
-                value={loginUsuario}
-                onChange={e => setLoginUsuario(e.target.value)}
-                required
-              />
-            </div>
-            
-            <div className="form-group">
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Senha</label>
-              <input 
-                type="password" 
-                className="form-input" 
-                placeholder="••••••••"
-                value={loginSenha}
-                onChange={e => setLoginSenha(e.target.value)}
-                required
-              />
-            </div>
-
-            {loginError && <div className="login-error">{loginError}</div>}
-
-            <button type="submit" className="login-btn">
-              Entrar no Sistema
-            </button>
-          </form>
-        </div>
-      </div>
-    );
+    return <LoginScreen mode={loginTab} username={loginUsuario} password={loginSenha} error={loginError}
+      onModeChange={mode => { setLoginTab(mode); setLoginError(null); }}
+      onUsernameChange={setLoginUsuario} onPasswordChange={setLoginSenha} onSubmit={handleLogin} />;
   }
 
   if (sessao.tipo === 'admin' && !lojaVisualizada) {
-    const totalLojas = empresas.reduce((acc, curr) => acc + (curr.totalLojas || 0), 0);
-    const lojasAtivas = empresas.reduce((acc, curr) => acc + (curr.lojasAtivas || 0), 0);
-
-    return (
-      <div className="app-container">
-        {/* Header Admin */}
-        <header className="app-header">
-          <div className="logo-section">
-            <div className="logo-icon" style={{ background: 'linear-gradient(135deg, var(--color-purple), var(--color-pink))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>M</div>
-            <div>
-              <h1>Distre - Painel Master</h1>
-            </div>
-            <span className="version-badge" style={{ background: 'var(--color-purple)', color: '#fff' }}>Master</span>
-          </div>
-          <div className="status-badges">
-            <div className="status-badge">
-              <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
-              <span>{isConnected ? 'Servidor Conectado' : 'Desconectado'}</span>
-            </div>
-          </div>
-          <div className="header-actions">
-            <button className="btn" style={{ background: '#1f293d', color: 'var(--color-rose)', border: '1px solid rgba(244, 63, 94, 0.2)' }} onClick={handleLogout}>Sair</button>
-          </div>
-        </header>
-
-        {/* Navigation Tabs — segmented control */}
-        <div style={{ display: 'flex', gap: 'var(--space-1)', background: 'var(--bg-secondary)', padding: 'var(--space-1)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-thin)', marginBottom: 'var(--space-6)' }}>
-          {([
-            { id: 'operacional', label: 'Gestão de Empresas & Lojas' },
-            { id: 'financeiro', label: 'Controle Financeiro & Cobrança (ERP)' },
-          ] as const).map(tab => {
-            const ativo = adminSubView === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setAdminSubView(tab.id)}
-                style={{
-                  flex: 1,
-                  background: ativo ? 'var(--bg-card)' : 'transparent',
-                  color: ativo ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  border: 'none',
-                  fontWeight: 600,
-                  fontSize: 'var(--text-sm)',
-                  padding: '0.6rem 1rem',
-                  borderRadius: 'var(--radius-sm)',
-                  boxShadow: ativo ? 'var(--shadow-sm)' : 'none',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s ease, color 0.15s ease',
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {adminSubView === 'financeiro' ? (
-          <div className="financeiro-panel-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            {/* KPI Cards Grid */}
-            <div className="report-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-cyan)' }}>
-                <span className="kpi-label">MRR Atual (Assinaturas Ativas)</span>
-                <span className="kpi-value" style={{ color: 'var(--color-cyan)' }}>
-                  R$ {finDashboard?.mrrAtual.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0,00'}
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                  Projetado próximo mês: R$ {finDashboard?.mrrProjetado.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
-                </span>
-              </div>
-              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-amber)' }}>
-                <span className="kpi-label">Cobranças em Aberto</span>
-                <span className="kpi-value" style={{ color: 'var(--color-amber)' }}>
-                  {finDashboard?.totalFaturasEmAberto || 0} faturas
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                  Total: R$ {finDashboard?.valorEmAberto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
-                </span>
-              </div>
-              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-rose)' }}>
-                <span className="kpi-label">Inadimplência</span>
-                <span className="kpi-value" style={{ color: 'var(--color-rose)' }}>
-                  {finDashboard?.taxaInadimplencia || 0}%
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                  {finDashboard?.lojasInadimplentes || 0} de {finDashboard?.totalLojas || 0} lojas atrasadas
-                </span>
-              </div>
-              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-emerald)' }}>
-                <span className="kpi-label">Faturamento Líquido (Mês Atual)</span>
-                <span className="kpi-value" style={{ color: 'var(--color-emerald)' }}>
-                  R$ {finDashboard?.faturamentoLiquidoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                  Faturamento bruto: R$ {finDashboard?.faturamentoBrutoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
-                </span>
-              </div>
-            </div>
-
-            {/* Sub-tabs for Financeiro */}
-            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-thin)', paddingBottom: '0.5rem' }}>
-              <button
-                type="button"
-                className="btn btn-small"
-                style={{
-                  background: finSubTab === 'faturas' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                  color: finSubTab === 'faturas' ? 'var(--color-cyan)' : 'var(--text-secondary)',
-                  border: finSubTab === 'faturas' ? '1px solid var(--color-cyan)' : '1px solid transparent',
-                  borderRadius: '4px',
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  fontWeight: 600
-                }}
-                onClick={() => setFinSubTab('faturas')}
-              >
-                Faturas e Cobranças
-              </button>
-              <button
-                type="button"
-                className="btn btn-small"
-                style={{
-                  background: finSubTab === 'relatorios' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                  color: finSubTab === 'relatorios' ? 'var(--color-cyan)' : 'var(--text-secondary)',
-                  border: finSubTab === 'relatorios' ? '1px solid var(--color-cyan)' : '1px solid transparent',
-                  borderRadius: '4px',
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  fontWeight: 600
-                }}
-                onClick={() => setFinSubTab('relatorios')}
-              >
-                Relatórios Analíticos
-              </button>
-              <button
-                type="button"
-                className="btn btn-small"
-                style={{
-                  background: finSubTab === 'planos_config' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                  color: finSubTab === 'planos_config' ? 'var(--color-cyan)' : 'var(--text-secondary)',
-                  border: finSubTab === 'planos_config' ? '1px solid var(--color-cyan)' : '1px solid transparent',
-                  borderRadius: '4px',
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  fontWeight: 600
-                }}
-                onClick={() => setFinSubTab('planos_config')}
-              >
-                Planos, Assinaturas e Configurações
-              </button>
-            </div>
-
-            {/* TAB: FATURAS */}
-            {finSubTab === 'faturas' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {/* Filtros e Nova Cobrança */}
-                <div className="card" style={{ padding: '1rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'end', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'end' }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Empresa</label>
-                      <select
-                        className="form-input"
-                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
-                        value={finFaturasFiltros.empresaId}
-                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, empresaId: e.target.value }))}
-                      >
-                        <option value="">Todas as Empresas</option>
-                        {empresas.map(emp => (
-                          <option key={emp.id} value={emp.id}>{emp.nome}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Status</label>
-                      <select
-                        className="form-input"
-                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
-                        value={finFaturasFiltros.status}
-                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, status: e.target.value }))}
-                      >
-                        <option value="">Todos os Status</option>
-                        <option value="PAGA">Paga</option>
-                        <option value="PENDENTE">Pendente</option>
-                        <option value="ATRASADA">Atrasada</option>
-                        <option value="CONTESTADA">Contestada</option>
-                        <option value="CANCELADA">Cancelada</option>
-                      </select>
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Vencimento Inicial</label>
-                      <input
-                        type="date"
-                        className="form-input"
-                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
-                        value={finFaturasFiltros.dataInicio}
-                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, dataInicio: e.target.value }))}
-                      />
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Vencimento Final</label>
-                      <input
-                        type="date"
-                        className="form-input"
-                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
-                        value={finFaturasFiltros.dataFim}
-                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, dataFim: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btn btn-success"
-                    style={{ height: '34px', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}
-                    onClick={() => setShowCobrarManualForm(true)}
-                  >
-                    + Cobrança Manual
-                  </button>
-                </div>
-
-                {/* Tabela de Faturas */}
-                <div className="card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-thin)', overflow: 'hidden' }}>
-                  <div className="lojas-table-container">
-                    <table className="lojas-table">
-                      <thead>
-                        <tr>
-                          <th>ID / Ref</th>
-                          <th>Empresa</th>
-                          <th>CNPJ</th>
-                          <th>Mes/Ano</th>
-                          <th>Bruto</th>
-                          <th>Desconto</th>
-                          <th>Líquido</th>
-                          <th>Vencimento</th>
-                          <th>Pagamento</th>
-                          <th>Status</th>
-                          <th style={{ textAlign: 'right' }}>Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {finFaturas.length === 0 ? (
-                          <tr>
-                            <td colSpan={11} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-                              Nenhuma fatura encontrada com os filtros selecionados.
-                            </td>
-                          </tr>
-                        ) : (
-                          finFaturas.map(fat => {
-                            let badgeColor = 'gray';
-                            let statusText = fat.status;
-                            if (fat.status === 'PAGA') { badgeColor = 'var(--color-emerald)'; statusText = 'Paga'; }
-                            else if (fat.status === 'PENDENTE') { badgeColor = 'var(--color-amber)'; statusText = 'Pendente'; }
-                            else if (fat.status === 'ATRASADA') { badgeColor = 'var(--color-rose)'; statusText = 'Atrasada'; }
-                            else if (fat.status === 'CONTESTADA') { badgeColor = 'var(--color-purple)'; statusText = 'Contestada'; }
-                            else if (fat.status === 'CANCELADA') { badgeColor = '#4b5563'; statusText = 'Cancelada'; }
-
-                            return (
-                              <tr key={fat.id}>
-                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{fat.id}</td>
-                                <td><strong>{fat.empresaNome}</strong></td>
-                                <td style={{ color: 'var(--text-secondary)' }}>{fat.cnpj}</td>
-                                <td>{fat.referenciaMesAno}</td>
-                                <td style={{ fontFamily: 'var(--font-mono)' }}>R$ {fat.valorBruto.toFixed(2)}</td>
-                                <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-rose)' }}>-R$ {fat.valorDesconto.toFixed(2)}</td>
-                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>R$ {fat.valorLiquido.toFixed(2)}</td>
-                                <td>{new Date(fat.dataVencimento).toLocaleDateString('pt-BR')}</td>
-                                <td>{fat.dataPagamento ? new Date(fat.dataPagamento).toLocaleDateString('pt-BR') : '-'}</td>
-                                <td>
-                                  <span style={{
-                                    display: 'inline-block',
-                                    padding: '0.15rem 0.5rem',
-                                    borderRadius: '12px',
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600,
-                                    background: `rgba(${badgeColor === 'var(--color-emerald)' ? '16,185,129' : badgeColor === 'var(--color-amber)' ? '245,158,11' : badgeColor === 'var(--color-rose)' ? '244,63,94' : badgeColor === 'var(--color-purple)' ? '139,92,246' : '75,85,99'}, 0.15)`,
-                                    color: badgeColor,
-                                    border: `1px solid ${badgeColor}`
-                                  }}>
-                                    {statusText}
-                                  </span>
-                                </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
-                                    {fat.status !== 'PAGA' && fat.status !== 'CANCELADA' && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          className="btn btn-small btn-success"
-                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'var(--color-emerald)', color: '#000' }}
-                                          onClick={() => setShowBaixaManualForm(fat.id)}
-                                        >
-                                          Baixar
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn btn-small"
-                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'rgba(139, 92, 246, 0.2)', color: 'var(--color-purple)', border: '1px solid rgba(139, 92, 246, 0.3)' }}
-                                          onClick={() => {
-                                            setShowContestarForm(fat.id);
-                                            setContestarMotivo('');
-                                          }}
-                                        >
-                                          Contestar
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn btn-small"
-                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'rgba(244, 63, 94, 0.2)', color: 'var(--color-rose)', border: '1px solid rgba(244, 63, 94, 0.3)' }}
-                                          onClick={() => handleCancelarFatura(fat.id)}
-                                        >
-                                          Cancelar
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Paginação */}
-                  {finTotalPaginas > 1 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', borderTop: '1px solid var(--border-thin)' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        Página <strong>{finPaginaAtual}</strong> de <strong>{finTotalPaginas}</strong>
-                      </span>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button
-                          type="button"
-                          className="btn btn-small"
-                          disabled={finPaginaAtual === 1}
-                          onClick={() => setFinPaginaAtual(prev => Math.max(prev - 1, 1))}
-                        >
-                          Anterior
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-small"
-                          disabled={finPaginaAtual === finTotalPaginas}
-                          onClick={() => setFinPaginaAtual(prev => Math.min(prev + 1, finTotalPaginas))}
-                        >
-                          Próximo
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: RELATORIOS */}
-            {finSubTab === 'relatorios' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
-                  {/* Gráfico 1: Faturamento Bruto vs Líquido */}
-                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Faturamento Bruto vs. Líquido Mensal (Pagas)</h3>
-                    {finRelFaturamento.length === 0 ? (
-                      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Sem dados históricos suficientes.</div>
-                    ) : (
-                      <div>
-                        {/* Renderizar Gráfico SVG */}
-                        <svg width="100%" height="220" viewBox="0 0 500 220" style={{ overflow: 'visible' }}>
-                          <line x1="50" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="70" x2="480" y2="70" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="120" x2="480" y2="120" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="170" x2="480" y2="170" stroke="var(--border-thin)" strokeWidth="1" />
-                          
-                          {/* Desenha as barras */}
-                          {(() => {
-                            const maxVal = Math.max(...finRelFaturamento.map(d => Math.max(d.bruto, d.liquido)), 100);
-                            const scale = 150 / maxVal;
-                            
-                            return finRelFaturamento.slice(-5).map((d, idx) => {
-                              const x = 80 + idx * 80;
-                              const hBruto = d.bruto * scale;
-                              const hLiquido = d.liquido * scale;
-                              
-                              return (
-                                <g key={d.referencia}>
-                                  {/* Barra Bruto (Blue) */}
-                                  <rect x={x} y={170 - hBruto} width="18" height={hBruto} fill="url(#gradBruto)" rx="2" stroke="var(--color-blue)" strokeWidth="0.5" />
-                                  {/* Barra Liquido (Emerald) */}
-                                  <rect x={x + 22} y={170 - hLiquido} width="18" height={hLiquido} fill="url(#gradLiquido)" rx="2" stroke="var(--color-emerald)" strokeWidth="0.5" />
-                                  
-                                  {/* Labels */}
-                                  <text x={x + 20} y="185" fill="var(--text-secondary)" fontSize="9" textAnchor="middle">{d.referencia}</text>
-                                  {d.bruto > 0 && <text x={x + 9} y={165 - hBruto} fill="var(--color-blue)" fontSize="8" textAnchor="middle">R$ {d.bruto.toFixed(0)}</text>}
-                                  {d.liquido > 0 && <text x={x + 31} y={165 - hLiquido} fill="var(--color-emerald)" fontSize="8" textAnchor="middle">R$ {d.liquido.toFixed(0)}</text>}
-                                </g>
-                              );
-                            });
-                          })()}
-                          <defs>
-                            <linearGradient id="gradBruto" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="var(--color-blue)" stopOpacity="1" />
-                              <stop offset="100%" stopColor="rgba(59, 130, 246, 0.2)" stopOpacity="0.2" />
-                            </linearGradient>
-                            <linearGradient id="gradLiquido" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="var(--color-emerald)" stopOpacity="1" />
-                              <stop offset="100%" stopColor="rgba(16, 185, 129, 0.2)" stopOpacity="0.2" />
-                            </linearGradient>
-                          </defs>
-                        </svg>
-                        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            <span style={{ width: '12px', height: '12px', background: 'var(--color-blue)', borderRadius: '2px', border: '1px solid var(--color-blue)' }}></span>
-                            Faturamento Bruto
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            <span style={{ width: '12px', height: '12px', background: 'var(--color-emerald)', borderRadius: '2px', border: '1px solid var(--color-emerald)' }}></span>
-                            Faturamento Líquido
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Gráfico 2: Taxa de Inadimplência */}
-                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Taxa de Inadimplência Mensal (%)</h3>
-                    {finRelInadimplencia.length === 0 ? (
-                      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Sem dados suficientes.</div>
-                    ) : (
-                      <div>
-                        <svg width="100%" height="220" viewBox="0 0 500 220" style={{ overflow: 'visible' }}>
-                          <line x1="50" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="70" x2="480" y2="70" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="120" x2="480" y2="120" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="170" x2="480" y2="170" stroke="var(--border-thin)" strokeWidth="1" />
-                          
-                          {/* Desenhar linha/pontos */}
-                          {(() => {
-                            const points: string[] = [];
-                            finRelInadimplencia.slice(-5).forEach((d, idx) => {
-                              const x = 80 + idx * 80;
-                              const y = 170 - (d.taxaInadimplencia * 1.5);
-                              points.push(`${x},${y}`);
-                            });
-                            
-                            return (
-                              <g>
-                                {points.length > 1 && (
-                                  <polyline
-                                    fill="none"
-                                    stroke="var(--color-rose)"
-                                    strokeWidth="2.5"
-                                    points={points.join(' ')}
-                                  />
-                                )}
-                                {finRelInadimplencia.slice(-5).map((d, idx) => {
-                                  const x = 80 + idx * 80;
-                                  const y = 170 - (d.taxaInadimplencia * 1.5);
-                                  return (
-                                    <g key={d.referencia}>
-                                      <circle cx={x} cy={y} r="5" fill="var(--bg-card)" stroke="var(--color-rose)" strokeWidth="2.5" />
-                                      <text x={x} y="185" fill="var(--text-secondary)" fontSize="9" textAnchor="middle">{d.referencia}</text>
-                                      <text x={x} y={y - 10} fill="var(--color-rose)" fontSize="9" textAnchor="middle" fontWeight="bold">{d.taxaInadimplencia}%</text>
-                                    </g>
-                                  );
-                                })}
-                              </g>
-                            );
-                          })()}
-                        </svg>
-                        <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                          Taxa % de MRR retido por faturas atrasadas sobre o total faturado no mês.
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
-                  {/* Churn Rate Financeiro */}
-                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Churn Rate Financeiro (MRR Perdido por Cancelamento)</h3>
-                    <div className="lojas-table-container">
-                      <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
-                        <thead>
-                          <tr>
-                            <th>Referência</th>
-                            <th>Faturas Emitidas</th>
-                            <th>Faturas Canceladas</th>
-                            <th>Receita Total</th>
-                            <th>Receita Perdida</th>
-                            <th>Churn Rate</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {finRelChurn.length === 0 ? (
-                            <tr>
-                              <td colSpan={6} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Sem dados de cancelamento.</td>
-                            </tr>
-                          ) : (
-                            finRelChurn.map(d => (
-                              <tr key={d.referencia}>
-                                <td style={{ fontWeight: 600 }}>{d.referencia}</td>
-                                <td>{d.faturasTotal}</td>
-                                <td style={{ color: 'var(--color-rose)' }}>{d.faturasCanceladas}</td>
-                                <td>R$ {d.receitaTotal.toFixed(2)}</td>
-                                <td style={{ color: 'var(--color-rose)' }}>R$ {d.receitaPerdida.toFixed(2)}</td>
-                                <td>
-                                  <strong style={{ color: d.churnRate > 0 ? 'var(--color-rose)' : 'var(--color-emerald)' }}>
-                                    {d.churnRate}%
-                                  </strong>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Relatório de Previsibilidade */}
-                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Contas a Receber nos Próximos Meses (Previsibilidade)</h3>
-                    <div className="lojas-table-container">
-                      <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
-                        <thead>
-                          <tr>
-                            <th>Dia Vencimento</th>
-                            <th>Total de Assinaturas</th>
-                            <th>Faturamento Projetado (MRR)</th>
-                            <th>Projeção Trimestral (3 Meses)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {finRelPrevisibilidade.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Nenhuma assinatura ativa para previsão.</td>
-                            </tr>
-                          ) : (
-                            finRelPrevisibilidade.map(d => (
-                              <tr key={d.diaVencimento}>
-                                <td style={{ fontWeight: 600 }}>Dia {d.diaVencimento}</td>
-                                <td>{d.totalAssinaturas} assinatura(s)</td>
-                                <td style={{ color: 'var(--color-cyan)', fontWeight: 600 }}>R$ {d.mrrProjetado.toFixed(2)}</td>
-                                <td style={{ color: 'var(--color-emerald)', fontWeight: 600 }}>R$ {(d.mrrProjetado * 3).toFixed(2)}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: PLANOS E CONFIGURAÇÕES */}
-            {finSubTab === 'planos_config' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
-                
-                {/* CONFIGURAÇÃO DE COBRANÇA */}
-                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Configurações de Cobrança e Inadimplência</h3>
-                  {finConfiguracoes && (
-                    <form onSubmit={handleSalvarConfigCobranca} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      <div className="form-group">
-                        <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Carência para Bloqueio de Acesso (Dias)</label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={finConfiguracoes.diasCarenciaBloqueio}
-                          onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, diasCarenciaBloqueio: parseInt(e.target.value) || 0 }))}
-                          required
-                        />
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Tempo limite com faturas vencidas antes de suspender acessos das lojas.</span>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Multa por Atraso (%)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="form-input"
-                            value={finConfiguracoes.multaPercentual}
-                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, multaPercentual: parseFloat(e.target.value) || 0 }))}
-                            required
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Juros ao Mês (%)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="form-input"
-                            value={finConfiguracoes.jurosMesPercentual}
-                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, jurosMesPercentual: parseFloat(e.target.value) || 0 }))}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Notificar E-mail (Dias Antes)</label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={finConfiguracoes.emailNotificacaoDiasAntes}
-                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, emailNotificacaoDiasAntes: parseInt(e.target.value) || 0 }))}
-                            required
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Notificar WhatsApp (Dias Atraso)</label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={finConfiguracoes.whatsappNotificacaoDiasAtraso}
-                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, whatsappNotificacaoDiasAtraso: parseInt(e.target.value) || 0 }))}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <button type="submit" className="btn btn-success" style={{ marginTop: '0.5rem', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}>
-                        Salvar Configurações
-                      </button>
-                    </form>
-                  )}
-                </div>
-
-                {/* PLANOS */}
-                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>Planos de Assinatura</h3>
-                    <button type="button" className="btn btn-success btn-small" onClick={startNovoPlano}>
-                      + Novo Plano
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {finPlanos.map(plan => (
-                      <div key={plan.id} style={{ padding: '0.75rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-thin)', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <strong style={{ color: 'var(--color-cyan)' }}>{plan.nome}</strong>
-                          <span style={{ fontSize: '0.85rem', marginLeft: '0.5rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                            R$ {plan.valorMensal.toFixed(2)}/mês
-                          </span>
-                          <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                            {plan.descricao}
-                          </p>
-                        </div>
-                        <button type="button" className="btn btn-small" onClick={() => startEditPlano(plan)} style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>
-                          Editar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* ASSINATURAS DAS EMPRESAS */}
-                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', gridColumn: 'span 2' }}>
-                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Assinaturas Ativas de Empresas</h3>
-                  <div className="lojas-table-container">
-                    <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
-                      <thead>
-                        <tr>
-                          <th>Empresa</th>
-                          <th>CNPJ</th>
-                          <th>Plano</th>
-                          <th>Valor Cobrado</th>
-                          <th>Dia Vencimento</th>
-                          <th>Status</th>
-                          <th>Próxima Cobrança</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {finAssinaturas.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Sem assinaturas registradas.</td>
-                          </tr>
-                        ) : (
-                          finAssinaturas.map(sub => (
-                            <tr key={sub.id}>
-                              <td><strong>{sub.empresaNome}</strong></td>
-                              <td style={{ color: 'var(--text-secondary)' }}>{sub.cnpj}</td>
-                              <td><span className="badge-tenant ativo" style={{ background: 'var(--color-purple)' }}>{sub.planoNome}</span></td>
-                              <td style={{ fontFamily: 'var(--font-mono)' }}>R$ {sub.valorEfetivo.toFixed(2)}</td>
-                              <td>Todo dia {sub.diaVencimento}</td>
-                              <td>
-                                {(() => {
-                                  const estilos: Record<string, { bg: string; cor: string; label: string }> = {
-                                    ATIVA:     { bg: 'rgba(16,185,129,0.1)', cor: 'var(--color-emerald)', label: 'Ativa' },
-                                    TRIAL:     { bg: 'rgba(59,130,246,0.1)', cor: 'var(--color-blue, #3b82f6)', label: 'Trial' },
-                                    ATRASADA:  { bg: 'rgba(245,158,11,0.1)', cor: 'var(--color-amber)', label: 'Atrasada' },
-                                    SUSPENSA:  { bg: 'rgba(244,63,94,0.1)', cor: 'var(--color-rose)', label: 'Suspensa' },
-                                    CANCELADA: { bg: 'rgba(75,85,99,0.15)', cor: '#9ca3af', label: 'Cancelada' },
-                                  };
-                                  const e = estilos[sub.status] ?? estilos.CANCELADA;
-                                  return (
-                                    <span style={{
-                                      display: 'inline-block',
-                                      padding: '0.1rem 0.4rem',
-                                      borderRadius: '4px',
-                                      fontSize: '0.75rem',
-                                      background: e.bg,
-                                      color: e.cor
-                                    }}>
-                                      {e.label}
-                                    </span>
-                                  );
-                                })()}
-                              </td>
-                              <td>{sub.proximoFaturamento ? new Date(sub.proximoFaturamento).toLocaleDateString('pt-BR') : '-'}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-              </div>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* Stats Grid */}
-            <div className="admin-stats-grid">
-          <div className="admin-stat-card">
-            <span className="admin-stat-label">Total de Empresas</span>
-            <span className="admin-stat-value">{empresas.length}</span>
-          </div>
-          <div className="admin-stat-card">
-            <span className="admin-stat-label">Lojas Cadastradas</span>
-            <span className="admin-stat-value">{totalLojas}</span>
-          </div>
-          <div className="admin-stat-card">
-            <span className="admin-stat-label">Lojas Ativas</span>
-            <span className="admin-stat-value" style={{ color: 'var(--color-emerald)' }}>{lojasAtivas}</span>
-          </div>
-        </div>
-
-        {/* Botão de Nova Empresa */}
-        <div className="admin-header">
-          <h2>Empresas e Redes Credenciadas</h2>
-          <button 
-            className="btn btn-success" 
-            onClick={() => setShowNovaEmpresaForm(!showNovaEmpresaForm)}
-          >
-            {showNovaEmpresaForm ? 'Cancelar' : '+ Nova Empresa'}
-          </button>
-        </div>
-
-        {/* Formulário de Nova Empresa */}
-        {showNovaEmpresaForm && (
-          <div className="card" style={{ marginBottom: '1.5rem', padding: '1.5rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-            <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--color-cyan)' }}>Cadastrar Nova Empresa</h3>
-            <form onSubmit={handleCadastrarEmpresa} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'end' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Razão Social / Nome</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaNome} 
-                  onChange={e => setNovaEmpresaNome(e.target.value)} 
-                  placeholder="Ex: Pizzaria Bella Italia Ltda"
-                  required 
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>CNPJ</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaCnpj} 
-                  onChange={e => setNovaEmpresaCnpj(e.target.value)} 
-                  placeholder="Ex: 12.345.678/0001-99"
-                  required 
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Telefone (opcional)</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaTelefone} 
-                  onChange={e => setNovaEmpresaTelefone(e.target.value)} 
-                  placeholder="(11) 99999-9999" 
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Email (opcional)</label>
-                <input 
-                  type="email" 
-                  className="form-input" 
-                  value={novaEmpresaEmail} 
-                  onChange={e => setNovaEmpresaEmail(e.target.value)} 
-                  placeholder="email@empresa.com" 
-                />
-              </div>
-              <button type="submit" className="btn btn-success" style={{ height: '38px' }}>Salvar Empresa</button>
-            </form>
-          </div>
-        )}
-
-        {/* Listagem de Empresas */}
-        <div className="empresas-container">
-          {empresas.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)', background: 'var(--bg-card)', border: '1px dashed var(--border-thin)', borderRadius: '12px' }}>
-              Nenhuma empresa cadastrada no sistema. Clique em "+ Nova Empresa" para começar.
-            </div>
-          ) : (
-            empresas.map(empresa => {
-              const isExpanded = expandedEmpresas.includes(empresa.id);
-              const lojas = lojasDaEmpresa[empresa.id] || [];
-              const isNovaLojaAberta = showNovaLojaForm === empresa.id;
-
-              return (
-                <div key={empresa.id} className="empresa-card">
-                  {/* Cabeçalho da Empresa */}
-                  <div className="empresa-card-header" onClick={() => toggleEmpresaExpandida(empresa.id)}>
-                    <div className="empresa-header-info">
-                      <svg 
-                        width="16" 
-                        height="16" 
-                        viewBox="0 0 24 24" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        strokeWidth="2" 
-                        style={{ 
-                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', 
-                          transition: 'transform 0.2s ease',
-                          color: empresa.ativo ? 'var(--color-cyan)' : 'var(--text-secondary)'
-                        }}
-                      >
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                      <span className="empresa-name" style={{ textDecoration: empresa.ativo ? 'none' : 'line-through', opacity: empresa.ativo ? 1 : 0.6 }}>{empresa.nome}</span>
-                      <span className="empresa-cnpj">{empresa.cnpj}</span>
-                      <span className={`badge-tenant ${empresa.ativo ? 'ativo' : 'inativo'}`}>
-                        {empresa.ativo ? 'Ativa' : 'Inativa'}
-                      </span>
-                    </div>
-
-                    <div className="empresa-actions" onClick={e => e.stopPropagation()}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginRight: '1rem' }}>
-                        {empresa.totalLojas || 0} loja(s)
-                      </span>
-                      <button 
-                        className="btn btn-small" 
-                        style={{ 
-                          fontSize: '0.7rem', 
-                          padding: '0.2rem 0.5rem',
-                          background: empresa.ativo ? 'rgba(244, 63, 94, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                          color: empresa.ativo ? 'var(--color-rose)' : 'var(--color-emerald)',
-                          border: empresa.ativo ? '1px solid rgba(244, 63, 94, 0.2)' : '1px solid rgba(16, 185, 129, 0.2)'
-                        }}
-                        onClick={() => handleToggleEmpresa(empresa.id)}
-                      >
-                        {empresa.ativo ? 'Desativar' : 'Ativar'}
-                      </button>
-                      <button 
-                        className="icon-btn danger" 
-                        title="Excluir Empresa"
-                        onClick={() => handleDeleteEmpresa(empresa.id)}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Lojas da Empresa (Conteúdo Expandido) */}
-                  {isExpanded && (
-                    <div className="empresa-card-content">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h4 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lojas / Redes</h4>
-                        <button 
-                          className="btn btn-success btn-small"
-                          onClick={() => {
-                            const abrindo = !isNovaLojaAberta;
-                            setShowNovaLojaForm(abrindo ? empresa.id : null);
-                            if (abrindo && finPlanos.length === 0) carregarFinanceiroPlanos();
-                          }}
-                        >
-                          {isNovaLojaAberta ? 'Cancelar' : '+ Nova Loja'}
-                        </button>
-                      </div>
-
-                      {/* Form Nova Loja */}
-                      {isNovaLojaAberta && (
-                        <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-thin)', borderRadius: '8px' }}>
-                          <h5 style={{ fontSize: '0.8rem', color: 'var(--color-cyan)', marginBottom: '0.75rem' }}>Cadastrar Nova Loja na Rede {empresa.nome}</h5>
-                          <form onSubmit={e => handleCadastrarLoja(e, empresa.id)} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Nome Fantasia</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaNome} 
-                                onChange={e => setNovaLojaNome(e.target.value)} 
-                                placeholder="Loja Centro" 
-                                required 
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>CNPJ da Loja</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaCnpj} 
-                                onChange={e => setNovaLojaCnpj(e.target.value)} 
-                                placeholder="00.000.000/0000-00" 
-                                required 
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Usuário de Acesso</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaUsuario} 
-                                onChange={e => setNovaLojaUsuario(e.target.value)} 
-                                placeholder="ex: lojacentro" 
-                                required 
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Senha Inicial</label>
-                              <input 
-                                type="password" 
-                                className="form-input" 
-                                value={novaLojaSenha}
-                                onChange={e => setNovaLojaSenha(e.target.value)}
-                                placeholder="Senha da loja"
-                                required
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Plano de Assinatura</label>
-                              <select
-                                className="form-input"
-                                value={novaLojaPlanoId}
-                                onChange={e => setNovaLojaPlanoId(e.target.value)}
-                                required
-                              >
-                                <option value="">Selecione o plano...</option>
-                                {finPlanos.filter(p => p.ativo !== false).map(p => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.nome} — R$ {Number(p.valorMensal).toFixed(2)}/mês
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>CEP</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaCep}
-                                onChange={e => setNovaLojaCep(e.target.value)}
-                                placeholder="00000-000"
-                                maxLength={9}
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Endereço (Logradouro)</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaEndereco}
-                                onChange={e => setNovaLojaEndereco(e.target.value)}
-                                placeholder="Rua das Flores"
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Número</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaNumero}
-                                onChange={e => setNovaLojaNumero(e.target.value)}
-                                placeholder="123"
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Bairro</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaBairro}
-                                onChange={e => setNovaLojaBairro(e.target.value)}
-                                placeholder="Bairro"
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Cidade</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaCidade}
-                                onChange={e => setNovaLojaCidade(e.target.value)}
-                                placeholder="São Paulo"
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>UF</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaUf}
-                                onChange={e => setNovaLojaUf(e.target.value.toUpperCase())}
-                                placeholder="SP"
-                                maxLength={2}
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', height: '34px' }}>
-                              <input 
-                                type="checkbox" 
-                                id="novaLojaRecebePedidos"
-                                checked={novaLojaRecebePedidos} 
-                                onChange={e => setNovaLojaRecebePedidos(e.target.checked)} 
-                                style={{ accentColor: 'var(--color-cyan)', cursor: 'pointer', width: '15px', height: '15px' }}
-                              />
-                              <label htmlFor="novaLojaRecebePedidos" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer', marginBottom: 0 }}>
-                                Ativar Fila de Pedidos (WhatsApp)
-                              </label>
-                            </div>
-                            <button type="submit" className="btn btn-success" style={{ height: '34px' }}>Salvar Loja</button>
-                          </form>
-                        </div>
-                      )}
-
-                      {/* Tabela de Lojas */}
-                      <div className="lojas-table-container">
-                        {lojas.length === 0 ? (
-                          <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                            Nenhuma loja cadastrada nesta empresa.
-                          </div>
-                        ) : (
-                          <table className="lojas-table">
-                            <thead>
-                              <tr>
-                                <th>Nome</th>
-                                <th>CNPJ</th>
-                                <th>Usuário</th>
-                                <th>Endereço</th>
-                                <th>Chave de Acesso</th>
-                                <th>Fila de Pedidos</th>
-                                <th>Status</th>
-                                <th style={{ textAlign: 'right' }}>Ações</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {lojas.map(loja => (
-                                <tr key={loja.id}>
-                                  <td style={{ fontWeight: 600 }}>{loja.nome}</td>
-                                  <td className="font-mono" style={{ fontSize: '0.78rem' }}>
-                                    {loja.cnpj || <em style={{ color: 'var(--text-muted)' }}>Não informado</em>}
-                                  </td>
-                                  <td className="font-mono">{loja.usuario}</td>
-                                  <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                                    {loja.endereco ? (
-                                      <>
-                                        {loja.endereco}
-                                        {loja.bairro && `, ${loja.bairro}`}
-                                        {loja.cidade && ` - ${loja.cidade}`}
-                                      </>
-                                    ) : (
-                                      <em style={{ color: 'var(--text-muted)' }}>Não informado</em>
-                                    )}
-                                  </td>
-                                  <td>
-                                    <div className="chave-acesso-box">
-                                      <span className="chave-acesso-text">{loja.chaveAcesso}</span>
-                                      <button 
-                                        type="button"
-                                        className="icon-btn" 
-                                        title="Copiar Chave de Acesso"
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(loja.chaveAcesso);
-                                          alert('Chave copiada para a área de transferência!');
-                                        }}
-                                      >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                        </svg>
-                                      </button>
-                                      <button 
-                                        type="button"
-                                        className="icon-btn" 
-                                        title="Regenerar Chave"
-                                        onClick={() => handleRegenerarChaveLoja(empresa.id, loja.id)}
-                                      >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-                                        </svg>
-                                      </button>
-                                    </div>
-                                  </td>
-                                  <td>
-                                    <span 
-                                      className={`badge-tenant ${loja.recebePedidos ? 'ativo' : 'inativo'}`}
-                                      style={{ cursor: 'pointer', border: loja.recebePedidos ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)', background: loja.recebePedidos ? 'rgba(245, 158, 11, 0.08)' : 'rgba(156, 163, 175, 0.08)', color: loja.recebePedidos ? 'var(--color-amber)' : '#9ca3af' }}
-                                      onClick={() => handleToggleRecebePedidos(empresa.id, loja)}
-                                      title="Clique para alternar Fila de Pedidos"
-                                    >
-                                      {loja.recebePedidos ? 'Habilitada' : 'Desabilitada'}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    <span className={`badge-tenant ${loja.ativo ? 'ativo' : 'inativo'}`}>
-                                      {loja.ativo ? 'Ativa' : 'Inativa'}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                                      <button 
-                                        className="btn btn-small btn-success" 
-                                        style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', background: 'var(--color-cyan)', color: '#000' }}
-                                        onClick={() => setLojaVisualizada({ id: loja.id, nome: loja.nome, nomeEmpresa: empresa.nome })}
-                                        disabled={!loja.ativo || !empresa.ativo}
-                                        title={(!loja.ativo || !empresa.ativo) ? 'Não é possível visualizar painel de loja ou empresa inativa' : 'Visualizar Dashboard'}
-                                      >
-                                        Painel
-                                      </button>
-                                      <button 
-                                        className="btn btn-small" 
-                                        style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', background: '#1f293d', color: '#fff', border: '1px solid rgba(255,255,255,0.08)' }}
-                                        onClick={() => startEditLoja(loja)}
-                                        title="Editar Informações da Loja"
-                                      >
-                                        Editar
-                                      </button>
-                                      <button 
-                                        className="btn btn-small"
-                                        style={{ 
-                                          fontSize: '0.7rem', 
-                                          padding: '0.15rem 0.4rem',
-                                          background: loja.ativo ? 'rgba(244, 63, 94, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                                          color: loja.ativo ? 'var(--color-rose)' : 'var(--color-emerald)',
-                                          border: loja.ativo ? '1px solid rgba(244, 63, 94, 0.2)' : '1px solid rgba(16, 185, 129, 0.2)'
-                                        }}
-                                        onClick={() => handleToggleLoja(empresa.id, loja.id)}
-                                      >
-                                        {loja.ativo ? 'Bloquear' : 'Liberar'}
-                                      </button>
-                                      <button 
-                                        className="icon-btn danger" 
-                                        title="Excluir Loja"
-                                        onClick={() => handleDeleteLoja(empresa.id, loja.id)}
-                                      >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <polyline points="3 6 5 6 21 6" />
-                                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                        </svg>
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </>
-    )}
-
-        {/* --- MODAIS DO MÓDULO FINANCEIRO --- */}
-        {showCobrarManualForm && createPortal(
-          <div className="report-modal-overlay" onClick={() => setShowCobrarManualForm(false)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>Gerar Cobrança Manual (Fatura Avulsa)</h2>
-                <button type="button" className="report-modal-close-btn" onClick={() => setShowCobrarManualForm(false)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleCobrarManual} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Empresa</label>
-                    <select
-                      className="form-input"
-                      value={manualCobrarEmpresaId}
-                      onChange={e => setManualCobrarEmpresaId(e.target.value)}
-                      required
-                    >
-                      <option value="">Selecione uma empresa...</option>
-                      {empresas.map(emp => (
-                        <option key={emp.id} value={emp.id}>{emp.nome}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Valor Cobrado (R$)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-input"
-                      value={manualCobrarValor}
-                      onChange={e => setManualCobrarValor(e.target.value)}
-                      placeholder="Ex: 299.00"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Referência / Descrição</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={manualCobrarDescricao}
-                      onChange={e => setManualCobrarDescricao(e.target.value)}
-                      placeholder="Ex: Mensalidade extra"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Data de Vencimento</label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      value={manualCobrarVencimento}
-                      onChange={e => setManualCobrarVencimento(e.target.value)}
-                      required
-                    />
-                  </div>
-                  {manualCobrarError && (
-                    <div style={{ color: 'var(--color-rose)', fontSize: '0.75rem' }}>{manualCobrarError}</div>
-                  )}
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}>Gerar Cobrança</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-
-        {showBaixaManualForm && createPortal(
-          <div className="report-modal-overlay" onClick={() => setShowBaixaManualForm(null)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>Dar Baixa Manual na Fatura</h2>
-                <button type="button" className="report-modal-close-btn" onClick={() => setShowBaixaManualForm(null)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleBaixaManual} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Fatura ID</label>
-                    <input type="text" className="form-input" value={showBaixaManualForm} readOnly disabled />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Comprovante de Referência / Transação</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={baixaManualComprovante}
-                      onChange={e => setBaixaManualComprovante(e.target.value)}
-                      placeholder="Ex: Autenticação Pix E123456"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Observações</label>
-                    <textarea
-                      className="form-input"
-                      value={baixaManualObservacoes}
-                      onChange={e => setBaixaManualObservacoes(e.target.value)}
-                      placeholder="Ex: Recebido via transferência bancária direta."
-                      rows={3}
-                      style={{ resize: 'vertical', minHeight: '60px' }}
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem' }}>Confirmar Pagamento</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-
-        {showContestarForm && createPortal(
-          <div className="report-modal-overlay" onClick={() => setShowContestarForm(null)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>Marcar Fatura como Contestada</h2>
-                <button type="button" className="report-modal-close-btn" onClick={() => setShowContestarForm(null)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleContestarFatura} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Fatura ID</label>
-                    <input type="text" className="form-input" value={showContestarForm} readOnly disabled />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Motivo da Contestação</label>
-                    <textarea
-                      className="form-input"
-                      value={contestarMotivo}
-                      onChange={e => setContestarMotivo(e.target.value)}
-                      placeholder="Descreva o motivo relatado pela empresa para a contestação da cobrança..."
-                      rows={4}
-                      required
-                      style={{ resize: 'vertical', minHeight: '80px' }}
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem', background: 'var(--color-purple)', border: '1px solid var(--color-purple)', color: '#fff' }}>Registrar Contestação</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-
-        {showPlanoForm && createPortal(
-          <div className="report-modal-overlay" onClick={() => setShowPlanoForm(null)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>{showPlanoForm.id ? 'Editar Plano de Assinatura' : 'Criar Novo Plano de Assinatura'}</h2>
-                <button type="button" className="report-modal-close-btn" onClick={() => setShowPlanoForm(null)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleSalvarPlano} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Nome do Plano</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={planoNome}
-                      onChange={e => setPlanoNome(e.target.value)}
-                      placeholder="Ex: Silver Plus"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Descrição do Plano</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={planoDescricao}
-                      onChange={e => setPlanoDescricao(e.target.value)}
-                      placeholder="Ex: Recomendado para redes médias"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Valor Mensal (R$)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-input"
-                      value={planoValorMensal}
-                      onChange={e => setPlanoValorMensal(e.target.value)}
-                      placeholder="Ex: 349.00"
-                      required
-                    />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Entregas/Mês</label>
-                      <input
-                        type="number"
-                        className="form-input"
-                        value={planoLimiteEntregas}
-                        onChange={e => setPlanoLimiteEntregas(e.target.value)}
-                        placeholder="Deixe em branco para ilimitado"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Lojas</label>
-                      <input
-                        type="number"
-                        className="form-input"
-                        value={planoLimiteLojas}
-                        onChange={e => setPlanoLimiteLojas(e.target.value)}
-                        placeholder="Deixe em branco para ilimitado"
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Motoristas</label>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={planoLimiteMotoristas}
-                      onChange={e => setPlanoLimiteMotoristas(e.target.value)}
-                      placeholder="Deixe em branco para ilimitado"
-                    />
-                  </div>
-                  {planoError && (
-                    <div style={{ color: 'var(--color-rose)', fontSize: '0.75rem' }}>{planoError}</div>
-                  )}
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem' }}>Salvar Plano</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-
-        {editingLoja && createPortal(
-          <div className="report-modal-overlay" onClick={() => setEditingLoja(null)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>Editar Informações da Loja</h2>
-                <button className="report-modal-close-btn" onClick={() => setEditingLoja(null)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleUpdateLoja} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Nome Fantasia</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaNome} 
-                      onChange={e => setEditLojaNome(e.target.value)} 
-                      required 
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>CNPJ da Loja</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaCnpj} 
-                      onChange={e => setEditLojaCnpj(e.target.value)} 
-                      required 
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Usuário de Acesso</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaUsuario} 
-                      onChange={e => setEditLojaUsuario(e.target.value)} 
-                      required 
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Alterar Senha (deixe em branco para manter a atual)</label>
-                    <input 
-                      type="password" 
-                      className="form-input" 
-                      value={editLojaSenha} 
-                      onChange={e => setEditLojaSenha(e.target.value)} 
-                      placeholder="Nova senha da loja"
-                    />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>CEP</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaCep}
-                        onChange={e => setEditLojaCep(e.target.value)}
-                        placeholder="00000-000"
-                        maxLength={9}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>UF</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaUf}
-                        onChange={e => setEditLojaUf(e.target.value.toUpperCase())}
-                        placeholder="SP"
-                        maxLength={2}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.6rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Endereço (Logradouro)</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaEndereco}
-                        onChange={e => setEditLojaEndereco(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Número</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaNumero}
-                        onChange={e => setEditLojaNumero(e.target.value)}
-                        placeholder="123"
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Bairro</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaBairro}
-                        onChange={e => setEditLojaBairro(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cidade</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaCidade}
-                        onChange={e => setEditLojaCidade(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <input
-                      type="checkbox"
-                      id="editLojaRecebePedidosMaster"
-                      checked={editLojaRecebePedidos} 
-                      onChange={e => setEditLojaRecebePedidos(e.target.checked)} 
-                      style={{ accentColor: 'var(--color-cyan)', cursor: 'pointer', width: '15px', height: '15px' }}
-                    />
-                    <label htmlFor="editLojaRecebePedidosMaster" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer', marginBottom: 0 }}>
-                      Ativar Fila de Pedidos (WhatsApp)
-                    </label>
-                  </div>
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem' }}>Salvar Alterações</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-      </div>
-    );
+    return <AdminMaster {...{
+      reportAccess: {backendUrl:BACKEND_URL,token:sessao.token},
+      adminDataState,
+      refreshAdminData,
+      empresas,
+      isConnected,
+      handleLogout,
+      adminSubView,
+      setAdminSubView,
+      finDashboard,
+      finSubTab,
+      setFinSubTab,
+      finFaturasFiltros,
+      setFinFaturasFiltros,
+      setShowCobrarManualForm,
+      finFaturas,
+      setShowBaixaManualForm,
+      setShowContestarForm,
+      setContestarMotivo,
+      handleCancelarFatura,
+      finTotalPaginas,
+      finPaginaAtual,
+      setFinPaginaAtual,
+      finRelFaturamento,
+      finRelInadimplencia,
+      finRelChurn,
+      finRelPrevisibilidade,
+      finConfiguracoes,
+      handleSalvarConfigCobranca,
+      setFinConfiguracoes,
+      startNovoPlano,
+      finPlanos,
+      startEditPlano,
+      finAssinaturas,
+      setShowNovaEmpresaForm,
+      showNovaEmpresaForm,
+      handleCadastrarEmpresa,
+      novaEmpresaNome,
+      setNovaEmpresaNome,
+      novaEmpresaCnpj,
+      setNovaEmpresaCnpj,
+      novaEmpresaTelefone,
+      setNovaEmpresaTelefone,
+      novaEmpresaEmail,
+      setNovaEmpresaEmail,
+      expandedEmpresas,
+      lojasDaEmpresa,
+      showNovaLojaForm,
+      toggleEmpresaExpandida,
+      handleToggleEmpresa,
+      handleDeleteEmpresa,
+      setShowNovaLojaForm,
+      carregarFinanceiroPlanos,
+      handleCadastrarLoja,
+      novaLojaNome,
+      setNovaLojaNome,
+      novaLojaCnpj,
+      setNovaLojaCnpj,
+      novaLojaUsuario,
+      setNovaLojaUsuario,
+      novaLojaSenha,
+      setNovaLojaSenha,
+      novaLojaPlanoId,
+      setNovaLojaPlanoId,
+      novaLojaCep,
+      setNovaLojaCep,
+      novaLojaEndereco,
+      setNovaLojaEndereco,
+      novaLojaNumero,
+      setNovaLojaNumero,
+      novaLojaBairro,
+      setNovaLojaBairro,
+      novaLojaCidade,
+      setNovaLojaCidade,
+      novaLojaUf,
+      setNovaLojaUf,
+      novaLojaRecebePedidos,
+      setNovaLojaRecebePedidos,
+      handleRegenerarChaveLoja,
+      handleToggleRecebePedidos,
+      setLojaVisualizada,
+      startEditLoja,
+      handleToggleLoja,
+      handleDeleteLoja,
+      showCobrarManualForm,
+      handleCobrarManual,
+      manualCobrarEmpresaId,
+      setManualCobrarEmpresaId,
+      manualCobrarValor,
+      setManualCobrarValor,
+      manualCobrarDescricao,
+      setManualCobrarDescricao,
+      manualCobrarVencimento,
+      setManualCobrarVencimento,
+      manualCobrarError,
+      showBaixaManualForm,
+      handleBaixaManual,
+      baixaManualComprovante,
+      setBaixaManualComprovante,
+      baixaManualObservacoes,
+      setBaixaManualObservacoes,
+      showContestarForm,
+      handleContestarFatura,
+      contestarMotivo,
+      showPlanoForm,
+      setShowPlanoForm,
+      handleSalvarPlano,
+      planoNome,
+      setPlanoNome,
+      planoDescricao,
+      setPlanoDescricao,
+      planoValorMensal,
+      setPlanoValorMensal,
+      planoLimiteEntregas,
+      setPlanoLimiteEntregas,
+      planoLimiteLojas,
+      setPlanoLimiteLojas,
+      planoLimiteMotoristas,
+      setPlanoLimiteMotoristas,
+      planoError,
+      editingLoja,
+      setEditingLoja,
+      handleUpdateLoja,
+      editLojaNome,
+      setEditLojaNome,
+      editLojaCnpj,
+      setEditLojaCnpj,
+      editLojaUsuario,
+      setEditLojaUsuario,
+      editLojaSenha,
+      setEditLojaSenha,
+      editLojaCep,
+      setEditLojaCep,
+      editLojaUf,
+      setEditLojaUf,
+      editLojaEndereco,
+      setEditLojaEndereco,
+      editLojaNumero,
+      setEditLojaNumero,
+      editLojaBairro,
+      setEditLojaBairro,
+      editLojaCidade,
+      setEditLojaCidade,
+      editLojaRecebePedidos,
+      setEditLojaRecebePedidos
+    }} />;
   }
 
   // Dashboard da Loja
@@ -4796,7 +3243,7 @@ export default function App() {
 
       {/* 3. Seção de Entregas Cadastradas (Comandas) */}
       <section className="glass-panel deliveries-top-panel glow-cyan">
-        {!dispatchViewActive && !showProdutosModal && <div className="panel-header">
+        {!dispatchViewActive && !showProdutosModal && !showVitrineModal && <div className="panel-header">
           <h2 style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             Controle de Comandas
           </h2>
@@ -4940,16 +3387,16 @@ export default function App() {
 
         {/* Kanban de Controle de Comandas — substitui as 2 filas verticais antigas */}
         <OperationsWorkspace
-          activeMenuKey={showProdutosModal ? 'produtos' : undefined}
-          onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não salvas do produto?')) return false; setShowProdutosModal(false); setCatalogoAlterado(false); return true; }}
-          workspace={showProdutosModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoProdutos backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onClose={() => setShowProdutosModal(false)} onEstoque={() => setShowEstoqueModal(true)} onVitrine={() => setShowVitrineModal(true)} onDirtyChange={setCatalogoAlterado} refreshKey={catalogoRefresh} /> : undefined}
+          activeMenuKey={showVitrineModal ? 'vitrine' : showProdutosModal ? 'produtos' : undefined}
+          onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return false; setShowProdutosModal(false); setShowVitrineModal(false); setCatalogoAlterado(false); return true; }}
+          workspace={showVitrineModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoVitrine backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onDirtyChange={setCatalogoAlterado} onClose={() => { setShowVitrineModal(false); setCatalogoRefresh(v => v + 1); }} onProdutos={() => { setShowVitrineModal(false); setShowProdutosModal(true); }} /> : showProdutosModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoProdutos backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onClose={() => setShowProdutosModal(false)} onEstoque={() => setShowEstoqueModal(true)} onVitrine={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowProdutosModal(false); setShowVitrineModal(true); }} onDirtyChange={setCatalogoAlterado} refreshKey={catalogoRefresh} /> : undefined}
           onDispatchViewChange={setDispatchViewActive}
           onDespacharProntos={despacharPedidosProntos}
           menuActions={[
             ...(tenantLojaId ? [{ key: 'configuracoes', label: 'Configurações', icon: 'settings' as const, onClick: () => setShowOperationSettings(true) }] : []),
             ...(sessao?.tipo === 'loja' && sessao.lojaId ? [
-              { key: 'produtos', label: 'Produtos', icon: 'products' as const, onClick: () => setShowProdutosModal(true) },
-              { key: 'vitrine', label: 'Configuração da vitrine', icon: 'products' as const, onClick: () => setShowVitrineModal(true) },
+              { key: 'produtos', label: 'Produtos', icon: 'products' as const, onClick: () => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowVitrineModal(false); setShowProdutosModal(true); } },
+              { key: 'vitrine', label: 'Configuração da vitrine', icon: 'products' as const, onClick: () => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowProdutosModal(false); setShowVitrineModal(true); } },
               { key: 'estoque', label: 'Estoque', icon: 'stock' as const, onClick: () => setShowEstoqueModal(true) },
             ] : []),
             { key: 'relatorios', label: 'Relatórios', icon: 'reports', onClick: () => { setReportPhase('filters'); setReportModalOpen(true); } },
@@ -5527,7 +3974,7 @@ export default function App() {
         )}
 
         {/* Right Side: Frota de Motoristas */}
-        {!dispatchViewActive && !showProdutosModal && <section className="glass-panel">
+        {!dispatchViewActive && !showProdutosModal && !showVitrineModal && <section className="glass-panel">
           <div className="panel-header">
             <h2>Frota de Motoristas</h2>
           </div>
@@ -5772,17 +4219,6 @@ export default function App() {
           onClose={() => { setShowEstoqueModal(false); setCatalogoRefresh(v => v + 1); }}
           onProdutos={() => { setShowEstoqueModal(false); setShowProdutosModal(true); }} />
       )}
-      {/* Configuração da vitrine pública */}
-      {showVitrineModal && sessao?.tipo === 'loja' && sessao.lojaId && (
-        <GestaoVitrine
-          backendUrl={BACKEND_URL}
-          token={sessao.token}
-          lojaId={sessao.lojaId}
-          nomeLoja={sessao.nomeLoja || 'Minha Loja'}
-          onClose={() => { setShowVitrineModal(false); setCatalogoRefresh(v => v + 1); }}
-        />
-      )}
-
       {/* Módulo Fiscal: escolha NFC-e / NF-e ao concluir a separação (ou reemissão pelo card) */}
       {emissaoFiscal && comandaEmEmissao && (
         <EmissaoNotaModal

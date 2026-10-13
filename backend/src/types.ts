@@ -1,3 +1,4 @@
+import type { ConfigVitrine } from './configVitrine';
 export type StatusEntrega =
   | 'RECEBIDO'
   | 'EM_PREPARO'
@@ -175,6 +176,7 @@ export interface Loja {
   statusFinanceiro?: string;  // 'REGULAR' | 'INADIMPLENTE' | 'SUSPENSO' | 'CANCELADO' — billing por loja
   latitude?: number;   // coordenada geográfica resolvida a partir do endereço (Nominatim)
   longitude?: number;
+  configVitrine?: ConfigVitrine;
   logoUrl?: string;    // logomarca exibida no cabeçalho da vitrine pública
 }
 

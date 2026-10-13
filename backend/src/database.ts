@@ -1,3 +1,4 @@
+import { lerConfigVitrine } from './configVitrine';
 import mssql, { ConnectionPool, Transaction } from './db';
 import { Entrega, Motorista, Empresa, Loja, TipoVeiculo, Produto, Sessao } from './types';
 import { hashPassword, verifyPassword } from './security/password';
@@ -338,6 +339,8 @@ async function inicializarBanco() {
     END
 
     -- Logomarca da loja exibida no cabeçalho da vitrine pública (Painel do Cliente)
+    IF OBJECT_ID('LOJAS') IS NOT NULL AND COL_LENGTH('LOJAS', 'CONFIG_VITRINE') IS NULL
+      ALTER TABLE LOJAS ADD CONFIG_VITRINE NVARCHAR(MAX) NULL;
     IF OBJECT_ID('LOJAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LOJAS') AND name = 'LOGO_URL')
     BEGIN
       ALTER TABLE LOJAS ADD LOGO_URL NVARCHAR(600) NULL;
@@ -1052,6 +1055,7 @@ export async function obterLojas(): Promise<Loja[]> {
       statusFinanceiro: row.STATUS_FINANCEIRO || 'REGULAR',
       latitude: row.LATITUDE !== null && row.LATITUDE !== undefined ? Number(row.LATITUDE) : undefined,
       longitude: row.LONGITUDE !== null && row.LONGITUDE !== undefined ? Number(row.LONGITUDE) : undefined,
+      configVitrine: lerConfigVitrine(row.CONFIG_VITRINE),
       logoUrl: row.LOGO_URL || undefined
     }));
   } catch (err) {
@@ -1088,8 +1092,8 @@ export async function salvarLoja(l: Loja) {
           LONGITUDE = @longitude,
           LOGO_URL = @logoUrl
       WHEN NOT MATCHED THEN
-        INSERT (ID, EMPRESA_ID, NOME, CNPJ, ENDERECO, NUMERO, BAIRRO, CIDADE, UF, CEP, USUARIO, SENHA_HASH, CHAVE_ACESSO, ATIVO, CRIADO_EM, RECEBE_PEDIDOS, STATUS_FINANCEIRO, LATITUDE, LONGITUDE, LOGO_URL)
-        VALUES (@id, @empresaId, @nome, @cnpj, @endereco, @numero, @bairro, @cidade, @uf, @cep, @usuario, @senhaHash, @chaveAcesso, @ativo, @criadoEm, @recebePedidos, @statusFinanceiro, @latitude, @longitude, @logoUrl);
+        INSERT (ID, EMPRESA_ID, NOME, CNPJ, ENDERECO, NUMERO, BAIRRO, CIDADE, UF, CEP, USUARIO, SENHA_HASH, CHAVE_ACESSO, ATIVO, CRIADO_EM, RECEBE_PEDIDOS, STATUS_FINANCEIRO, LATITUDE, LONGITUDE, LOGO_URL, CONFIG_VITRINE)
+        VALUES (@id, @empresaId, @nome, @cnpj, @endereco, @numero, @bairro, @cidade, @uf, @cep, @usuario, @senhaHash, @chaveAcesso, @ativo, @criadoEm, @recebePedidos, @statusFinanceiro, @latitude, @longitude, @logoUrl, @configVitrine);
     `;
     await pool.request()
       .input('id', mssql.VarChar, l.id)
@@ -1111,6 +1115,7 @@ export async function salvarLoja(l: Loja) {
       .input('statusFinanceiro', mssql.VarChar, l.statusFinanceiro || 'REGULAR')
       .input('latitude', mssql.Float, l.latitude !== undefined ? l.latitude : null)
       .input('longitude', mssql.Float, l.longitude !== undefined ? l.longitude : null)
+      .input('configVitrine', mssql.NVarChar(mssql.MAX), JSON.stringify(l.configVitrine ?? lerConfigVitrine(null)))
       .input('logoUrl', mssql.NVarChar, l.logoUrl || null)
       .query(query);
   } catch (err) {
@@ -1316,3 +1321,13 @@ export async function deletarProduto(id: string, lojaId: string): Promise<boolea
   return (result.rowsAffected?.[0] || 0) > 0;
 }
 
+
+/** Updates only public settings, without rewriting credentials or operational store fields. */
+export async function salvarConfiguracaoVitrine(l: Loja, tx?: Transaction) {
+  if (!pool) throw new Error('Banco indisponível.');
+  const r = await (tx ? new mssql.Request(tx) : pool.request()).input('id',mssql.VarChar,l.id)
+    .input('logo',mssql.NVarChar(600),l.logoUrl || null)
+    .input('config',mssql.NVarChar(mssql.MAX),JSON.stringify(l.configVitrine ?? lerConfigVitrine(null)))
+    .query('UPDATE LOJAS SET LOGO_URL=@logo, CONFIG_VITRINE=@config WHERE ID=@id');
+  if (r.rowsAffected[0] !== 1) throw new Error('Loja não encontrada no banco.');
+}

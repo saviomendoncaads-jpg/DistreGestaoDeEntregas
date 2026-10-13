@@ -28,6 +28,7 @@ import fiscalRouter from './fiscal/fiscalRoutes';
 import webhookRouter from './billing/webhookRoutes';
 import { iniciarWorkerWebhooks } from './billing/webhookProcessor';
 import { iniciarDunning } from './billing/dunningScheduler';
+import commercialReportsRouter from './commercialReports';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -105,6 +106,7 @@ app.use('/api/whatsapp', whatsappRouter);
 
 // Roteador do Módulo Financeiro (admin)
 app.use('/api/admin/financeiro', financeiroRouter);
+app.use('/api/admin/relatorios', commercialReportsRouter);
 
 // Roteadores de integração ERP: autenticados por API key (X-Api-Key = chaveAcesso da loja)
 app.use('/api/integracao', verificarApiKeyIntegracao, integracaoPedidosRouter);

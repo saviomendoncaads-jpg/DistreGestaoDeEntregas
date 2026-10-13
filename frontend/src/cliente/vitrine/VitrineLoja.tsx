@@ -1,3 +1,5 @@
+import DetalheProduto from './DetalheProduto';
+import type { BannerLoja } from '../configVitrine';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useCarrinho } from '../context/CarrinhoContext';
 import { urlImagem } from '../services/api';
@@ -210,42 +212,36 @@ function ModalAjuda({ loja, onFechar }: { loja: LojaVitrine; onFechar: () => voi
 }
 
 // ─── Banner rotativo ─────────────────────────────────────────────────────────
-interface Slide { eyebrow: string; titulo: string; destaque: string; texto: string; cta: string; categoria?: string; fotos: string[] }
+interface Slide { eyebrow: string; titulo: string; destaque: string; texto: string; cta: string; categoria?: string; fotos: string[]; imagemCampanha?: string }
 
-export function BannerVitrine({ produtos, categorias, onCategoria, onVerProdutos }: {
-  produtos: ProdutoVitrine[]; categorias: CategoriaVitrine[]; onCategoria: (c: string) => void; onVerProdutos: () => void;
+export function BannerVitrine({ produtos, banners, onCategoria, onVerProdutos }: {
+  produtos: ProdutoVitrine[]; categorias: CategoriaVitrine[]; banners?: BannerLoja[]; onCategoria: (c: string) => void; onVerProdutos: () => void;
 }) {
   const slides = useMemo<Slide[]>(() => {
     const fotosDe = (filtro?: (p: ProdutoVitrine) => boolean) =>
       produtos.filter(p => p.imagemUrl && (!filtro || filtro(p))).slice(0, 3).map(p => urlImagem(p.imagemUrl)!);
-    const achar = (tipo: string) => categorias.find(c => tipoCategoria(c.nome) === tipo)?.nome;
-    const dermo = achar('dermo');
-    const oferta = achar('oferta');
-    const lista: Slide[] = [];
-    if (dermo) lista.push({ eyebrow: 'Cuide da sua pele', titulo: dermo, destaque: 'selecionados', texto: 'Marcas renomadas para a sua rotina de cuidados.', cta: 'Ver produtos', categoria: dermo, fotos: fotosDe(p => p.categoria === dermo) });
-    if (oferta) lista.push({ eyebrow: 'Aproveite', titulo: 'Ofertas da', destaque: 'semana', texto: 'Preços especiais por tempo limitado.', cta: 'Ver ofertas', categoria: oferta, fotos: fotosDe(p => p.categoria === oferta) });
-    lista.push({ eyebrow: 'Cuide da sua saúde', titulo: 'Tudo o que você precisa,', destaque: 'na sua porta', texto: 'Peça online e receba em casa com rapidez e segurança.', cta: 'Ver produtos', fotos: fotosDe() });
-    lista.push({ eyebrow: 'Entrega rápida', titulo: 'Peça agora e', destaque: 'receba hoje', texto: 'Acompanhe o seu pedido do preparo até a entrega.', cta: 'Começar pedido', fotos: fotosDe().reverse() });
-    return lista;
-  }, [produtos, categorias]);
+    if (banners?.length) return banners.filter(b => b.ativo).map(b => ({ eyebrow: 'Conheça nossa loja', titulo: b.titulo, destaque: '', texto: b.texto, cta: b.botao, categoria: b.categoria || undefined, imagemCampanha: b.imagemUrl ? urlImagem(b.imagemUrl) : undefined, fotos: b.imagemUrl ? [urlImagem(b.imagemUrl)!] : fotosDe() }));
+    return [{ eyebrow: 'Bem-vindo à nossa loja', titulo: 'Escolha seus produtos', destaque: 'com praticidade', texto: 'Explore o catálogo e acompanhe seu pedido online.', cta: 'Ver produtos', fotos: fotosDe() }];
+  }, [produtos, banners]);
   const [i, setI] = useState(0);
   const pausado = useRef(false);
   useEffect(() => {
-    const t = setInterval(() => { if (!pausado.current) setI(v => (v + 1) % slides.length); }, 6000);
+    const t = setInterval(() => { if (!pausado.current && slides.length > 1) setI(v => (v + 1) % slides.length); }, 6000);
     return () => clearInterval(t);
   }, [slides.length]);
+  if (!slides.length) return null;
   const s = slides[i % slides.length];
   const ir = (d: number) => setI(v => (v + d + slides.length) % slides.length);
   return (
-    <section className="vt-banner" aria-roledescription="carrossel" aria-label="Destaques" onMouseEnter={() => (pausado.current = true)} onMouseLeave={() => (pausado.current = false)}>
+    <section className={`vt-banner ${s.imagemCampanha ? 'vt-banner--campanha' : ''}`} aria-roledescription="carrossel" aria-label="Destaques" onMouseEnter={() => (pausado.current = true)} onMouseLeave={() => (pausado.current = false)} onFocusCapture={() => (pausado.current = true)} onBlurCapture={() => (pausado.current = false)}>
       <div className="vt-banner-texto" key={i}>
         <span className="vt-banner-eyebrow">{s.eyebrow}</span>
-        <h2>{s.titulo}<br /><em>{s.destaque}</em></h2>
+        <h2>{s.titulo}{s.destaque && <><br /><em>{s.destaque}</em></>}</h2>
         <p>{s.texto}</p>
         <button type="button" className="vt-banner-cta" onClick={() => (s.categoria ? onCategoria(s.categoria) : onVerProdutos())}>{s.cta} <IcoFlecha /></button>
       </div>
       <div className="vt-banner-arte" aria-hidden="true">
-        {s.fotos.length > 0 ? s.fotos.map((f, k) => <img key={f + k} src={f} alt="" className={`vt-banner-foto vt-banner-foto--${k}`} />) : (
+        {s.imagemCampanha ? <img src={s.imagemCampanha} alt="" className="vt-banner-campanha" /> : s.fotos.length > 0 ? s.fotos.map((f, k) => <img key={f + k} src={f} alt="" className={`vt-banner-foto vt-banner-foto--${k}`} />) : (
           <svg viewBox="0 0 260 200" className="vt-banner-ilustra">
             <rect x="20" y="40" width="70" height="150" rx="14" fill="#fff" opacity=".95" /><rect x="20" y="40" width="70" height="40" rx="14" fill="#f97316" />
             <rect x="105" y="20" width="60" height="170" rx="16" fill="#e0f2fe" /><rect x="120" y="0" width="30" height="30" rx="6" fill="#0f172a" />
@@ -304,14 +300,14 @@ function FotoProduto({ produto }: { produto: ProdutoVitrine }) {
   return <div className="vt-card-foto" style={{ position: 'relative' }}>{src ? <img src={src} alt={produto.nome + (urls.length > 1 ? ' — foto ' + (indice + 1) : '')} loading="lazy" /> : <div className="vt-card-foto--vazia">{produto.nome.charAt(0).toUpperCase()}</div>}{urls.length > 1 && <div className="vt-product-gallery"><button type="button" aria-label={'Foto anterior de ' + produto.nome} onClick={() => setIndice(i => (i - 1 + urls.length) % urls.length)}>‹</button><span>{indice + 1} / {urls.length}</span><button type="button" aria-label={'Próxima foto de ' + produto.nome} onClick={() => setIndice(i => (i + 1) % urls.length)}>›</button></div>}</div>;
 }
 
-export function CardProduto({ produto, favorito, onFavoritar, podePedir }: { produto: ProdutoVitrine; favorito: boolean; onFavoritar: () => void; podePedir: boolean }) {
+export function CardProduto({ produto, favorito, onFavoritar, podePedir, onAbrir }: { produto: ProdutoVitrine; favorito: boolean; onFavoritar: () => void; podePedir: boolean; onAbrir: () => void }) {
   const { adicionar, incrementar, decrementar, quantidadeDe } = useCarrinho();
   const qtd = quantidadeDe(produto.id);
   return (
-    <article className={`vt-card ${qtd > 0 ? 'vt-card--no-carrinho' : ''}`}>
+    <article className={`vt-card ${qtd > 0 ? 'vt-card--no-carrinho' : ''}`} onClick={e => { if (!(e.target as HTMLElement).closest('button,a,input,select')) onAbrir(); }}>
       <button type="button" className={`vt-fav ${favorito ? 'is-fav' : ''}`} onClick={onFavoritar} aria-pressed={favorito} aria-label={favorito ? `Remover ${produto.nome} dos favoritos` : `Favoritar ${produto.nome}`}><IcoCoracao cheio={favorito} /></button>
       <FotoProduto produto={produto} />
-      <h3 className="vt-card-nome">{produto.nome}</h3>
+      <button type="button" className="vt-card-titulo" onClick={onAbrir} aria-label={`Ver detalhes de ${produto.nome}`}><h3 className="vt-card-nome">{produto.nome}</h3></button>
       <p className="vt-card-sub">{produto.descricao || produto.subcategoria || produto.categoria || ' '}</p>
       <div>{produto.precoOriginal && <del style={{ color: '#64748b', fontSize: '0.8rem' }}>{formatarPreco(produto.precoOriginal)}</del>}<strong className="vt-card-preco">{formatarPreco(produto.preco)}</strong></div>
       <div className="vt-card-carrinho-status" role="status" aria-atomic="true">
@@ -334,25 +330,31 @@ export function CardProduto({ produto, favorito, onFavoritar, podePedir }: { pro
 
 export function GradeProdutos({ produtos, lojaId, podePedir }: { produtos: ProdutoVitrine[]; lojaId: string; podePedir: boolean }) {
   const { favs, alternar } = useFavoritos(lojaId);
+  const [selecionado, setSelecionado] = useState<ProdutoVitrine | null>(null);
   return (
+    <>
     <div className="vt-grade">
-      {produtos.map(p => <CardProduto key={p.id} produto={p} favorito={favs.includes(p.id)} onFavoritar={() => alternar(p.id)} podePedir={podePedir} />)}
+      {produtos.map(p => <CardProduto key={p.id} produto={p} favorito={favs.includes(p.id)} onFavoritar={() => alternar(p.id)} podePedir={podePedir} onAbrir={() => setSelecionado(p)} />)}
     </div>
+    {selecionado && <DetalheProduto key={selecionado.id} produto={selecionado} podePedir={podePedir} onClose={() => setSelecionado(null)} />}
+    </>
   );
 }
 
-export function ProdutosDestaque({ produtos, categorias, maisVendidos, lojaId, podePedir, onVerTodos }: {
-  produtos: ProdutoVitrine[]; categorias: CategoriaVitrine[]; maisVendidos: string[]; lojaId: string; podePedir: boolean; onVerTodos: () => void;
+export function ProdutosDestaque({ produtos, categorias, maisVendidos, selecionados = [], limite = 10, lojaId, podePedir, onVerTodos }: {
+  produtos: ProdutoVitrine[]; categorias: CategoriaVitrine[]; maisVendidos: string[]; selecionados?: string[]; limite?: number; lojaId: string; podePedir: boolean; onVerTodos: () => void;
 }) {
-  const abas = ['Mais vendidos', ...categorias.slice(0, 5).map(c => c.nome)];
+  const principal = selecionados.length ? 'Selecionados pela loja' : maisVendidos.length ? 'Mais vendidos' : 'Sugestões da loja';
+  const abas = [principal, ...categorias.slice(0, 5).map(c => c.nome)];
   const [aba, setAba] = useState(abas[0]);
   const lista = useMemo(() => {
-    if (aba === 'Mais vendidos') {
+    if (aba === principal) {
+      if (selecionados.length) return selecionados.map(id => produtos.find(p => p.id === id)).filter((p): p is ProdutoVitrine => !!p).slice(0, limite);
       const rank = new Map(maisVendidos.map((id, k) => [id, k]));
-      return [...produtos].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9)).slice(0, 10);
+      return [...produtos].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9)).slice(0, limite);
     }
-    return produtos.filter(p => p.categoria === aba).slice(0, 10);
-  }, [aba, produtos, maisVendidos]);
+    return produtos.filter(p => p.categoria === aba).slice(0, limite);
+  }, [aba, produtos, maisVendidos, selecionados, limite, principal]);
   return (
     <section className="vt-secao">
       <div className="vt-secao-topo"><h2>Produtos em destaque</h2><button type="button" className="vt-link" onClick={onVerTodos}>Ver todos <IcoFlecha /></button></div>
