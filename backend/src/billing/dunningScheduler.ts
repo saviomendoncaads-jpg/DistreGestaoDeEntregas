@@ -1,3 +1,5 @@
+import { diaCobranca,diasAtraso,carenciaValida } from './billingPolicy';
+import { reconciliarAcessoCobranca } from './recurringBilling';
 import mssql from '../db';
 import { pool } from '../database';
 import { getGateway } from './gatewayFactory';
@@ -28,20 +30,16 @@ const RANK: Record<Estagio, number> = {
 let executando = false;
 
 /** Calcula o estágio-alvo da régua a partir dos dias até o vencimento. */
-function estagioAlvo(diasAteVenc: number): Estagio | null {
-  if (diasAteVenc >= 1 && diasAteVenc <= 3) return 'LEMBRETE_D3';
-  if (diasAteVenc <= 0 && diasAteVenc > -3) return 'VENCE_HOJE';
-  if (diasAteVenc <= -3 && diasAteVenc > -7) return 'ATRASO_D3';
-  if (diasAteVenc <= -7) return 'SUSPENSAO_D7';
+function estagioAlvo(diasAteVenc: number,carencia:number): Estagio | null {
+  if (diasAteVenc < -carencia) return 'SUSPENSAO_D7'; // identificador legado; prazo vem da configuração
+  if (diasAteVenc < 0) return 'ATRASO_D3';
+  if (diasAteVenc === 0) return 'VENCE_HOJE';
+  if (diasAteVenc <= 3) return 'LEMBRETE_D3';
   return null; // ainda faltam mais de 3 dias: nada a fazer
 }
 
 function diasAteVencimento(dataVencimento: string): number {
-  const venc = new Date(dataVencimento);
-  venc.setHours(0, 0, 0, 0);
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  return Math.round((venc.getTime() - hoje.getTime()) / 86_400_000);
+  return -diasAtraso(dataVencimento,diaCobranca());
 }
 
 /** Executa a régua sobre todas as faturas em aberto. Seguro contra reentrância. */
@@ -49,13 +47,16 @@ export async function executarReguaCobranca(): Promise<void> {
   if (!pool || executando) return;
   executando = true;
   try {
+    await reconciliarAcessoCobranca();
+    const cfg=await pool.request().query('SELECT TOP(1) DIAS_CARENCIA_BLOQUEIO FROM CONFIGURACOES_COBRANCA ORDER BY ID');
+    const carencia=carenciaValida(cfg.recordset[0]?.DIAS_CARENCIA_BLOQUEIO??5);
     const faturasRes = await pool.request()
-      .query("SELECT * FROM FATURAS WHERE STATUS IN ('PENDENTE', 'ATRASADA')");
+      .query("SELECT * FROM FATURAS WHERE STATUS IN ('PENDENTE', 'ATRASADA', 'VENCIDA')");
 
     for (const fat of faturasRes.recordset) {
       try {
         const dias = diasAteVencimento(fat.DATA_VENCIMENTO);
-        const alvo = estagioAlvo(dias);
+        const alvo = estagioAlvo(dias,carencia);
         if (!alvo) continue;
 
         const aplicadoRank = RANK[(fat.PROXIMA_ACAO_DUNNING as Estagio)] ?? 0;
@@ -175,11 +176,11 @@ async function suspenderLoja(lojaId: string, empresaId: string): Promise<void> {
     tipo: 'SUSPENSAO',
     valor: 0,
     origem: 'DUNNING',
-    metadados: { motivo: 'grace period D+7 esgotado', lojaId },
+    metadados: { motivo: 'carência configurada esgotada', lojaId },
     criadoPor: 'SYSTEM',
   });
 
-  console.log(`[Dunning] Loja ${loja.nome} SUSPENSA por inadimplência (D+7).`);
+  console.log(`[Dunning] Loja ${loja.nome} SUSPENSA por inadimplência (carência configurada).`);
 }
 
 /** Suspende a empresa (legado, assinatura sem LOJA_ID): bloqueia painel + revoga sessões. */
@@ -210,11 +211,11 @@ async function suspenderEmpresa(empresaId: string, assinaturaId?: string): Promi
     tipo: 'SUSPENSAO',
     valor: 0,
     origem: 'DUNNING',
-    metadados: { motivo: 'grace period D+7 esgotado' },
+    metadados: { motivo: 'carência configurada esgotada' },
     criadoPor: 'SYSTEM',
   });
 
-  console.log(`[Dunning] Empresa ${emp.nome} SUSPENSA por inadimplência (D+7).`);
+  console.log(`[Dunning] Empresa ${emp.nome} SUSPENSA por inadimplência (carência configurada).`);
 }
 
 /**

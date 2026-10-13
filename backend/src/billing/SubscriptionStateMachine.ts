@@ -1,3 +1,4 @@
+import { bloqueiaFatura,carenciaValida } from './billingPolicy';
 import mssql, { Transaction } from '../db';
 import { pool } from '../database';
 import { appendLedger } from './ledgerService';
@@ -51,6 +52,7 @@ export async function transicionar(assinaturaId: string, evento: EventoAssinatur
 
   const tx = new mssql.Transaction(pool);
   await tx.begin();
+  let committed=false;
   try {
     const r = await tx.request()
       .input('id', mssql.VarChar, assinaturaId)
@@ -62,6 +64,14 @@ export async function transicionar(assinaturaId: string, evento: EventoAssinatur
     }
 
     const sub = r.recordset[0];
+    if(evento==='payment.confirmed'){
+      const cfg=(await tx.request().query('SELECT TOP(1) DIAS_CARENCIA_BLOQUEIO FROM CONFIGURACOES_COBRANCA ORDER BY ID')).recordset[0];
+      const grace=carenciaValida(cfg?.DIAS_CARENCIA_BLOQUEIO??5);
+      const debts=(await tx.request().input('emp',mssql.VarChar,sub.EMPRESA_ID).query("SELECT f.*,a.LOJA_ID assinaturaLoja FROM FATURAS f WITH(UPDLOCK,HOLDLOCK) LEFT JOIN ASSINATURAS_EMPRESAS a ON a.ID=f.ASSINATURAS_EMPRESAS_ID WHERE f.EMPRESA_ID=@emp AND f.STATUS IN ('PENDENTE','ATRASADA','VENCIDA')")).recordset;
+      if(debts.some(f=>(sub.LOJA_ID?((f.LOJA_ID??f.assinaturaLoja)===sub.LOJA_ID||!(f.LOJA_ID??f.assinaturaLoja)):!(f.LOJA_ID??f.assinaturaLoja))&&bloqueiaFatura(f.STATUS,f.DATA_VENCIMENTO,grace))){
+        await tx.commit();return {ok:false,motivo:'outras_faturas_impeditivas',de:sub.STATUS};
+      }
+    }
     const atual = sub.STATUS as string;
     const destino = TRANSICOES[atual]?.[evento];
 
@@ -116,6 +126,7 @@ export async function transicionar(assinaturaId: string, evento: EventoAssinatur
 
     await tx.commit();
 
+    committed=true;
     // Efeito de sessão fora da transação: estados severos derrubam o painel.
     // Por loja quando há LOJA_ID; senão (legado) por empresa.
     if (destino === 'SUSPENSA' || destino === 'CANCELADA') {
@@ -123,9 +134,10 @@ export async function transicionar(assinaturaId: string, evento: EventoAssinatur
       else await revogarSessoesDaEmpresa(sub.EMPRESA_ID);
     }
 
+    if(evento==='payment.confirmed'){const {reconciliarAcessoCobranca}=await import('./recurringBilling');await reconciliarAcessoCobranca();}
     return { ok: true, de: atual, para: destino };
   } catch (e) {
-    await tx.rollback();
+    if(!committed)await tx.rollback();
     throw e;
   }
 }
