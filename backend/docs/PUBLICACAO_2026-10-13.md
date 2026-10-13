@@ -51,3 +51,8 @@ Código `d42d0f82c0c8420da842b073cc884c9dcec8f95c`, release separada `C:/Projeto
 - Build completo e 230 testes aprovados (36 SQL); fluxo de navegador em base temporária: primeiro acesso, todas as páginas, acesso direto à operação, persistência e conclusão das sete etapas, tarefas verificadas, Master e celular de 390 px. CI aprovado nos quatro checks do código publicado.
 - Backup SQL com restauração e quatro comandas conferidas em base temporária. Estágio aprovado: login, relatórios e quatro comandas existentes. Publicação com configuração do serviço salva e versão anterior disponível para recuperação.
 - Checagem pública autenticada de consulta, incluindo Área do Cliente e jornada administrativa; nenhum progresso de loja real foi concluído pela validação.
+
+
+## Acesso no cabeçalho — 13/10/2026
+
+Código `03c7bd2c6025ca782dfb8036e91c4d474254f357` publicado: botão Área do Cliente no cabeçalho junto às ações da sessão, retirado do menu lateral de operações, conforme local indicado pela operação. Build completo aprovado; navegador autenticado verificou um botão no cabeçalho, nenhum no menu operacional e acesso ao espaço do cliente. Fluxo da jornada e retorno à operação preservados. Backup SQL restaurado em base temporária; estágio com quatro comandas e relatório íntegro; publicação saudável e consulta pública autenticada conferida.
