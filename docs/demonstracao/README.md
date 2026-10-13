@@ -1,6 +1,6 @@
 # Demonstração da página inicial
 
-O botão **Assistir demonstração** abre um player na página inicial, sem login. O vídeo é carregado somente ao abrir; fechar o diálogo ou pressionar Esc pausa a reprodução e devolve o foco. O diálogo é responsivo, com controles nativos e legendas opcionais em português.
+O vídeo fica em uma seção da página inicial, logo após a abertura, sem login. O botão **Assistir demonstração** rola até essa seção, sem abrir janela ou iniciar reprodução automática. O player usa `preload="none"`, controles nativos e legendas opcionais em português. O layout é responsivo, e o destino da navegação fica abaixo do cabeçalho fixo.
 
 Vídeo narrado com a identidade Distre e o mesmo kit dos treinamentos. Mostra vitrine, sacola, recebimento de pedidos, conferência por código de barras, opção fiscal, despacho e acompanhamento de entregas. Loja, clientes, produtos e valores são fictícios; a nota é simulada, identificada na voz e em tela.
 

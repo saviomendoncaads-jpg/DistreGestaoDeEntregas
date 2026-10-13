@@ -16,27 +16,11 @@
   var panelUrl = new URLSearchParams(location.search).get('panel') || '/app';
   document.querySelectorAll('[data-panel-link]').forEach(function (link) { link.href = panelUrl; });
   var demo = document.getElementById('video-demonstracao');
-  var video = document.getElementById('demoVideo');
-  var demoOpener;
-  if (demo && video) {
+  if (demo) {
     document.querySelectorAll('[data-demo-video]').forEach(function (link) {
-      link.addEventListener('click', function (event) {
-        event.preventDefault();
-        demoOpener = link;
-        if (!video.getAttribute('src')) { video.src = video.dataset.src; video.load(); }
-        if (!demo.open) { demo.showModal(); }
-        video.play().catch(function () { /* Os controles permanecem disponíveis. */ });
+      link.addEventListener('click', function () {
+        demo.focus({ preventScroll: true });
       });
-    });
-    demo.querySelector('[data-demo-close]').addEventListener('click', function () { demo.close(); });
-    demo.addEventListener('close', function () {
-      video.pause();
-      if (demoOpener && demoOpener.getClientRects().length) { demoOpener.focus(); }
-      else if (menuButton && menuButton.getClientRects().length) { menuButton.focus(); }
-    });
-    demo.addEventListener('click', function (event) {
-      var bounds = demo.getBoundingClientRect();
-      if (event.target === demo && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) { demo.close(); }
     });
   }
 })();
