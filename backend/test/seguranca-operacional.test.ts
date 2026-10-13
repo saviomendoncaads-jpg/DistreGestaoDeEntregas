@@ -52,6 +52,28 @@ const request = (path: string, token?: string, method = 'GET', body?: unknown) =
 });
 
 describe('proteção do fluxo operacional', () => {
+  it('não permite concluir ou falhar novamente uma entrega já devolvida ao estoque', async () => {
+    deliveries.get('pedido-l1')!.status = 'PRODUTO_RETORNADO_ESTOQUE';
+    for (const action of ['complete','fail']) expect((await request(`/api/deliveries/pedido-l1/${action}`, 'loja-test', 'POST', { recebedorNome: 'Recebedor' })).status).toBe(409);
+    expect(mocks.salvar).not.toHaveBeenCalled();
+  });
+  it('não usa conclusão de entrega para concluir o pedido de separação', async () => {
+    Object.assign(deliveries.get('pedido-l1')!, { tipoComanda: 'pedido', status: 'DESPACHADO' });
+    expect((await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', { recebedorNome: 'Recebedor' })).status).toBe(409);
+    expect(mocks.salvar).not.toHaveBeenCalled();
+  });
+  it('desativa pareamento mobile e recebimento de GPS mesmo com sessão válida', async () => {
+    expect((await request('/api/drivers/vincular', 'loja-test', 'POST', { codigoVinculo: '123456' })).status).toBe(410);
+    expect((await request('/api/deliveries/pedido-l1/telemetria-bulk', 'loja-test', 'POST', { coordenadas: [{ x: 10, y: 20 }] })).status).toBe(410);
+    expect(mocks.salvar).not.toHaveBeenCalled();
+    expect(deliveries.get('pedido-l1')?.telemetria).toBeUndefined();
+  });
+  it('registra chegada manual após despacho sem depender de GPS', async () => {
+    deliveries.get('pedido-l1')!.status = 'DESPACHADO';
+    expect((await request('/api/deliveries/pedido-l1/arrive', 'loja-test', 'POST', {})).status).toBe(200);
+    expect(deliveries.get('pedido-l1')?.status).toBe('NO_LOCAL');
+    expect(deliveries.get('pedido-l1')?.telemetria).toBeUndefined();
+  });
   it('bloqueia todas as leituras/escritas operacionais anônimas antes de executar', async () => {
     for (const [path, method] of [['/deliveries/pedido-l1','GET'],['/deliveries','POST'],['/drivers','POST'],['/drivers/x','DELETE'],['/deliveries/pedido-l1/complete','POST'],['/simulator/clear','POST']]) {
       expect((await request('/api' + path, undefined, method, method === 'GET' ? undefined : {})).status).toBe(401);

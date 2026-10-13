@@ -325,6 +325,8 @@ router.use('/simulator', (req, res, next) => {
   verificarAdmin(req, res, next);
 });
 router.use('/deliveries/:id', (req, res, next) => {
+  // A ação de lote possui sua própria validação de loja/entregador e não é um ID de comanda.
+  if (req.params.id === 'dispatch-batch' && req.method === 'POST') { next(); return; }
   const entrega = deliveries.get(req.params.id);
   if (!entrega || !podeAcessarLoja(obterSessaoDoRequest(req), entrega.lojaId)) {
     res.status(404).json({ error: 'Entrega não encontrada.' }); return;
@@ -621,38 +623,9 @@ router.post('/drivers', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // 5.1.0. Vincular dispositivo móvel do entregador por código
-router.post('/drivers/vincular', (req: Request, res: Response) => {
-  const { codigoVinculo } = req.body;
-  if (!codigoVinculo) {
-    res.status(400).json({ error: 'Código de vinculação é obrigatório' });
-    return;
-  }
-
-  const codeStr = codigoVinculo.toString().replace('-', '').trim();
-  const driver = drivers.find(d => d.codigoVinculo === codeStr);
-  if (!driver) {
-    res.status(404).json({ error: 'Código de pareamento inválido ou motoboy não cadastrado' });
-    return;
-  }
-
-  // Se houver uma sessão de loja, garante que o motorista pertence a essa loja
-  const sessao = obterSessaoDoRequest(req);
-  if (sessao?.tipo === 'loja' && sessao.lojaId !== driver.lojaId) {
-    res.status(403).json({ error: 'Este motoboy pertence a outra loja e não pode ser vinculado a esta sessão.' });
-    return;
-  }
-
-  res.json({
-    success: true,
-    driver: {
-      id: driver.id,
-      name: driver.name,
-      vehicleType: driver.vehicleType,
-      lojaId: driver.lojaId
-    }
-  });
+router.post('/drivers/vincular', (_req: Request, res: Response) => {
+  res.status(410).json({ error: 'Aplicativo do entregador e telemetria estão desativados nesta etapa. Use o painel operacional.' });
 });
-
 // 5.1.1. Remover motorista (respeitando isolamento por loja)
 router.delete('/drivers/:id', asyncHandler(async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -803,6 +776,11 @@ router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: R
     return;
   }
 
+  if (delivery.tipoComanda === 'pedido') { res.status(409).json({ error: 'Conclua a entrega vinculada, não o pedido de separação.' }); return; }
+  if (delivery.status === 'ENTREGUE') { res.json(delivery); return; }
+  if (!['DESPACHADO','EM_TRANSITO','NO_LOCAL','ALERTA_INCIDENTE','SLA_ALERTA'].includes(delivery.status)) {
+    res.status(409).json({ error: 'Somente entregas despachadas em andamento podem ser concluídas.' }); return;
+  }
   const { recebedorNome, recebedorCPF, comprovanteFotoUrl, assinaturaBase64, justificativaDesvioCoordenada } = req.body;
   if (typeof recebedorNome !== 'string' || !recebedorNome.trim()) {
     res.status(400).json({ error: 'Informe o nome do recebedor.' }); return;
@@ -867,6 +845,11 @@ router.post('/deliveries/:id/fail', asyncHandler(async (req: Request, res: Respo
     return;
   }
 
+  if (delivery.tipoComanda === 'pedido') { res.status(409).json({ error: 'Registre insucesso na entrega vinculada ao pedido.' }); return; }
+  if (delivery.status === 'AGUARDANDO_RETORNO_CD') { res.json(delivery); return; }
+  if (!['DESPACHADO','EM_TRANSITO','NO_LOCAL','ALERTA_INCIDENTE','SLA_ALERTA'].includes(delivery.status)) {
+    res.status(409).json({ error: 'Somente entregas despachadas em andamento podem ter insucesso registrado.' }); return;
+  }
   const { motivoInsucesso } = req.body;
 
   // O motorista permanece ocupado para custódia temporária
@@ -917,7 +900,7 @@ router.post('/deliveries/:id/arrive', asyncHandler(async (req: Request, res: Res
     return;
   }
 
-  const statusValidos = ['EM_TRANSITO', 'ALERTA_INCIDENTE', 'SLA_ALERTA'];
+  const statusValidos = ['DESPACHADO', 'EM_TRANSITO', 'ALERTA_INCIDENTE', 'SLA_ALERTA'];
   if (!statusValidos.includes(delivery.status)) {
     res.status(400).json({ error: 'A entrega não está em rota de trânsito.' });
     return;
@@ -1029,54 +1012,9 @@ router.post('/deliveries/:id/return-stock', asyncHandler(async (req: Request, re
 }));
 
 // 12. Receber coordenadas em lote acumuladas offline
-router.post('/deliveries/:id/telemetria-bulk', asyncHandler(async (req: Request, res: Response) => {
-  const delivery = deliveries.get(req.params.id as string);
-  if (!delivery) {
-    res.status(404).json({ error: 'Entrega não encontrada' });
-    return;
-  }
-
-  const { coordenadas } = req.body;
-  if (Array.isArray(coordenadas) && coordenadas.length > 0) {
-    const lastCoord = coordenadas[coordenadas.length - 1];
-    
-    // ... rest of logic stays identical ...
-    delivery.telemetria = {
-      velocidadeKmh: lastCoord.velocidade !== undefined ? lastCoord.velocidade : 45,
-      combustivelBateriaPct: lastCoord.bateria !== undefined ? lastCoord.bateria : 90,
-      localizacaoAtual: {
-        x: lastCoord.x !== undefined ? lastCoord.x : 10,
-        y: lastCoord.y !== undefined ? lastCoord.y : 10
-      },
-      timestamp: lastCoord.timestamp || new Date().toISOString()
-    };
-
-    if (delivery.rota) {
-      coordenadas.forEach((c: any) => {
-        if (c.x !== undefined && c.y !== undefined) {
-          delivery.rota!.path.push({
-            x: c.x,
-            y: c.y,
-            name: 'Ponto Sincronizado Offline'
-          });
-        }
-      });
-    }
-
-    await salvarEntrega(delivery);
-
-    broker.publish('entrega.monitorada', delivery.id, {
-      deliveryId: delivery.id,
-      status: delivery.status,
-      telemetria: delivery.telemetria,
-      incidents: delivery.incidentes,
-      bulkUpdate: true
-    });
-  }
-
-  res.json({ success: true, message: 'Coordenadas offline sincronizadas' });
-}));
-
+router.post('/deliveries/:id/telemetria-bulk', (_req: Request, res: Response) => {
+  res.status(410).json({ error: 'Aplicativo do entregador e telemetria estão desativados nesta etapa. Use o painel operacional.' });
+});
 // 12.1. Simulação da API de Pedidos Externos (iFood/VTEX mock)
 router.get('/simulator/external-orders-api', (req: Request, res: Response) => {
   const mockOrders = [

@@ -4,6 +4,8 @@ Data de referência: **12/10/2026 — America/Fortaleza**.
 
 Continuação validada em **13/10/2026**: vínculo pedido/entrega, relatórios sem duplicação e recebimento integral de retorno.
 
+**Direção confirmada pela operação:** nesta etapa, entregas são geridas manualmente pela central. Telemetria, GPS, mapa, aplicativo do entregador, PIN, cerca virtual e sincronização mobile foram retirados do fluxo ativo. Despacho e romaneio mantêm a ordem selecionada; chegada, sucesso, insucesso e recebimento de retorno são registrados pelo operador. Capacidades de app/telemetria ficam para uma etapa futura e não são critérios de conclusão do escopo atual.
+
 ## Resultado e limites da análise
 
 O DISTRE possui uma base funcional de comércio e entregas: empresas/lojas, catálogo, vitrine, checkout, estoque por loja, separação por EAN, faltas, despacho, módulo fiscal, assinatura e cobrança da plataforma. O Admin Master e os relatórios comerciais foram organizados em módulos próprios nesta entrega.
@@ -35,6 +37,10 @@ O PR parte de `feat/modulo-financeiro`, versão atual da operação, já apresen
 | C15 | P1 | Dependências apresentavam 23 alertas no levantamento inicial, incluindo críticos de ferramentas de teste. | Lockfiles atualizados, Vitest 5 e Vite corrigidos; nodemon substituído pelo modo watch do Node. Frontend: zero alertas; backend: um alerta sem correção publicada em node-forge. | instalação limpa e auditoria npm; A19 descreve a pendência. |
 | C16 | P1 | Publicação ignorava falhas de comandos nativos e podia reiniciar após build inválido. | Script verifica códigos de saída, exige árvore limpa, faz pull ff-only, testa/compila em estágio, preserva chunks antigos, copia artefatos de rollback e verifica health. | `deploy.ps1`; sintaxe validada. Script não executado em produção. |
 | C17 | P2 | `/health` dizia saudável mesmo sem evidência do banco; backups/certificados podiam ser adicionados ao Git. | Health exige conexão/consulta SQL e responde 503 se indisponível; backups, certificados e artefatos privados ignorados. | index e `.gitignore`. |
+| C18 | P1 | Finalização duplicava entregas ou gravava apenas metade da operação. | Pedido e entrega vinculada gravados em uma transação; índice único e retry devolvem a entrega existente. | A01 e testes SQL de concorrência/rollback. |
+| C19 | P1 | Pedido e entrega duplicavam receita e separação podia parecer entrega física. | Relatório conta a venda original e usa status da entrega vinculada; legado ambíguo gera aviso. | A02 e testes SQL/HTTP. |
+| C20 | P1 | Recebimento integral não devolvia o estoque da venda de origem. | Confirmação física obrigatória, estorno e status na mesma transação, sem efeito duplicado no retry. | A03 parcialmente fechada; testes SQL/HTTP. |
+| C21 | P1 | Interface exigia simulador mobile e PIN; despacho gerava trajetos fictícios. A proteção por ID também capturava dispatch-batch como se fosse uma comanda, bloqueando o despacho válido. | Gestão manual no painel; mobile/GPS desativados no servidor; sem trajeto/ETA simulados. Despacho de lote passa por validação própria da loja/entregador. | Testes de despacho/chegada sem GPS, bloqueio de endpoints antigos, falha SQL e disponibilidade com várias entregas; jornada HTTP real. |
 
 P0: acesso/perda de dados. P1: impede operação confiável ou fechamento financeiro. P2: qualidade, manutenção ou evolução controlada. Essas prioridades orientam a sequência; não substituem a prioridade igual dada pelo negócio às áreas do Admin Master.
 
@@ -105,9 +111,10 @@ Cada área mantém a mesma importância de negócio. A ordem acima reflete depen
 
 - Instalação limpa a partir dos lockfiles em diretório independente da produção.
 - Build backend e frontend completo, incluindo TypeScript, concluídos.
-- Suite backend: **217 testes** validados; inclui **31 testes SQL** em bancos temporários próprios (estoque, faltas, inicialização e ciclo pedido/entrega/retorno). Sem alteração no banco da operação.
+- Suite backend: **225 testes** validados; inclui **31 testes SQL** em bancos temporários próprios (estoque, faltas, inicialização e ciclo pedido/entrega/retorno). Sem alteração no banco da operação.
 - Smoke real de servidor: boot/health SQL, aplicação servida, bloqueio de API anônima, criação de empresa/loja/plano e login, cardápio público, handshake Socket.io anônimo recusado/sessão válida aceita e relatório comercial vazio correto.
 - Continuação do smoke real: produto/entrada de estoque, checkout público, preparação/conferência EAN, finalização concorrente, relatório sem duplicação, insucesso e retorno integral repetido com confirmação obrigatória e um estorno. O servidor e banco exclusivos foram encerrados após o teste.
+- Escopo manual validado no servidor real: despacho, chegada e conclusão com recebedor sem GPS/app; relatório contabiliza entrega confirmada; rotas antigas de pareamento e telemetria retornam 410. Testes unitários confirmam ordem do romaneio, isolamento, falha de gravação e ocupação do entregador até concluir suas entregas/retornos.
 - Auditoria de dependências após atualização: frontend zero; backend um alerta high de node-forge sem fix publicado. Validação de sintaxe do script de deploy; sem execução em produção.
 - Lint global continua com dívida conhecida descrita em A21. Não foi desabilitado para declarar sucesso.
 - CI remoto, carga, emissão fiscal real, cobrança real, restauração de desastre e jornadas completas de compras/caixa não fazem parte das evidências acima.

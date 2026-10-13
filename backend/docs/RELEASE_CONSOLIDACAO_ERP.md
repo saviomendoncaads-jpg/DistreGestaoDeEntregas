@@ -5,7 +5,9 @@ Esta proposta não foi publicada durante a auditoria. A operação atual permane
 ## Mudanças de contrato
 
 - `/api/deliveries/*`, motoristas, configurações e WhatsApp exigem bearer de sessão válida. Integração de outro ERP usa `/api/integracao/*` com `X-Loja-Id` e `X-Api-Key`; não use o gateway operacional como API pública.
-- Pareamento/GPS por socket exigem sessão válida e motorista da mesma loja. O papel individual de motorista ainda é uma pendência do produto.
+- **Escopo definido pela operação em 13/10/2026:** entregas são geridas pela central. Aplicativo do entregador, pareamento por PIN, GPS, mapa, cerca virtual e simulação de movimento ficam fora desta etapa. Os listeners de GPS/registro mobile foram removidos; rotas HTTP de pareamento e telemetria retornam 410 para sessões autorizadas.
+- Despacho mantém o entregador e a ordem selecionada no romaneio, sem gerar trajeto, distância ou ETA simulados. Chegada, sucesso (com nome do recebedor), insucesso e retorno são registrados manualmente pelo painel. Não depende de celular ou GPS. A frota mostra disponibilidade operacional, sem indicador de conexão de aparelho.
+- Sucesso/insucesso só são registrados em entregas despachadas em andamento; pedido de separação e entrega já devolvida ao estoque não podem ser concluídos por essas ações. Retries de sucesso/insucesso devolvem o estado já confirmado.
 - Simulador e dados demo ficam desligados por padrão. `ENABLE_SIMULATOR=true` e `SEED_DEMO=true` só têm efeito fora de `NODE_ENV=production`.
 - Novos bancos não recebem administrador com senha fixa. Configure `ADMIN_USUARIO` e `ADMIN_SENHA` explicitamente para provisionar; contas existentes no banco continuam funcionando. **Rotacione contas com senhas históricas do código e revogue suas sessões antes de promover a versão.** Remover a senha do código não altera automaticamente um hash antigo no banco.
 - Produção não aceita `PAYMENT_GATEWAY=MOCK`; ASAAS sem chave gera erro. Validar também `ASAAS_ENV=production`, token de webhook, allowlist e conciliação antes de realizar cobrança real.

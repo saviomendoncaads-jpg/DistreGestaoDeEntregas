@@ -20,7 +20,7 @@ import { broker } from './broker';
 import { dispatcherAgent } from './dispatcher';
 import { monitorAgent } from './monitor';
 import { integratorAgent } from './integrator';
-import { conectarBanco, salvarMotorista, salvarEntrega, limparSessoesExpiradas, pool } from './database';
+import { conectarBanco, limparSessoesExpiradas, pool } from './database';
 import { Entrega, Motorista } from './types';
 import financeiroRouter, { inicializarFinanceiro } from './financeiroService';
 import integracaoPedidosRouter from './integracaoPedidos';
@@ -259,120 +259,6 @@ io.on('connection', (socket) => {
     queue: broker.getQueueMetrics()
   });
 
-  // Controle de vinculação do socket ao motoboy
-  let driverIdVinculado: string | undefined;
-
-  socket.on('driver_register', asyncSocketHandler(async (data: { driverId: string }) => {
-    if (!data || typeof data.driverId !== 'string') return;
-    const driver = drivers.find(d => d.id === data.driverId);
-    if (!driver || !podeAcessarLoja(sessao, driver.lojaId)) return;
-
-    // Se a sessão for de loja e o motorista for de outra loja, recusa
-    if (sessao?.tipo === 'loja' && sessao.lojaId !== driver.lojaId) {
-      console.warn(`[Socket] Tentativa bloqueada: Loja ${sessao.lojaId} tentando registrar driver ${driver.id} da loja ${driver.lojaId}`);
-      socket.emit('driver_register_error', { error: 'O motoboy pertence a outra loja.' });
-      return;
-    }
-
-    driverIdVinculado = data.driverId;
-    console.log(`[Socket] Aparelho móvel registrado para o motoboy: ${data.driverId}`);
-    
-    // Atualiza status online
-    driver.dispositivoConectado = true;
-    driver.ultimaAtualizacao = new Date().toISOString();
-    await salvarMotorista(driver);
-
-    if (driver.lojaId) {
-      // Vincula o socket à sala da loja do motoboy para receber atualizações do sistema filtradas por sua loja
-      socket.leave('public');
-      socket.leave('admin');
-      
-      // Sai de outras salas de loja para evitar acumulação/flicker
-      Array.from(socket.rooms).forEach(room => {
-        if (room.startsWith('loja-') && room !== `loja-${driver.lojaId}`) {
-          socket.leave(room);
-        }
-      });
-
-      socket.join(`loja-${driver.lojaId}`);
-
-      // Envia estado inicial filtrado específico da loja para o motoboy
-      const todas = Array.from(deliveries.values());
-      const entregasLoja = todas.filter(d => d.lojaId === driver.lojaId);
-      const driversLoja = drivers.filter(d => d.lojaId === driver.lojaId);
-      socket.emit('initial_state', {
-        deliveries: entregasLoja,
-        drivers: driversLoja,
-        eventHistory: [],
-        webhooksReceived: [],
-        agents: {
-          dispatcher: dispatcherAgent.getAgentState(),
-          monitor: monitorAgent.getAgentState(),
-          integrator: integratorAgent.getAgentState()
-        },
-        queue: broker.getQueueMetrics()
-      });
-    }
-  }));
-
-  socket.on('driver_gps_update', asyncSocketHandler(async (data: { driverId: string, x: number, y: number }) => {
-    if (!data || data.driverId !== driverIdVinculado || !Number.isFinite(data.x) || !Number.isFinite(data.y)) return;
-    const { driverId, x, y } = data;
-    const driver = drivers.find(d => d.id === driverId);
-    if (driver && podeAcessarLoja(sessao, driver.lojaId)) {
-      driver.dispositivoConectado = true;
-      driver.localizacaoAtual = { x, y };
-      driver.ultimaAtualizacao = new Date().toISOString();
-      
-      // Se esse motorista estiver em uma entrega ativa ("ocupado"), também atualiza as coordenadas da entrega ativa
-      const todasEntregas = Array.from(deliveries.values());
-      const getStatusWeight = (status: string) => {
-        switch (status) {
-          case 'NO_LOCAL': return 4;
-          case 'EM_TRANSITO':
-          case 'ALERTA_INCIDENTE':
-          case 'SLA_ALERTA':
-            return 3;
-          case 'DESPACHADO': return 2;
-          case 'RECEBIDO': return 1;
-          default: return 0;
-        }
-      };
-      const motoristaEntregas = todasEntregas.filter(d => 
-        d.motorista?.id === driverId && 
-        (d.status === 'DESPACHADO' || d.status === 'EM_TRANSITO' || d.status === 'NO_LOCAL' || d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA')
-      );
-      motoristaEntregas.sort((a, b) => {
-        const weightA = getStatusWeight(a.status);
-        const weightB = getStatusWeight(b.status);
-        if (weightA !== weightB) {
-          return weightB - weightA;
-        }
-        const seqA = a.sequenciaEsperada ?? Infinity;
-        const seqB = b.sequenciaEsperada ?? Infinity;
-        return seqA - seqB;
-      });
-      const entregaAtiva = motoristaEntregas[0];
-      if (entregaAtiva) {
-        if (entregaAtiva.status === 'DESPACHADO') entregaAtiva.status = 'EM_TRANSITO';
-        if (!entregaAtiva.telemetria) {
-          entregaAtiva.telemetria = {
-            velocidadeKmh: 45,
-            combustivelBateriaPct: 88,
-            localizacaoAtual: { x, y },
-            timestamp: new Date().toISOString()
-          };
-        } else {
-          entregaAtiva.telemetria.localizacaoAtual = { x, y };
-          entregaAtiva.telemetria.timestamp = new Date().toISOString();
-        }
-      }
-
-      if (entregaAtiva) await salvarEntrega(entregaAtiva);
-      await salvarMotorista(driver);
-    }
-  }));
-
   // Listeners para o Simulador de WhatsApp
   socket.on('whatsapp_send_msg', asyncSocketHandler(async (data: { phone: string; text: string; lojaId: string }) => {
     if (!data || typeof data.phone !== 'string' || typeof data.text !== 'string' || data.text.length > 2000) return;
@@ -436,19 +322,8 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('disconnect', asyncSocketHandler(async () => {
-    console.log(`[Socket] Cliente desconectado: ${socket.id}`);
-    if (driverIdVinculado) {
-      const driver = drivers.find(d => d.id === driverIdVinculado);
-      if (driver) {
-        // Desconectar o celular não altera a disponibilidade operacional.
-        driver.dispositivoConectado = true;
-        driver.ultimaAtualizacao = new Date().toISOString();
-        await salvarMotorista(driver);
-        console.log(`[Socket] Celular do motoboy ${driverIdVinculado} desconectado; motoboy permanece online.`);
-      }
-    }
-  }));
+  socket.on('disconnect', () => console.log(`[Socket] Cliente desconectado: ${socket.id}`));
+
 });
 
 // Transmissão periódica do status do sistema (a cada 1 segundo) — filtrado por sala
