@@ -115,7 +115,7 @@ const COLUNAS: ColDef[] = [
   { key: 'novos', titulo: 'Novos Pedidos', cor: 'var(--color-amber)', match: d => d.tipoComanda === 'pedido' && d.status === 'RECEBIDO' },
   { key: 'separacao', titulo: 'Em Separação', cor: 'var(--color-blue)', match: d => d.tipoComanda === 'pedido' && d.status === 'EM_PREPARO' },
   { key: 'prontos', titulo: 'Prontos p/ Despacho', cor: 'var(--color-cyan)', match: d => d.tipoComanda !== 'pedido' && d.status === 'RECEBIDO' },
-  { key: 'rota', titulo: 'Em Rota', cor: 'var(--color-emerald)', match: d => d.tipoComanda !== 'pedido' && STATUS_ROTA.includes(d.status) },
+  { key: 'rota', titulo: 'Em Rota', cor: 'var(--color-emerald)', match: d => STATUS_ROTA.includes(d.status) },
   { key: 'finalizadas', titulo: 'Finalizadas', cor: 'var(--text-muted)', match: d => STATUS_FINAL.includes(d.status) && isHoje(d.dataHoraConclusao || d.atualizadoEm) },
 ];
 

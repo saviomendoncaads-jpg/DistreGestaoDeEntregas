@@ -2482,7 +2482,12 @@ export default function App() {
           onPreparar={handlePrepararPedido}
           onFinalizar={handleFinalizarPedido}
           onCancelar={handleCancelarPedido}
-          onAbrirComanda={setSelectedDeliveryId}
+          onAbrirComanda={id => {
+            setSelectedDeliveryId(id);
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+              document.getElementById('delivery-management')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }));
+          }}
           onDespachar={gerarRomaneioParaSelecionados}
           onImprimir={(c) => imprimirComandaTicket(c as any, 'impressora')}
           getValor={getDeliveryValue as any}
@@ -2496,7 +2501,7 @@ export default function App() {
       {/* 4. Dashboard Main Body Grid */}
       <div className="dashboard-grid">
         
-        {selectedDelivery && <section className="glass-panel" style={{ minWidth: 0 }}>
+        {selectedDelivery && <section id="delivery-management" className="glass-panel" style={{ minWidth: 0 }}>
           <div className="panel-header"><h2>Gestão da entrega — {selectedDelivery.id}</h2></div>
           <p><strong>Cliente:</strong> {selectedDelivery.nomeCliente}</p>
           <p><strong>Endereço:</strong> {selectedDelivery.endereco}</p>

@@ -34,7 +34,7 @@ const stages: { key: Stage; label: string; icon: ReactNode }[] = [
   { key: 'novos', label: 'Novos', icon: <IcoDoc size={18} /> },
   { key: 'separacao', label: 'Separação', icon: <IcoBox size={18} /> },
   { key: 'prontos', label: 'Despacho', icon: <IcoTruck size={18} /> },
-  { key: 'rota', label: 'Entregas', icon: <IcoPin size={18} /> },
+  { key: 'rota', label: 'Em rota', icon: <IcoPin size={18} /> },
   { key: 'atrasados', label: 'Atrasados', icon: <IcoAlert size={18} /> },
   { key: 'concluidos', label: 'Concluídos', icon: <IcoCheck size={18} /> },
   { key: 'fiscal', label: 'Notas fiscais', icon: <IcoDoc size={18} /> },
@@ -50,7 +50,7 @@ function stageOf(order: Order): Stage {
   if (order.tipoComanda === 'pedido' && order.status === 'RECEBIDO') return 'novos';
   if (order.tipoComanda === 'pedido' && order.status === 'EM_PREPARO') return 'separacao';
   if (order.tipoComanda !== 'pedido' && order.status === 'RECEBIDO') return 'prontos';
-  if (order.tipoComanda !== 'pedido' && onRoute.has(order.status)) return 'rota';
+  if (onRoute.has(order.status)) return 'rota';
   return 'todos';
 }
 
@@ -147,18 +147,19 @@ export default function OperationsWorkspace(props: Props) {
     return ok && normalize(`${o.id} ${o.nomeCliente} ${o.endereco}`).includes(normalize(query.trim()));
   }).sort((a, b) => (ORDEM[sitOf(a)] - ORDEM[sitOf(b)]) || (tempo(b) - tempo(a)));
 
-  const changeStage = async (next: Stage) => { if (await props.onWorkspaceExit?.() === false) return; setStage(next); setFocused(null); setView('lista'); };
+  const changeStage = async (next: Stage) => { if (await props.onWorkspaceExit?.() === false) return; setStage(next); if (next === 'rota') setQuery(''); setFocused(null); setView('lista'); };
   const title = stage === 'todos' ? 'Pedidos' : stages.find(s => s.key === stage)?.label ?? 'Pedidos';
   const focusExists = props.deliveries.some(o => o.id === focused);
   const boardOrders = focused ? props.deliveries.filter(o => o.id === focused) : filtered;
   const hiddenSelections = props.selectedForManifest.filter(id => !boardOrders.some(o => o.id === id));
   const abrirNoQuadro = (id: string) => { setFocused(id); setView('quadro'); };
-  const abrir = (o: Order) => (sitOf(o) === 'finalizado' ? props.onAbrirComanda(o.id) : abrirNoQuadro(o.id));
+  const abrir = (o: Order) => (sitOf(o) === 'finalizado' || sitOf(o) === 'rota' ? props.onAbrirComanda(o.id) : abrirNoQuadro(o.id));
 
   // Ação principal de cada linha, no espírito "um clique para avançar".
   function acao(o: Order): { rotulo: string; fazer: (e: React.MouseEvent) => void; tom?: 'alerta' } | null {
     const sit = sitOf(o);
     const n = nota(o);
+    if (sit === 'rota') return { rotulo: o.status === 'AGUARDANDO_RETORNO_CD' ? 'Registrar retorno' : 'Finalizar entrega', fazer: () => props.onAbrirComanda(o.id) };
     if (n && fiscalIssues.has(n.status) && props.onNotaFiscal) return { rotulo: 'Corrigir', tom: 'alerta', fazer: () => props.onNotaFiscal!(o.id, n) };
     if (sit === 'novo') return { rotulo: 'Separar', fazer: e => props.onPreparar(o.id, e) };
     if (sit === 'separacao') return { rotulo: 'Iniciar separação', fazer: e => props.onFinalizar(o.id, e) };
@@ -166,7 +167,6 @@ export default function OperationsWorkspace(props: Props) {
     if (sit === 'pronto' || sit === 'faturado') {
       return { rotulo: 'Despachar', fazer: () => { if (!props.selectedForManifest.includes(o.id)) props.onToggleManifest(o.id, true); changeStage('prontos'); } };
     }
-    if (sit === 'rota') return { rotulo: 'Acompanhar', fazer: () => props.onAbrirComanda(o.id) };
     return null;
   }
 
@@ -174,6 +174,7 @@ export default function OperationsWorkspace(props: Props) {
     { key: 'novos', rotulo: 'Novos', icone: <IcoDoc size={22} /> },
     { key: 'separacao', rotulo: 'Em separação', icone: <IcoBox size={22} /> },
     { key: 'prontos', rotulo: 'Prontos', icone: <IcoCheck size={22} /> },
+    { key: 'rota', rotulo: 'Em rota', icone: <IcoTruck size={22} /> },
     { key: 'atrasados', rotulo: 'Atrasados', icone: <IcoAlert size={22} /> },
     { key: 'concluidos', rotulo: 'Concluídos', icone: <IcoCheck size={22} /> },
   ];
@@ -235,7 +236,7 @@ export default function OperationsWorkspace(props: Props) {
                   <span className="ops-hora">{data && !Number.isNaN(data.getTime()) ? fmtData(data) : '—'}</span>
                   {sit !== 'finalizado' && <span className={`ops-decorrido ${atras ? 'is-atrasado' : ''}`}>{atras && <IcoAlert size={12} />}{decorrido(min)}</span>}
                 </td>
-                <td data-label="Operação"><BadgeOperacao sit={sit} order={o} getStatusText={props.getStatusText} /></td>
+                <td data-label="Operação"><BadgeOperacao sit={sit} order={o} getStatusText={props.getStatusText} />{sit === 'rota' && <div className="ops-route-details"><span>{props.getStatusText(o.status)}</span><span>Entregador: {o.motorista?.name || 'Não informado'}</span><span>{o.endereco}</span></div>}</td>
                 <td data-label="Fiscal"><BadgeFiscal nota={n} sit={sit} onClick={n && props.onNotaFiscal ? () => props.onNotaFiscal!(o.id, n) : undefined} /></td>
                 <td className="ops-acoes"><div className="ops-acoes-inner">
                   {a && <button type="button" className={`ops-acao ${a.tom === 'alerta' ? 'ops-acao--alerta' : ''}`} onClick={a.fazer}>{a.rotulo}</button>}
