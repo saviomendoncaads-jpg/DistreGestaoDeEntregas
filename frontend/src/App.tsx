@@ -2300,17 +2300,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Centro de Operações — painel operacional ao vivo (KPIs + SLA + eventos) */}
-      <details className="ops-analytics">
-      <summary>Indicadores de entrega e eventos da operação</summary>
-      <CentroOperacoes
-        deliveries={deliveries}
-        drivers={drivers}
-        liveEvents={liveEvents}
-        zona={sessao?.nomeLoja || currentLoja?.nome || undefined}
-      />
-      </details>
-
       {/* 3. Seção de Entregas Cadastradas (Comandas) */}
       <section className="glass-panel deliveries-top-panel glow-cyan">
         {!dispatchViewActive && !showProdutosModal && !showVitrineModal && <div className="panel-header">
@@ -2817,7 +2806,7 @@ export default function App() {
                   <line x1="12" y1="20" x2="12" y2="4" />
                   <line x1="6" y1="20" x2="6" y2="14" />
                 </svg>
-                Análise de Desempenho da Frota
+                Relatórios
               </h2>
               <button className="report-modal-close-btn" onClick={() => setReportModalOpen(false)}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -2828,6 +2817,16 @@ export default function App() {
             </div>
 
             <div className="report-modal-body">
+              <details className="ops-analytics" open>
+                <summary>Indicadores de entrega e eventos da operação</summary>
+                <CentroOperacoes
+                  deliveries={deliveries}
+                  drivers={drivers}
+                  liveEvents={liveEvents}
+                  zona={sessao?.nomeLoja || currentLoja?.nome || undefined}
+                />
+              </details>
+              <h3>Análise de desempenho da frota</h3>
               {reportPhase === 'filters' ? (
                 /* FASE 1: Filtros do Relatório */
                 <form onSubmit={handleTriggerGenerate} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

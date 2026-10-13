@@ -11,6 +11,9 @@
 .distre-operations .ops-analytics { background: white; border: 1px solid #e2e8f0; border-radius: 12px; }
 .distre-operations .ops-analytics > summary { padding: 14px 20px; cursor: pointer; color: #475569; font-size: 14px; font-weight: 600; }
 .distre-operations .ops-analytics .centro-ops-panel { border: 0; }
+.report-modal-body .ops-analytics { margin-bottom: 24px; }
+.report-modal-body .ops-analytics > summary { padding: 0 0 14px; cursor: pointer; font-size: 14px; font-weight: 600; }
+.report-modal-body .ops-analytics .centro-ops-panel { margin-bottom: 0; }
 /* Sem formulário/mapa: painel do pedido aberto (quando houver) + frota de motoristas */
 .distre-operations .dashboard-grid { grid-template-columns: minmax(0, 1fr) 380px; }
 .distre-operations .dashboard-grid > :only-child { grid-column: 1 / -1; }
