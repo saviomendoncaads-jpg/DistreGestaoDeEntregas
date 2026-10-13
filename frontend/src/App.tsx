@@ -2230,7 +2230,6 @@ export default function App() {
           )}
         </div>
         <div className="header-actions">
-          <a className="btn btn-secondary" href="/app?perfil=admin" target="_blank" rel="noopener noreferrer">Abrir Painel Master ↗</a>
           <button
             className="btn btn-primary"
             onClick={() => window.location.assign(sessao?.tipo==='admin'&&tenantLojaId?`/area-cliente?lojaId=${encodeURIComponent(tenantLojaId)}`:'/area-cliente')}
