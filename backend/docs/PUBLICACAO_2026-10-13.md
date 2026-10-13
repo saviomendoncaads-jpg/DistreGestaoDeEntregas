@@ -56,3 +56,10 @@ Código `d42d0f82c0c8420da842b073cc884c9dcec8f95c`, release separada `C:/Projeto
 ## Acesso no cabeçalho — 13/10/2026
 
 Código `03c7bd2c6025ca782dfb8036e91c4d474254f357` publicado: botão Área do Cliente no cabeçalho junto às ações da sessão, retirado do menu lateral de operações, conforme local indicado pela operação. Build completo aprovado; navegador autenticado verificou um botão no cabeçalho, nenhum no menu operacional e acesso ao espaço do cliente. Fluxo da jornada e retorno à operação preservados. Backup SQL restaurado em base temporária; estágio com quatro comandas e relatório íntegro; publicação saudável e consulta pública autenticada conferida.
+
+
+## Pedidos concluídos — 13/10/2026
+
+Código `14efd742d0f5e68d8e92cb3dfc8c6d375b91f368` publicado. A central ganhou a quinta opção Concluídos e acesso lateral correspondente. A lista inicial mantém somente comandas em andamento; concluídos agrupam ENTREGUE, CANCELADO, RECUSADO_INSUCESSO e PRODUTO_RETORNADO_ESTOQUE, preservando resultado original, consulta e histórico. AGUARDANDO_RETORNO_CD e pedidos antigos em andamento permanecem na fila. Nenhum cancelamento automático ou alteração de registros foi adicionado.
+
+Build completo e quatro checks CI aprovados. Navegador com conjunto de oito comandas verificou cinco cartões, quatro pendências anteriores (incluindo retorno), quatro encerradas, busca, retorno à fila e celular. Backup SQL restaurado; estágio confirmou quatro comandas e relatório sem vínculos ambíguos; publicação e endereço público conferidos.
