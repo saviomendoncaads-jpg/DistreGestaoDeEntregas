@@ -14,6 +14,8 @@ import GestaoVitrine from './components/GestaoVitrine';
 import GestaoProdutos from './components/GestaoProdutos';
 import GestaoEstoque from './components/GestaoEstoque';
 import OperationSettingsModal from './components/OperationSettingsModal';
+import LocalPrinterSettings from './components/LocalPrinterSettings';
+import { imprimirLocal } from './localPrinting';
 import ConferenciaSeparacao from './components/ConferenciaSeparacao';
 import EmissaoNotaModal from './components/fiscal/EmissaoNotaModal';
 import ConfigFiscalModal from './components/fiscal/ConfigFiscalModal';
@@ -1420,7 +1422,8 @@ export default function App() {
   //    padrão; sai silencioso se o Chrome estiver com --kiosk-printing + 80mm como padrão)
   //  - 'pdf': baixa o arquivo 80mm diretamente
   //  - 'off': não imprime automaticamente
-  type ModoImpressaoComanda = 'impressora' | 'pdf' | 'off';
+  type ModoImpressaoComanda = 'impressora' | 'pdf' | 'off' | 'local';
+  const [localPrinter, setLocalPrinter] = useState(() => localStorage.getItem('distre_local_printer') || '');
   const [comandaPrintMode, setComandaPrintMode] = useState<ModoImpressaoComanda>(() => {
     try { return (localStorage.getItem('distre_comanda_print_mode') as ModoImpressaoComanda) || 'impressora'; }
     catch { return 'impressora'; }
@@ -1432,6 +1435,18 @@ export default function App() {
 
   const imprimirComandaTicket = (e: Entrega, modo: ModoImpressaoComanda) => {
     if (modo === 'off') return;
+    if (modo === 'local') {
+      void imprimirLocal(localPrinter, [
+        e.nomeLoja || sessao?.nomeLoja || 'DISTRE', 'COMANDA DE PEDIDO', `Comanda: ${e.id}`,
+        `Data: ${new Date().toLocaleString('pt-BR')}`, '', 'CLIENTE', e.nomeCliente,
+        '', 'ENTREGA', e.endereco, ...(e.referencia ? [`Referência: ${e.referencia}`] : []),
+        '', 'ITENS', ...e.itens, '', `Pagamento: ${e.formaPagamento || 'Não informado'}`,
+        `TOTAL: R$ ${getDeliveryValue(e).toFixed(2)}`, '', 'Comanda de pedido — não é documento fiscal',
+      ]).catch(error => {
+        avisarErro(`Comanda ${e.id}: ${error instanceof Error ? error.message : 'Falha na impressão local.'}`);
+      });
+      return;
+    }
     if (modo === 'pdf') {
       void (async () => {
         const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${encodeURIComponent(e.id)}/comanda.pdf`);
@@ -1540,7 +1555,7 @@ export default function App() {
         imprimirComandaTicket(d, comandaPrintMode);
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deliveries, comandaPrintMode]);
+  }, [deliveries, comandaPrintMode, localPrinter]);
 
   useEffect(() => {
     if (!sessao) {
@@ -2560,11 +2575,13 @@ export default function App() {
                   title="Como a comanda é gerada quando um pedido novo entra na fila"
                 >
                   <option value="impressora">Impressora 80mm (diálogo do navegador)</option>
+                  <option value="local">Impressão automática (sem janela)</option>
                   <option value="pdf">Baixar PDF direto</option>
                   <option value="off">Desligada</option>
                 </select>
               </label>
             )}
+            {tenantLojaId && comandaPrintMode === 'local' && <LocalPrinterSettings printer={localPrinter} onChange={name => { setLocalPrinter(name); localStorage.setItem('distre_local_printer', name); }} />}
             {tenantLojaId && fiscalApi && (
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
                 <span aria-hidden="true">🧾</span>
