@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Server } from 'socket.io';
 const mocks = vi.hoisted(() => ({ sessao: vi.fn() }));
-vi.mock('../src/auth', () => ({ obterSessaoPorToken: mocks.sessao }));
+vi.mock('../src/auth', () => ({ obterSessaoPorToken: mocks.sessao, lojaBloqueadaFinanceiro: (loja:any)=>['SUSPENSO','CANCELADO'].includes(loja.statusFinanceiro) }));
 vi.mock('../src/tenants', () => ({ lojas: [{ id: 'l1', statusFinanceiro: 'SUSPENSO' }] }));
 import { configurarAutenticacaoSocket, desconectarSessoesInvalidas } from '../src/security/socketAuth';
 beforeEach(() => { mocks.sessao.mockReset(); });

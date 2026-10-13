@@ -1,0 +1,15 @@
+import {beforeAll,afterAll,beforeEach,it,expect,vi} from 'vitest';
+import express from 'express';
+import type {Server} from 'http';
+const mocks=vi.hoisted(()=>({input:vi.fn(),query:vi.fn()}));
+vi.mock('../src/database',()=>({pool:{request:()=>({input:mocks.input,query:mocks.query})},salvarSessao:vi.fn(),deletarSessao:vi.fn()}));
+vi.mock('../src/tenants',()=>({lojas:[{id:'shop',empresaId:'company',ativo:true,statusFinanceiro:'SUSPENSO'}],empresas:[{id:'company',ativo:true}]}));
+import router,{meiosPagamento} from '../src/billing/clientBilling';
+import {sessions} from '../src/auth';
+let server:Server,url:string;
+beforeAll(async()=>{const app=express();app.use('/billing',router);server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});const addr=server.address() as {port:number};url=`http://127.0.0.1:${addr.port}`;});
+afterAll(async()=>{await new Promise<void>(resolve=>server.close(()=>resolve()));});
+beforeEach(()=>{sessions.clear();sessions.set('customer',{tipo:'loja',lojaId:'shop',token:'customer',criadoEm:new Date().toISOString()});mocks.input.mockReset().mockImplementation(function(this:any){return this;});mocks.query.mockReset().mockResolvedValue({recordset:[]});});
+it('mantém cobranças acessíveis à loja suspensa usando exclusivamente o escopo da sessão',async()=>{const response=await fetch(url+'/billing?lojaId=other&empresaId=other',{headers:{Authorization:'Bearer customer'}});expect(response.status).toBe(200);expect((await response.json()).operacaoBloqueada).toBe(true);expect(mocks.input.mock.calls.map(c=>[c[0],c[2]])).toEqual([['empresa','company'],['loja','shop']]);expect(mocks.query.mock.calls[0][0]).toContain('F.LOJA_ID IS NULL');});
+it('exige autenticação e não expõe cobranças pelo perfil administrador',async()=>{expect((await fetch(url+'/billing')).status).toBe(401);sessions.set('admin',{tipo:'admin',token:'admin',criadoEm:new Date().toISOString()});expect((await fetch(url+'/billing',{headers:{Authorization:'Bearer admin'}})).status).toBe(403);expect(mocks.query).not.toHaveBeenCalled();});
+it('nunca oferece links simulados, cobranças pagas ou protocolos executáveis',()=>{expect(meiosPagamento({GATEWAY_FATURA_ID:'mock_demo',STATUS:'PENDENTE',BOLETO_URL:'https://boleto.pagamento.com/demo'})).toEqual({});expect(meiosPagamento({GATEWAY_FATURA_ID:'pay_real',STATUS:'PAGA',BOLETO_URL:'https://example.com'})).toEqual({});expect(meiosPagamento({GATEWAY_FATURA_ID:'pay_real',STATUS:'PENDENTE',BOLETO_URL:'javascript:alert(1)'}).boletoUrl).toBeUndefined();expect(meiosPagamento({GATEWAY_FATURA_ID:'pay_real',STATUS:'PENDENTE',BOLETO_URL:'https://example.com/boleto',PIX_COPIA_COLA:'000201-real'})).toEqual({boletoUrl:'https://example.com/boleto',pixCopiaCola:'000201-real'});});

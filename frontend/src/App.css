@@ -3243,3 +3243,5 @@ body {
 }
 /* Hover do "fechar" volta a branco-translúcido no escuro (o global é claro). */
 .kanban-modal .kanban-detalhe-close:hover { background: rgba(255, 255, 255, 0.06); }
+
+.operation-payment-banner{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 26px;margin:20px 0;border:1px solid #d4dce5;border-radius:16px;background:#fff;box-shadow:0 8px 24px #0f172a08;color:#153356;position:relative;z-index:5}.operation-payment-banner strong{font-size:1.15rem}.operation-payment-banner p{margin:6px 0 0;color:#61718a}.operation-payment-muted{opacity:.48;pointer-events:none;user-select:none}.operation-payment-muted .ops-sidebar,.operation-payment-muted .ops-content{filter:grayscale(1)}.operation-payment-muted input,.operation-payment-muted button{cursor:not-allowed}@media(max-width:720px){.operation-payment-banner{align-items:stretch;flex-direction:column;padding:18px}.operation-payment-banner a{text-align:center}}

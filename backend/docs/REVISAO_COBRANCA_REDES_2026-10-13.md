@@ -34,9 +34,9 @@ Antes de criar competências retroativas, determinar vigência e modalidade do c
 
 ## Critérios de validação
 
-Mensalidade não duplicada em execução simultânea/restart; avanço correto de competência; bloqueio antes/depois da carência e fuso; pagamento antigo com outra dívida vencida; cancelamento e contestação; contrato de rede com várias lojas; filial individual inadimplente sem afetar outra; bloqueio efetivo no login, sessão já aberta, escrita, integração e WebSocket; reativação após regularização; cobrança consolidada sem duplicar valores; gateway indisponível e eventos repetidos.
+Mensalidade não duplicada em execução simultânea/restart; avanço correto de competência; bloqueio antes/depois da carência e fuso; pagamento antigo com outra dívida vencida; cancelamento e contestação; contrato de rede com várias lojas; filial individual inadimplente sem afetar outra; login permitido, conta/cobrança acessível na sessão já aberta e bloqueio de escrita, integração e WebSocket; reativação após regularização; cobrança consolidada sem duplicar valores; gateway indisponível e eventos repetidos.
 
-Estado: diagnóstico confirmado. Recorrência, unificação da carência, reativação por conjunto de obrigações e contrato de rede ainda precisam ser implementados e validados. Esta revisão não altera as regras em produção.
+Estado original do diagnóstico, superado pela implementação documentada abaixo.
 
 ## Implementação — 13/10/2026
 
@@ -44,6 +44,6 @@ Recorrência mensal idempotente recupera competências faltantes e avança o pr�
 
 O Master permite configurar contrato da REDE (todas as lojas) ou LOJA (filial específica), com chave idempotente, valor, plano e primeiro vencimento. Substituição encerra a emissão futura dos contratos anteriores, preserva dívidas anteriores e cancela faturas futuras não pagas abrangidas pela nova vigência, com ledger. Futuro já pago exige conciliação de crédito antes da substituição. Nova filial de rede herda contrato e plano sem criar outra mensalidade. Mensalidade de rede aparece uma vez nas faturas e é identificada como compartilhada no acompanhamento das lojas.
 
-Acesso considera obrigações da loja e do contrato da rede; não afeta outra empresa ou filial independente. Pagamento isolado não libera outras faturas após carência. Banco e memória são reconciliados e sessões suspensas são revogadas; login, HTTP, API de integração e WebSocket rejeitam acesso operacional suspenso. Configuração do gateway real continua ausente; as faturas internas não geram cobrança externa fictícia. Baixa manual e configuração futura do gateway permanecem disponíveis.
+Acesso considera obrigações da loja e do contrato da rede; não afeta outra empresa ou filial independente. Pagamento isolado não libera outras faturas após carência. Banco e memória são reconciliados. Login e sessões permanecem válidos para acesso à conta e cobranças. Operações HTTP, API de integração e WebSocket são bloqueadas; a interface operacional fica cinza/inativa com acesso ao pagamento. Configuração do gateway real continua ausente; as faturas internas não geram cobrança externa fictícia. Baixa manual e configuração futura do gateway permanecem disponíveis.
 
 Validação: 244 testes, incluindo 45 SQL. Concorrência/retentativa, preço legado, datas/carência, trial, bloqueio individual/consolidado, pagamento com outras dívidas e migração de contrato. Ensaio em cópia restaurada da produção: oito faturas novas de julho a outubro (R$149 por loja/competência), próximas cobranças em 10/11/2026, duas lojas suspensas por obrigações vencidas e quatro comandas preservadas.

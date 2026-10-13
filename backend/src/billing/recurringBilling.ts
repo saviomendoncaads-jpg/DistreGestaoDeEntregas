@@ -39,8 +39,6 @@ export async function reconciliarAcessoCobranca(hoje=diaCobranca()){
  for(const e of empresas){const net=subs.filter(s=>s.EMPRESA_ID===e.id&&!s.LOJA_ID);const debts=pending.filter(f=>f.EMPRESA_ID===e.id&&!(f.LOJA_ID??f.assinaturaLoja));if(!net.length&&!debts.length)continue;const status=(net.length>0&&net.every(s=>s.STATUS==='CANCELADA'))||net.some(s=>s.STATUS==='SUSPENSA')||debts.some(f=>bloqueiaFatura(f.STATUS,f.DATA_VENCIMENTO,grace,hoje))?'SUSPENSO':debts.some(f=>diasAtraso(f.DATA_VENCIMENTO,hoje)>0)?'INADIMPLENTE':'REGULAR';await tx.request().input('id',mssql.VarChar,e.id).input('s',mssql.VarChar,status).query('UPDATE EMPRESAS SET STATUS_FINANCEIRO=@s WHERE ID=@id');updated.push({empresa:e,status});}
  await tx.commit();for(const u of updated)(u.loja||u.empresa).statusFinanceiro=u.status;
  }catch(e){await tx.rollback();throw e;}
- // Banco e memória primeiro; a checagem de cada sessão impede novo login e canal já conectado.
- const {revogarSessoesDaLoja,revogarSessoesDaEmpresa}=await import('../auth');for(const u of updated){if(['SUSPENSO','CANCELADO'].includes(u.status)){if(u.loja)await revogarSessoesDaLoja(u.loja.id);else await revogarSessoesDaEmpresa(u.empresa.id);}}
 }
 let running=false;
 export async function executarCicloCobranca(){if(running)return;running=true;try{await gerarMensalidades();await reconciliarAcessoCobranca();}finally{running=false;}}

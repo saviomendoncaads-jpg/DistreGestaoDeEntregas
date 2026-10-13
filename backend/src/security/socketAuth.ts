@@ -1,5 +1,5 @@
 import type { Server } from 'socket.io';
-import { obterSessaoPorToken } from '../auth';
+import { obterSessaoPorToken, lojaBloqueadaFinanceiro } from '../auth';
 import { lojas } from '../tenants';
 
 /** Autoriza conexão e cada pacote; logout/revogação não deixa o canal aberto. */
@@ -13,7 +13,7 @@ export function configurarAutenticacaoSocket(io: Server): void {
         proximo(new Error('Sessão inválida ou expirada.')); return;
       }
       const loja = sessao.tipo === 'loja' ? lojas.find(l => l.id === sessao.lojaId) : undefined;
-      if (evento !== 'whatsapp_get_history' && loja && ['SUSPENSO', 'CANCELADO'].includes(loja.statusFinanceiro || '')) {
+      if (evento !== 'whatsapp_get_history' && loja && lojaBloqueadaFinanceiro(loja)) {
         proximo(new Error('Assinatura da loja suspensa.')); return;
       }
       proximo();

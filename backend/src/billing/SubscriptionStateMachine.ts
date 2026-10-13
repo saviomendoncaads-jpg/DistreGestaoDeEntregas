@@ -2,7 +2,6 @@ import { bloqueiaFatura,carenciaValida } from './billingPolicy';
 import mssql, { Transaction } from '../db';
 import { pool } from '../database';
 import { appendLedger } from './ledgerService';
-import { revogarSessoesDaLoja, revogarSessoesDaEmpresa } from '../auth';
 import { empresas, lojas } from '../tenants';
 
 // Máquina de estados da assinatura — domínio aditivo (mantém ATIVA/CANCELADA
@@ -127,13 +126,6 @@ export async function transicionar(assinaturaId: string, evento: EventoAssinatur
     await tx.commit();
 
     committed=true;
-    // Efeito de sessão fora da transação: estados severos derrubam o painel.
-    // Por loja quando há LOJA_ID; senão (legado) por empresa.
-    if (destino === 'SUSPENSA' || destino === 'CANCELADA') {
-      if (sub.LOJA_ID) await revogarSessoesDaLoja(sub.LOJA_ID);
-      else await revogarSessoesDaEmpresa(sub.EMPRESA_ID);
-    }
-
     if(evento==='payment.confirmed'){const {reconciliarAcessoCobranca}=await import('./recurringBilling');await reconciliarAcessoCobranca();}
     return { ok: true, de: atual, para: destino };
   } catch (e) {
