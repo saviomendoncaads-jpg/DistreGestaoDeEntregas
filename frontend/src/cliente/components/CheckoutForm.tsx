@@ -1,3 +1,5 @@
+import { configPadrao } from '../configVitrine';
+import type { ConfigVitrine } from '../configVitrine';
 import React, { useState } from 'react';
 import { useCarrinho } from '../context/CarrinhoContext';
 import { buscarEnderecoPorCep, mascararCep } from '../services/cep';
@@ -8,6 +10,7 @@ import type { EnderecoEntrega, FormaPagamentoVitrine, PedidoConfirmacao } from '
 
 interface Props {
   lojaId: string;
+  config?: ConfigVitrine;
   onVoltar: () => void;
   onConfirmado: (confirmacao: PedidoConfirmacao) => void;
 }
@@ -37,7 +40,7 @@ const FORMAS: { valor: FormaPagamentoVitrine; titulo: string; detalhe: string; i
   { valor: 'dinheiro', titulo: 'Dinheiro', detalhe: 'Pague ao receber', icone: '💵' }
 ];
 
-export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) {
+export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar, onConfirmado }: Props) {
   const { itens, subtotal, limpar } = useCarrinho();
 
   // Pré-preenche com a identificação feita em "Entrar" (se houver).
@@ -45,7 +48,7 @@ export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) 
   const [telefone, setTelefone] = useState(() => lerClienteIdentificado()?.telefone || '');
   const [cpf, setCpf] = useState('');
   const [endereco, setEndereco] = useState<EnderecoEntrega>(ENDERECO_VAZIO);
-  const [formaPagamento, setFormaPagamento] = useState<FormaPagamentoVitrine>('pix');
+  const [formaPagamento, setFormaPagamento] = useState<FormaPagamentoVitrine>(config.pagamentos[0]);
   const [trocoStr, setTrocoStr] = useState('');
   const [observacao, setObservacao] = useState('');
   const [buscandoCep, setBuscandoCep] = useState(false);
@@ -76,6 +79,9 @@ export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) 
   }
 
   function validar(): string | null {
+    if (config.pausada) return config.mensagemPausa;
+    if (subtotal < config.pedidoMinimo) return `Pedido mínimo: ${formatarPreco(config.pedidoMinimo)} em produtos.`;
+    if (!config.pagamentos.includes(formaPagamento)) return 'Selecione uma forma de pagamento disponível.';
     if (itens.length === 0) return 'Sua sacola está vazia.';
     if (!nome.trim()) return 'Informe seu nome.';
     if (telefone.replace(/\D/g, '').length < 10) return 'Informe um telefone válido com DDD.';
@@ -142,6 +148,7 @@ export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) 
         ← Voltar ao cardápio
       </button>
 
+      {config.pedidoMinimo > 0 && subtotal < config.pedidoMinimo && <div className="vt-aviso" role="status">Pedido mínimo de {formatarPreco(config.pedidoMinimo)} em produtos. Adicione mais {formatarPreco(config.pedidoMinimo - subtotal)} à sua sacola para continuar.</div>}
       <div className="v-checkout-colunas">
         <form className="v-form" onSubmit={aoEnviar} noValidate>
           <section className="v-form-bloco">
@@ -301,7 +308,7 @@ export default function CheckoutForm({ lojaId, onVoltar, onConfirmado }: Props) 
           <section className="v-form-bloco">
             <h2 className="v-form-titulo">Pagamento na entrega</h2>
             <div className="v-pagamentos" role="radiogroup" aria-label="Forma de pagamento">
-              {FORMAS.map(f => (
+              {FORMAS.filter(f => config.pagamentos.includes(f.valor)).map(f => (
                 <label
                   key={f.valor}
                   className={`v-pagamento${formaPagamento === f.valor ? ' v-pagamento--ativo' : ''}`}

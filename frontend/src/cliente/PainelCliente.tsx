@@ -1,3 +1,5 @@
+import { configPadrao } from './configVitrine';
+import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { CarrinhoProvider, useCarrinho } from './context/CarrinhoContext';
 import { CATEGORIA_OUTROS, categoriasDe, filtrarPorCategoria } from './components/SidebarCategorias';
@@ -47,13 +49,14 @@ function BarraSacola({ onAbrir }: { onAbrir: () => void }) {
   );
 }
 
-function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
+function ConteudoPainel({ cardapio, previa = false }: { cardapio: CardapioResposta; previa?: boolean }) {
   const [tela, setTela] = useState<Tela>('catalogo');
   const [sacolaAberta, setSacolaAberta] = useState(false);
   const [confirmacao, setConfirmacao] = useState<PedidoConfirmacao | null>(null);
   const { totalItens } = useCarrinho();
   const { loja, produtos, outrasLojas = [], maisVendidos = [] } = cardapio;
 
+  const config = loja.configVitrine ?? configPadrao();
   // Categorias derivadas dos produtos (definidas pela loja no painel).
   const categorias = useMemo(() => ordenarCategorias(categoriasDe(produtos).filter(c => c.nome !== CATEGORIA_OUTROS)), [produtos]);
   const [filtro, setFiltro] = useState<FiltroCategoria>({});
@@ -72,18 +75,23 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
   }, [produtos, filtro, termoBusca]);
   const tituloResultado = termoBusca ? `Resultados para “${busca.trim()}”` : filtro.categoria || 'Todos os produtos';
 
-  const topo = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+  const topo = () => !previa && window.scrollTo({ top: 0, behavior: 'smooth' });
   const irInicio = () => { setTela('catalogo'); setFiltro({}); setBusca(''); setVerTodos(false); topo(); };
   const abrirCategoria = (categoria: string) => { setTela('catalogo'); setBusca(''); setVerTodos(false); setFiltro({ categoria }); topo(); };
   const aoBuscar = (v: string) => { setBusca(v); setTela('catalogo'); if (v.trim()) { setFiltro({}); setVerTodos(false); } };
 
   useEffect(() => {
-    document.title = `${loja.nome} • Loja online`;
-  }, [loja.nome]);
+    if (previa) return;
+    document.title = config.seoTitulo || `${loja.nome} • Loja online`;
+    let meta = document.querySelector<HTMLMetaElement>('meta[name="description"]');
+    if (!meta) { meta = document.createElement('meta'); meta.name = 'description'; document.head.appendChild(meta); }
+    meta.content = config.seoDescricao || `Conheça os produtos de ${loja.nome}.`;
+  }, [loja.nome, config.seoTitulo, config.seoDescricao, previa]);
 
   return (
-    <div className={`vt-pagina ${tela === 'catalogo' && totalItens > 0 ? 'vt-pagina--tem-carrinho' : ''}`}>
+    <div style={{ '--v-cobalto': config.cor, '--v-cobalto-forte': config.cor, '--vt-azul': config.cor, '--vt-azul-2': config.cor } as CSSProperties} className={`vt-pagina ${tela === 'catalogo' && totalItens > 0 ? 'vt-pagina--tem-carrinho' : ''}`}>
       <div className="vt-container">
+        {config.anuncio && <div className="vt-anuncio">{config.anuncio}</div>}
         <CabecalhoVitrine
           loja={loja}
           outrasLojas={outrasLojas}
@@ -103,7 +111,7 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
 
           <main className="vt-main">
             {!loja.aceitandoPedidos && tela !== 'confirmado' && (
-              <div className="vt-aviso" role="status">Esta loja não está aceitando pedidos online no momento.</div>
+              <div className="vt-aviso" role="status">{config.pausada ? config.mensagemPausa : 'Esta loja não está aceitando pedidos online no momento.'}</div>
             )}
 
             {tela === 'catalogo' && (emResultado ? (
@@ -113,7 +121,7 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
                   <button type="button" className="vt-link vt-voltar" onClick={irInicio}><IcoSeta dir="esq" size={14} /> Voltar ao início</button>
                 </div>
                 {resultado.length > 0 ? (
-                  <GradeProdutos produtos={resultado} lojaId={loja.id} podePedir={loja.aceitandoPedidos} />
+                  <GradeProdutos produtos={resultado} lojaId={loja.id} podePedir={loja.aceitandoPedidos && !previa} />
                 ) : (
                   <div className="vt-vazio">
                     <strong>Nada encontrado</strong>
@@ -123,31 +131,18 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
               </section>
             ) : (
               <>
-                <BannerVitrine
-                  produtos={produtos}
-                  categorias={categorias}
-                  onCategoria={abrirCategoria}
-                  onVerProdutos={() => { setVerTodos(true); topo(); }}
-                />
-                <CategoriasDestaque categorias={categorias} onCategoria={abrirCategoria} />
-                {produtos.length > 0 ? (
-                  <ProdutosDestaque
-                    produtos={produtos}
-                    categorias={categorias}
-                    maisVendidos={maisVendidos}
-                    lojaId={loja.id}
-                    podePedir={loja.aceitandoPedidos}
-                    onVerTodos={() => { setVerTodos(true); topo(); }}
-                  />
-                ) : (
-                  <div className="vt-vazio"><strong>Catálogo em preparação</strong>Esta loja ainda não publicou produtos. Volte em breve!</div>
-                )}
+                {config.secoes.map(secao => <div key={secao}>
+                  {secao === 'banners' && <BannerVitrine produtos={produtos} categorias={categorias} banners={config.banners} onCategoria={abrirCategoria} onVerProdutos={() => { setVerTodos(true); topo(); }} />}
+                  {secao === 'categorias' && <CategoriasDestaque categorias={config.categoriasDestaque.length ? config.categoriasDestaque.map(nome => categorias.find(c => c.nome === nome)).filter((c): c is typeof categorias[number] => !!c) : categorias} onCategoria={abrirCategoria} />}
+                  {secao === 'destaques' && (produtos.length ? <ProdutosDestaque produtos={produtos} categorias={categorias} maisVendidos={maisVendidos} selecionados={config.produtosDestaque} limite={config.limiteDestaques} lojaId={loja.id} podePedir={loja.aceitandoPedidos && !previa} onVerTodos={() => { setVerTodos(true); topo(); }} /> : <div className="vt-vazio"><strong>Catálogo em preparação</strong>Esta loja ainda não publicou produtos. Volte em breve!</div>)}
+                </div>)}
               </>
             ))}
 
             {tela === 'checkout' && (
               <CheckoutForm
                 lojaId={loja.id}
+                config={config}
                 onVoltar={() => setTela('catalogo')}
                 onConfirmado={c => {
                   setConfirmacao(c);
@@ -171,6 +166,10 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
         </div>
 
         <footer className="v-footer">
+          {config.sobre && <p>{config.sobre}</p>}
+          {config.horarioTexto && <p><strong>Atendimento:</strong> {config.horarioTexto}</p>}
+          {config.pedidoMinimo > 0 && <p>Pedido mínimo: {formatarPreco(config.pedidoMinimo)} em produtos.</p>}
+          {config.instagram && <p><a href={config.instagram} target="_blank" rel="noreferrer">Instagram da loja</a></p>}
           Pedidos e entregas orquestrados por <strong className="v-footer-marca">Distre</strong>
           <small className="vt-creditos">
             Imagens ilustrativas de produtos:{' '}
@@ -182,14 +181,14 @@ function ConteudoPainel({ cardapio }: { cardapio: CardapioResposta }) {
         </footer>
       </div>
 
-      {tela === 'catalogo' && loja.aceitandoPedidos && !sacolaAberta && <BarraSacola onAbrir={() => setSacolaAberta(true)} />}
+      {!previa && tela === 'catalogo' && loja.aceitandoPedidos && !sacolaAberta && <BarraSacola onAbrir={() => setSacolaAberta(true)} />}
 
       <CarrinhoDrawer
         aberto={sacolaAberta}
         onFechar={() => setSacolaAberta(false)}
         onIrParaCheckout={() => {
           setSacolaAberta(false);
-          setTela('checkout');
+          if (!previa) setTela('checkout');
           window.scrollTo({ top: 0 });
         }}
       />
@@ -262,4 +261,8 @@ export default function PainelCliente() {
       <ConteudoPainel cardapio={cardapio} />
     </CarrinhoProvider>
   );
+}
+
+export function VitrinePrevia({ cardapio }: { cardapio: CardapioResposta }) {
+  return <CarrinhoProvider lojaId={`previa-${cardapio.loja.id}`}><ConteudoPainel cardapio={cardapio} previa /></CarrinhoProvider>;
 }

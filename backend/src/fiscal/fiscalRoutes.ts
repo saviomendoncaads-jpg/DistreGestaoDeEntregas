@@ -1,3 +1,4 @@
+import { asyncHandler } from '../http/asyncHandler';
 import { Router, Request, Response, NextFunction } from 'express';
 import { obterSessaoDoRequest, exigirLojaAdimplente } from '../auth';
 import { deliveries } from '../gateway';
@@ -144,7 +145,7 @@ function validarConfig(body: any, lojaId: string): ConfigFiscalLoja | { erro: st
 router.use(exigirSessao);
 
 // GET /api/fiscal/status — provedor/ambiente da loja e se já pode emitir
-router.get('/status', async (req: RequestComSessao, res: Response) => {
+router.get('/status', asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) { res.json({ provedor: 'SIMULADO', simulado: true, ambiente: 'HOMOLOGACAO', podeEmitir: false }); return; }
@@ -154,10 +155,10 @@ router.get('/status', async (req: RequestComSessao, res: Response) => {
   } catch (err) {
     responderErro(res, err, 'Erro ao obter status fiscal');
   }
-});
+}));
 
 // GET /api/fiscal/config — dados fiscais + resumo das credenciais + checklist
-router.get('/config', async (req: RequestComSessao, res: Response) => {
+router.get('/config', asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) { res.status(400).json({ error: 'lojaId é obrigatório para administrador.' }); return; }
@@ -165,10 +166,10 @@ router.get('/config', async (req: RequestComSessao, res: Response) => {
   } catch (err) {
     responderErro(res, err, 'Erro ao obter configuração fiscal');
   }
-});
+}));
 
 // PUT /api/fiscal/config — salva os dados fiscais da loja
-router.put('/config', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.put('/config', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) { res.status(400).json({ error: 'lojaId é obrigatório para administrador.' }); return; }
@@ -194,7 +195,7 @@ router.put('/config', exigirLojaAdimplente, async (req: RequestComSessao, res: R
   } catch (err) {
     responderErro(res, err, 'Erro ao salvar configuração fiscal');
   }
-});
+}));
 
 // ─── Credenciais (certificado A1, CSC, tokens Focus) ─────────────────────────
 
@@ -202,7 +203,7 @@ const LIMITE_PFX_BYTES = 500 * 1024;
 
 // PUT /api/fiscal/credenciais — envia/substitui/remove segredos. Campo ausente = mantém;
 // string vazia (ou removerCertificado) = apaga. Nada disso volta pela API.
-router.put('/credenciais', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.put('/credenciais', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) { res.status(400).json({ error: 'lojaId é obrigatório para administrador.' }); return; }
@@ -268,10 +269,10 @@ router.put('/credenciais', exigirLojaAdimplente, async (req: RequestComSessao, r
   } catch (err) {
     responderErro(res, err, 'Erro ao salvar credenciais fiscais');
   }
-});
+}));
 
 // POST /api/fiscal/credenciais/testar — { ambiente? } valida o token no provedor
-router.post('/credenciais/testar', async (req: RequestComSessao, res: Response) => {
+router.post('/credenciais/testar', asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) { res.status(400).json({ error: 'lojaId é obrigatório para administrador.' }); return; }
@@ -287,11 +288,11 @@ router.post('/credenciais/testar', async (req: RequestComSessao, res: Response) 
   } catch (err) {
     responderErro(res, err, 'Erro ao testar conexão fiscal');
   }
-});
+}));
 
 // POST /api/fiscal/credenciais/sincronizar-focus — cadastra/atualiza a empresa na
 // Focus (dados + certificado + CSC) e guarda os tokens de emissão devolvidos.
-router.post('/credenciais/sincronizar-focus', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.post('/credenciais/sincronizar-focus', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) { res.status(400).json({ error: 'lojaId é obrigatório para administrador.' }); return; }
@@ -326,10 +327,10 @@ router.post('/credenciais/sincronizar-focus', exigirLojaAdimplente, async (req: 
   } catch (err) {
     responderErro(res, err, 'Erro ao sincronizar com a Focus NFe');
   }
-});
+}));
 
 // GET /api/fiscal/notas?dias=2 — notas recentes da loja (resumo)
-router.get('/notas', async (req: RequestComSessao, res: Response) => {
+router.get('/notas', asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) { res.status(400).json({ error: 'lojaId é obrigatório para administrador.' }); return; }
@@ -340,10 +341,10 @@ router.get('/notas', async (req: RequestComSessao, res: Response) => {
   } catch (err) {
     responderErro(res, err, 'Erro ao listar notas');
   }
-});
+}));
 
 // GET /api/fiscal/notas/:id — nota completa para impressão do DANFE
-router.get('/notas/:id', async (req: RequestComSessao, res: Response) => {
+router.get('/notas/:id', asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const nota = await obterNota(req.params.id as string);
     if (!nota || !podeAcessarLoja(req, nota.lojaId)) { res.status(404).json({ error: 'Nota não encontrada.' }); return; }
@@ -351,10 +352,10 @@ router.get('/notas/:id', async (req: RequestComSessao, res: Response) => {
   } catch (err) {
     responderErro(res, err, 'Erro ao obter nota');
   }
-});
+}));
 
 // POST /api/fiscal/emitir — emite (ou re-emite após erro) a nota de uma comanda
-router.post('/emitir', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.post('/emitir', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const { entregaId, modelo } = req.body || {};
     if (modelo !== 'NFCE' && modelo !== 'NFE') { res.status(400).json({ error: 'modelo deve ser NFCE ou NFE.' }); return; }
@@ -378,10 +379,10 @@ router.post('/emitir', exigirLojaAdimplente, async (req: RequestComSessao, res: 
   } catch (err) {
     responderErro(res, err, 'Erro ao emitir nota');
   }
-});
+}));
 
 // POST /api/fiscal/notas/:id/atualizar — reconsulta no provedor (NF-e em processamento)
-router.post('/notas/:id/atualizar', async (req: RequestComSessao, res: Response) => {
+router.post('/notas/:id/atualizar', asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const nota = await obterNota(req.params.id as string);
     if (!nota || !podeAcessarLoja(req, nota.lojaId)) { res.status(404).json({ error: 'Nota não encontrada.' }); return; }
@@ -389,10 +390,10 @@ router.post('/notas/:id/atualizar', async (req: RequestComSessao, res: Response)
   } catch (err) {
     responderErro(res, err, 'Erro ao atualizar nota');
   }
-});
+}));
 
 // POST /api/fiscal/notas/:id/cancelar — { justificativa }
-router.post('/notas/:id/cancelar', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.post('/notas/:id/cancelar', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const nota = await obterNota(req.params.id as string);
     if (!nota || !podeAcessarLoja(req, nota.lojaId)) { res.status(404).json({ error: 'Nota não encontrada.' }); return; }
@@ -401,6 +402,6 @@ router.post('/notas/:id/cancelar', exigirLojaAdimplente, async (req: RequestComS
   } catch (err) {
     responderErro(res, err, 'Erro ao cancelar nota');
   }
-});
+}));
 
 export default router;

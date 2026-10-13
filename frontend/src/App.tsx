@@ -1,3 +1,9 @@
+import {pinPanelRole,getPanelSession,savePanelSession,clearPanelSession,sessionKey} from './auth/sessions';
+import ManualDeliveryActions from './components/ManualDeliveryActions';
+import ImplementationCard from './implantacao/ImplementationCard';
+import type { ImplementationState } from './implantacao/api';
+import ReturnStockAction from './components/ReturnStockAction';
+import { comandasOperacionais } from './operationOrders';
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { io, Socket } from 'socket.io-client';
@@ -15,96 +21,11 @@ import {
   type DestinatarioNota, type EscolhaFiscal, type NotaCompleta, type NotaResumo, type StatusFiscal,
 } from './components/fiscal/fiscalApi';
 import { imprimirNota } from './components/fiscal/danfe';
+import LoginScreen from './components/LoginScreen';
+import AdminMaster from './components/admin/AdminMaster';
+import type { Empresa, Loja } from './components/admin/admin-types';
 import './App.css';
 
-declare const L: any;
-
-// Bounding box para Abreu e Lima, Pernambuco, Brasil (Foco da Loja 10)
-const CITY_BOUNDS = {
-  minLat: -7.925,
-  maxLat: -7.875,
-  minLng: -34.935,
-  maxLng: -34.875
-};
-
-// Converte coordenadas da grade (0-100) para latitude e longitude reais
-function gridToLatLng(x: number, y: number): [number, number] {
-  const lng = CITY_BOUNDS.minLng + (x / 100) * (CITY_BOUNDS.maxLng - CITY_BOUNDS.minLng);
-  const lat = CITY_BOUNDS.maxLat - (y / 100) * (CITY_BOUNDS.maxLat - CITY_BOUNDS.minLat);
-  return [lat, lng];
-}
-
-
-// Cache global de rotas OSRM para evitar requisições redundantes e rate limits
-const osrmRoutesCache = new Map<string, [number, number][]>();
-
-// Paleta para diferenciar múltiplas entregas no mapa. Com 1 entrega, a rota é azul;
-// com mais, cada uma recebe a próxima cor (verde, amarelo, vermelho, preto, roxo...).
-const ROUTE_COLORS = ['#1a73e8', '#16a34a', '#f4b400', '#ea4335', '#111827', '#7c3aed'];
-
-// Marcador da loja (hub) no mapa — estilo Waze: badge branco com ícone de loja
-// e o NOME da loja exibido logo acima do indicador (via CSS ::after / --hub-name).
-function hubIconHtml(name: string): string {
-  return `<div class="map-city-hub" style="--hub-name: '${name}'; position: absolute; transform: translate(-50%, -50%); left: 0; top: 0;">`
-    + `<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">`
-    + `<path d="M3 9 L4.4 4.5 H19.6 L21 9" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>`
-    + `<path d="M4.5 9 V19.5 H19.5 V9" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>`
-    + `<path d="M9.5 19.5 V14 H14.5 V19.5" fill="none" stroke="#2563eb" stroke-width="2" stroke-linejoin="round"/>`
-    + `</svg></div>`;
-}
-
-function getVehicleIconHtmlString(type?: string): string {
-  switch (type) {
-    case 'drone':
-      return `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;">
-          <path d="M12 2v20M20 12H4" />
-          <circle cx="12" cy="12" r="3" />
-          <circle cx="12" cy="2" r="1.5" />
-          <circle cx="12" cy="22" r="1.5" />
-          <circle cx="20" cy="12" r="1.5" />
-          <circle cx="4" cy="12" r="1.5" />
-        </svg>
-      `;
-    case 'motorcycle':
-      return `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;">
-          <circle cx="5" cy="18" r="3" />
-          <circle cx="19" cy="18" r="3" />
-          <path d="M12 18V8H9m6 10l-3-6h-3m4-4h4l2 3" />
-        </svg>
-      `;
-    case 'van':
-      return `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;">
-          <path d="M14 18H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6" />
-          <circle cx="7.5" cy="18" r="2.5" />
-          <circle cx="16.5" cy="18" r="2.5" />
-          <path d="M13 6v8m5-8l2 3v3" />
-        </svg>
-      `;
-    case 'refrigerated_truck':
-      return `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;">
-          <path d="M14 18H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h11v13z" />
-          <path d="M14 8h5l3 3v6h-8V8z" />
-          <circle cx="5.5" cy="18" r="2.5" />
-          <circle cx="16.5" cy="18" r="2.5" />
-          <path d="M20 18h2" />
-        </svg>
-      `;
-    default:
-      return `
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: inline-block; vertical-align: middle;">
-          <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2" />
-          <circle cx="7" cy="17" r="2" />
-          <circle cx="17" cy="17" r="2" />
-        </svg>
-      `;
-  }
-}
-
-// Interfaces locais traduzidas para sincronia com o Backend
 interface Localizacao {
   x: number;
   y: number;
@@ -208,28 +129,13 @@ interface Entrega {
   tipoComanda?: 'pedido' | 'entrega';
   destinoLatitude?: number;
   destinoLongitude?: number;
+  pedidoOrigemId?: string;
+  entregaVinculadaId?: string;
 }
 
 
 
 
-interface AcaoFilaSincronia {
-  id: string;
-  acao: 'concluir' | 'falhar' | 'chegar';
-  entregaId: string;
-  timestamp: string;
-  motivoInsucesso?: string;
-  recebedorNome?: string;
-  recebedorCPF?: string;
-  comprovanteFotoUrl?: string;
-  assinaturaBase64?: string;
-  justificativaDesvioCoordenada?: string;
-}
-
-// URL do backend (API + WebSocket). Configurável no build via VITE_BACKEND_URL:
-//  - não definido  → dev local (http://localhost:5000)
-//  - definido vazio → MESMA ORIGEM (o backend serve o frontend; ideal p/ 1 túnel só)
-//  - definido c/ URL → usa a URL (ex.: https://api.seudominio.com.br)
 const _viteBackend = (import.meta as any).env?.VITE_BACKEND_URL;
 const BACKEND_URL = _viteBackend === undefined ? 'http://localhost:5000' : _viteBackend;
 
@@ -255,39 +161,12 @@ interface DadoPerformanceHistorico {
 // Histórico de performance baseado apenas em entregas reais — sem dados mockados estáticos
 const HISTORICO_PERFORMANCE: DadoPerformanceHistorico[] = [];
 
-interface Empresa {
-  id: string;
-  nome: string;
-  cnpj: string;
-  telefone?: string;
-  email?: string;
-  ativo: boolean;
-  criadoEm: string;
-  totalLojas?: number;
-  lojasAtivas?: number;
-}
 
-interface Loja {
-  id: string;
-  empresaId: string;
-  nome: string;
-  cnpj?: string;
-  endereco?: string;
-  numero?: string;
-  bairro?: string;
-  cidade?: string;
-  uf?: string;
-  cep?: string;
-  usuario: string;
-  chaveAcesso: string;
-  ativo: boolean;
-  criadoEm: string;
-  recebePedidos?: boolean;
-  latitude?: number;
-  longitude?: number;
-}
+
+
 
 interface Sessao {
+  operacaoBloqueada?: boolean;
   tipo: 'admin' | 'loja';
   lojaId?: string;
   nomeLoja?: string;
@@ -301,29 +180,14 @@ interface Sessao {
 
 export default function App() {
   // --- ESTADOS MULTI-TENANT & AUTENTICAÇÃO ---
-  const [sessao, setSessao] = useState<Sessao | null>(() => {
-    const saved = localStorage.getItem('distre_sessao');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [activeRole]=useState(pinPanelRole);
+  const [sessao,setSessao]=useState<Sessao|null>(()=>getPanelSession(activeRole));
+  useEffect(()=>{const sync=(event:StorageEvent)=>{if(event.key===sessionKey(activeRole))setSessao(getPanelSession(activeRole));};window.addEventListener('storage',sync);return()=>window.removeEventListener('storage',sync);},[activeRole]);
 
-  const hubName = sessao?.tipo === 'loja' && sessao.nomeLoja
-    ? sessao.nomeLoja
-    : 'CD Central';
-
-  // --- ESTADOS RASTREAMENTO GPS / VINCULO MOTOBOY ---
-  const [driverMobileVinculado, setDriverMobileVinculado] = useState<Motorista | null>(() => {
-    const saved = localStorage.getItem('distre_driver_mobile');
-    return saved ? JSON.parse(saved) : null;
-  });
-  const [driverPinInput, setDriverPinInput] = useState('');
-  const [driverLocation, setDriverLocation] = useState<Localizacao | null>(() => {
-    const savedLoc = localStorage.getItem('distre_driver_location');
-    return savedLoc ? JSON.parse(savedLoc) : { x: 10, y: 10 };
-  });
   const [loginUsuario, setLoginUsuario] = useState('');
   const [loginSenha, setLoginSenha] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [loginTab, setLoginTab] = useState<'loja' | 'admin'>('loja');
+  const [loginTab] = useState<'loja' | 'admin'>(activeRole);
   const [selectedDriverForDispatch, setSelectedDriverForDispatch] = useState('');
   const [dispatchViewActive, setDispatchViewActive] = useState(false);
 
@@ -370,6 +234,8 @@ export default function App() {
   const [lojaVisualizada, setLojaVisualizada] = useState<{ id: string; nome: string; nomeEmpresa: string } | null>(null);
 
   // --- ESTADOS DO MÓDULO FINANCEIRO ---
+  const [adminDataState, setAdminDataState] = useState<Record<string, 'loading' | 'refreshing' | 'ready' | 'error'>>({});
+  const adminRequestVersions = useRef<Record<string, number>>({});
   const [adminSubView, setAdminSubView] = useState<'operacional' | 'financeiro'>('operacional');
   const [finSubTab, setFinSubTab] = useState<'faturas' | 'relatorios' | 'planos_config'>('faturas');
   
@@ -471,12 +337,14 @@ export default function App() {
         lojaId: data.lojaId,
         nomeLoja: data.nomeLoja,
         nomeEmpresa: data.nomeEmpresa,
+        operacaoBloqueada: data.operacaoBloqueada,
         token: data.token
       };
 
       setSessao(novaSessao);
-      localStorage.setItem('distre_sessao', JSON.stringify(novaSessao));
-      localStorage.setItem('distre_token', data.token);
+      savePanelSession(novaSessao);
+      const next = new URLSearchParams(location.search).get('next');
+      if (next === 'implantacao' || next === 'area-cliente') location.assign(next === 'implantacao' ? '/area-cliente?secao=implantacao' : '/area-cliente');
       setLoginUsuario('');
       setLoginSenha('');
     } catch (err: any) {
@@ -501,131 +369,80 @@ export default function App() {
     setAllDrivers([]);
     setSelectedForManifest([]);
     setActiveManifest(null);
-    localStorage.removeItem('distre_sessao');
-    localStorage.removeItem('distre_token');
+    clearPanelSession(activeRole,sessao?.token);
     localStorage.removeItem('distre_driver_mobile');
     localStorage.removeItem('distre_driver_location');
   };
 
-  const carregarEmpresas = async () => {
+  // Each dataset keeps its own status and ignores obsolete responses.
+  const loadAdminData = async <T,>(key: string, url: string, apply: (data: T) => void) => {
+    const version = (adminRequestVersions.current[key] ?? 0) + 1;
+    adminRequestVersions.current[key] = version;
+    setAdminDataState(previous => ({ ...previous, [key]: previous[key] === 'ready' || previous[key] === 'refreshing' ? 'refreshing' : 'loading' }));
     try {
-      const res = await apiFetch(`${BACKEND_URL}/api/empresas`);
-      if (res.ok) {
-        const data = await res.json();
-        setEmpresas(data);
+      const response = await apiFetch(url);
+      if (!response.ok) throw new Error('Não foi possível consultar os dados.');
+      const data: T = await response.json();
+      if (adminRequestVersions.current[key] !== version) return;
+      apply(data);
+      setAdminDataState(previous => ({ ...previous, [key]: 'ready' }));
+    } catch {
+      if (adminRequestVersions.current[key] === version) {
+        setAdminDataState(previous => ({ ...previous, [key]: 'error' }));
       }
-    } catch (err) {
-      console.error('Erro ao carregar empresas:', err);
     }
   };
 
-  const carregarLojas = async (empresaId: string) => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/empresas/${empresaId}/lojas`);
-      if (res.ok) {
-        const data = await res.json();
-        setLojasDaEmpresa(prev => ({ ...prev, [empresaId]: data }));
-      }
-    } catch (err) {
-      console.error(`Erro ao carregar lojas da empresa ${empresaId}:`, err);
-    }
-  };
+  const carregarEmpresas = () => loadAdminData('empresas', BACKEND_URL + '/api/empresas', setEmpresas);
 
-  // --- FUNÇÕES E EFEITOS DO MÓDULO FINANCEIRO ---
+  const carregarLojas = (empresaId: string) => loadAdminData<Loja[]>('lojas:' + empresaId,
+    BACKEND_URL + '/api/empresas/' + empresaId + '/lojas',
+    data => setLojasDaEmpresa(previous => ({ ...previous, [empresaId]: data })));
 
-  const carregarFinanceiroDashboard = async () => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/dashboard`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinDashboard(data);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar dashboard financeiro:', err);
-    }
-  };
+  const carregarFinanceiroDashboard = () => loadAdminData('dashboard', BACKEND_URL + '/api/admin/financeiro/dashboard', setFinDashboard);
 
-  const carregarFinanceiroFaturas = async () => {
-    try {
-      const queryParams = new URLSearchParams({
-        status: finFaturasFiltros.status,
-        empresaId: finFaturasFiltros.empresaId,
-        dataInicio: finFaturasFiltros.dataInicio,
-        dataFim: finFaturasFiltros.dataFim,
-        page: finPaginaAtual.toString(),
-        limit: finFaturasFiltros.limit.toString()
-      });
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/faturas?${queryParams.toString()}`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinFaturas(data.faturas || []);
-        setFinTotalPaginas(data.paginacao?.paginas || 1);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar faturas:', err);
-    }
+  const carregarFinanceiroFaturas = () => {
+    const query = new URLSearchParams({
+      status: finFaturasFiltros.status, empresaId: finFaturasFiltros.empresaId,
+      dataInicio: finFaturasFiltros.dataInicio, dataFim: finFaturasFiltros.dataFim,
+      page: String(finPaginaAtual), limit: String(finFaturasFiltros.limit)
+    });
+    return loadAdminData<{ faturas?: typeof finFaturas; paginacao?: { paginas: number } }>('faturas', BACKEND_URL + '/api/admin/financeiro/faturas?' + query, data => {
+      setFinFaturas(data.faturas || []);
+      setFinTotalPaginas(data.paginacao?.paginas || 1);
+    });
   };
 
   const carregarFinanceiroRelatorios = async () => {
+    const key = 'relatorios';
+    const version = (adminRequestVersions.current[key] ?? 0) + 1;
+    adminRequestVersions.current[key] = version;
+    setAdminDataState(previous => ({ ...previous, [key]: previous[key] === 'ready' || previous[key] === 'refreshing' ? 'refreshing' : 'loading' }));
     try {
-      const [resFat, resInad, resChurn, resPrev] = await Promise.all([
-        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/faturamento`),
-        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/inadimplencia`),
-        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/churn`),
-        apiFetch(`${BACKEND_URL}/api/admin/financeiro/relatorios/previsibilidade`)
-      ]);
-      if (resFat.ok) setFinRelFaturamento(await resFat.json());
-      if (resInad.ok) setFinRelInadimplencia(await resInad.json());
-      if (resChurn.ok) setFinRelChurn(await resChurn.json());
-      if (resPrev.ok) setFinRelPrevisibilidade(await resPrev.json());
-    } catch (err) {
-      console.error('Erro ao carregar relatórios financeiros:', err);
+      const responses = await Promise.all(['faturamento', 'inadimplencia', 'churn', 'previsibilidade'].map(report =>
+        apiFetch(BACKEND_URL + '/api/admin/financeiro/relatorios/' + report)));
+      if (responses.some(response => !response.ok)) throw new Error('Relatórios indisponíveis');
+      const [faturamento, inadimplencia, churn, previsibilidade] = await Promise.all(responses.map(response => response.json()));
+      if (adminRequestVersions.current[key] !== version) return;
+      setFinRelFaturamento(faturamento); setFinRelInadimplencia(inadimplencia);
+      setFinRelChurn(churn); setFinRelPrevisibilidade(previsibilidade);
+      setAdminDataState(previous => ({ ...previous, [key]: 'ready' }));
+    } catch {
+      if (adminRequestVersions.current[key] === version) setAdminDataState(previous => ({ ...previous, [key]: 'error' }));
     }
   };
 
-  const carregarFinanceiroConfig = async () => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/configuracoes`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinConfiguracoes(data);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar configurações de cobrança:', err);
-    }
+  const carregarFinanceiroConfig = () => loadAdminData('configuracoes', BACKEND_URL + '/api/admin/financeiro/configuracoes', setFinConfiguracoes);
+  const carregarFinanceiroAssinaturas = () => loadAdminData('assinaturas', BACKEND_URL + '/api/admin/financeiro/assinaturas', setFinAssinaturas);
+  const carregarFinanceiroPlanos = () => loadAdminData('planos', BACKEND_URL + '/api/admin/financeiro/planos', setFinPlanos);
+
+  const carregarTodosDadosFinanceiros = async () => {
+    await Promise.all([carregarFinanceiroDashboard(), carregarFinanceiroFaturas(), carregarFinanceiroRelatorios(),
+      carregarFinanceiroConfig(), carregarFinanceiroAssinaturas(), carregarFinanceiroPlanos()]);
   };
 
-  const carregarFinanceiroAssinaturas = async () => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/assinaturas`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinAssinaturas(data);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar assinaturas:', err);
-    }
-  };
-
-  const carregarFinanceiroPlanos = async () => {
-    try {
-      const res = await apiFetch(`${BACKEND_URL}/api/admin/financeiro/planos`);
-      if (res.ok) {
-        const data = await res.json();
-        setFinPlanos(data);
-      }
-    } catch (err) {
-      console.error('Erro ao carregar planos:', err);
-    }
-  };
-
-  const carregarTodosDadosFinanceiros = () => {
-    carregarFinanceiroDashboard();
-    carregarFinanceiroFaturas();
-    carregarFinanceiroRelatorios();
-    carregarFinanceiroConfig();
-    carregarFinanceiroAssinaturas();
-    carregarFinanceiroPlanos();
+  const refreshAdminData = async () => {
+    await Promise.all([carregarEmpresas(), carregarTodosDadosFinanceiros(), ...expandedEmpresas.map(carregarLojas)]);
   };
 
   const handleCobrarManual = async (e: React.FormEvent) => {
@@ -803,16 +620,16 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (sessao?.tipo === 'admin' && !lojaVisualizada && adminSubView === 'financeiro') {
+    if (sessao?.tipo === 'admin' && !lojaVisualizada) {
       carregarTodosDadosFinanceiros();
     }
-  }, [sessao, lojaVisualizada, adminSubView]);
+  }, [sessao, lojaVisualizada]);
 
   useEffect(() => {
     if (sessao?.tipo === 'admin' && !lojaVisualizada && adminSubView === 'financeiro') {
       carregarFinanceiroFaturas();
     }
-  }, [finPaginaAtual, finFaturasFiltros]);
+  }, [finPaginaAtual, finFaturasFiltros, adminSubView]);
 
   const toggleEmpresaExpandida = (empresaId: string) => {
     if (expandedEmpresas.includes(empresaId)) {
@@ -1084,16 +901,15 @@ export default function App() {
   // Feed de eventos do broker para o Centro de Operações (buffer rolante, filtrado/deduplicado).
   const [liveEvents, setLiveEvents] = useState<BrokerEvento[]>([]);
   // Coordenadas geográficas da loja recebidas em tempo real via system_status (independem da sessão em cache)
-  const [lojaCoordsLive, setLojaCoordsLive] = useState<{ lat: number; lng: number } | null>(null);
 
   // Filtro de segurança (Multi-tenant) no frontend
   const tenantLojaId = sessao?.tipo === 'loja' 
     ? sessao.lojaId 
     : (sessao?.tipo === 'admin' && lojaVisualizada ? lojaVisualizada.id : undefined);
 
-  const deliveries = tenantLojaId
+  const deliveries = comandasOperacionais(tenantLojaId
     ? allDeliveries.filter(d => d.lojaId === tenantLojaId)
-    : allDeliveries;
+    : allDeliveries);
 
   const drivers = tenantLojaId
     ? allDrivers.filter(d => d.lojaId === tenantLojaId)
@@ -1108,7 +924,6 @@ export default function App() {
   // Controle de interface do painel
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
   
-  const [mapRoutesTrigger, setMapRoutesTrigger] = useState(0);
 
   // Estados para o FAB e Modal de Relatório
   const [showEstoqueModal, setShowEstoqueModal] = useState(false);
@@ -1138,6 +953,31 @@ export default function App() {
   const [catalogoRefresh, setCatalogoRefresh] = useState(0);
   const [showProdutosModal, setShowProdutosModal] = useState(false);
   const [showVitrineModal, setShowVitrineModal] = useState(false);
+  const [operacaoBloqueada,setOperacaoBloqueada]=useState<boolean|null>(null);
+  useEffect(()=>{
+    if(sessao?.tipo!=='loja'){setOperacaoBloqueada(false);return;}
+    setOperacaoBloqueada(sessao.operacaoBloqueada??null);
+    let cancelled=false;
+    const refresh=async()=>{try{const r=await fetch(`${BACKEND_URL}/api/auth/me`,{headers:{Authorization:`Bearer ${sessao.token}`}});if(r.status===401){if(!cancelled)void handleLogout();return;}if(!r.ok)return;const d=await r.json();if(!cancelled)setOperacaoBloqueada(d.operacaoBloqueada===true);}catch{/* Permissão anterior preservada; servidor continua protegendo ações. */}};
+    void refresh();const timer=setInterval(()=>void refresh(),15000);window.addEventListener('focus',refresh);return()=>{cancelled=true;clearInterval(timer);window.removeEventListener('focus',refresh);};
+  },[sessao?.token]);
+  const [implementationState,setImplementationState]=useState<ImplementationState|null>(null);
+  useEffect(() => {
+    document.title = !sessao ? 'Distre - Acesso ao ERP'
+      : sessao.tipo === 'admin' && !lojaVisualizada ? 'Distre - Painel Administrador'
+        : 'Distre - Operação';
+  }, [sessao, lojaVisualizada]);
+  useEffect(()=>{
+    if(sessao?.tipo!=='loja')return;
+    const area=new URLSearchParams(location.search).get('area');
+    if(area==='produtos')setShowProdutosModal(true);
+    if(area==='estoque'){setShowProdutosModal(true);setShowEstoqueModal(true);}
+    if(area==='vitrine')setShowVitrineModal(true);
+  },[sessao?.tipo,sessao?.lojaId]);
+  useEffect(()=>{
+    if(sessao?.tipo==='loja'&&operacaoBloqueada===false&&implementationState?.lojaId===sessao.lojaId&&implementationState?.needsWelcome
+      &&!new URLSearchParams(location.search).has('area'))location.replace('/area-cliente');
+  },[sessao,implementationState,operacaoBloqueada]);
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverVehicleType, setNewDriverVehicleType] = useState('motorcycle');
   const [newVehicleName, setNewVehicleName] = useState('');
@@ -1497,87 +1337,6 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  const handleVincularDriverMobile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!driverPinInput.trim()) {
-      alert('Por favor, digite o PIN de pareamento.');
-      return;
-    }
-
-    try {
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (sessao?.token) {
-        headers['Authorization'] = `Bearer ${sessao.token}`;
-      }
-
-      const res = await fetch(`${BACKEND_URL}/api/drivers/vincular`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ codigoVinculo: driverPinInput.trim() })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Código de pareamento inválido ou motoboy não cadastrado');
-      }
-
-      if (data.success && data.driver) {
-        const motorista = data.driver;
-        setDriverMobileVinculado(motorista);
-        localStorage.setItem('distre_driver_mobile', JSON.stringify(motorista));
-        setDriverPinInput('');
-
-        // Se o motorista já possuir uma coordenada salva no backend ou se for a inicial (10, 10)
-        const initialLoc = motorista.localizacaoAtual || { x: 10, y: 10 };
-        setDriverLocation(initialLoc);
-
-        alert(`Aparelho vinculado ao entregador ${motorista.name}!`);
-      }
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
-
-  const handleDesvincularDriverMobile = () => {
-    if (!window.confirm('Tem certeza que deseja desvincular este dispositivo do entregador?')) {
-      return;
-    }
-    
-    // Para limpar o registro no backend, a gente força uma desconexão e reconexão do socketRef
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current.connect();
-    }
-
-    setDriverMobileVinculado(null);
-    setDriverLocation(null);
-    localStorage.removeItem('distre_driver_mobile');
-    localStorage.removeItem('distre_driver_location');
-  };
-
-  const handleMoverGpsSimulado = (direction: 'N' | 'S' | 'L' | 'O') => {
-    if (!driverMobileVinculado || !driverLocation) return;
-
-    let { x, y } = driverLocation;
-    const step = 5;
-
-    switch (direction) {
-      case 'N':
-        y = Math.max(0, y - step);
-        break;
-      case 'S':
-        y = Math.min(100, y + step);
-        break;
-      case 'L':
-        x = Math.min(100, x + step);
-        break;
-      case 'O':
-        x = Math.max(0, x - step);
-        break;
-    }
-
-    setDriverLocation({ x, y });
-  };
-
   const handleSubmitDriver = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDriverName.trim()) return;
@@ -1640,32 +1399,7 @@ export default function App() {
       .catch(err => alert(err.message));
   };
 
-  // Controle de incidentes
-  const [incidentType, setIncidentType] = useState<string>('traffic_jam');
-  const [incidentDesc, setIncidentDesc] = useState('');
-  const [incidentSeverity, setIncidentSeverity] = useState<'aviso' | 'critico'>('aviso');
-
-  // Controle do Simulador Mobile (Edge Offline Sync)
-  const [offlineMode, setOfflineMode] = useState(false);
-  const [actionQueue, setActionQueue] = useState<AcaoFilaSincronia[]>([]);
-  
-  // Dados obrigatórios do formulário POD no celular
-  const [recebedorNome, setRecebedorNome] = useState('');
-  const [failReason, setFailReason] = useState('01 - Cliente Ausente (3 tentativas de contato)');
-  
-  // Geofencing override
-  const [requestJustification, setRequestJustification] = useState(false);
-  const [justificationText, setJustificationText] = useState('');
-
   const socketRef = useRef<Socket | null>(null);
-
-  // Leaflet Map & Layer Refs
-  const mapContainerRef = useRef<HTMLDivElement>(null);
-  const leafletMapRef = useRef<any>(null);
-  const hubMarkerRef = useRef<any>(null);
-  const destinationMarkersRef = useRef<Map<string, any>>(new Map());
-  const vehicleMarkersRef = useRef<Map<string, any>>(new Map());
-  const routeLinesRef = useRef<Map<string, any>>(new Map()); // marcador "você está aqui" (GPS)
 
   // Romaneio e Impressão Térmica
   const [selectedForManifest, setSelectedForManifest] = useState<string[]>([]);
@@ -1790,77 +1524,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deliveries, comandaPrintMode]);
 
-  // Buffer de telemetria GPS quando estiver offline
   useEffect(() => {
-    if (!offlineMode) return;
-    const interval = setInterval(() => {
-      setAllDeliveries(prev => {
-        prev.forEach(d => {
-          if (d.status === 'EM_TRANSITO' && d.telemetria) {
-            const key = `offline_gps_${d.id}`;
-            const existing = localStorage.getItem(key);
-            const coords = existing ? JSON.parse(existing) : [];
-            coords.push({
-              x: d.telemetria.localizacaoAtual.x,
-              y: d.telemetria.localizacaoAtual.y,
-              velocidade: d.telemetria.velocidadeKmh,
-              bateria: d.telemetria.combustivelBateriaPct,
-              timestamp: new Date().toISOString()
-            });
-            localStorage.setItem(key, JSON.stringify(coords));
-          }
-        });
-        return prev;
-      });
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [offlineMode]);
-
-  const offlineModeRef = useRef(offlineMode);
-  const actionQueueRef = useRef(actionQueue);
-
-  // Carrega configurações de despacho
-  useEffect(() => {
-    offlineModeRef.current = offlineMode;
-  }, [offlineMode]);
-
-  // Salva a localização do motorista em tempo real no localStorage
-  useEffect(() => {
-    if (driverLocation) {
-      localStorage.setItem('distre_driver_location', JSON.stringify(driverLocation));
-    } else {
-      localStorage.removeItem('distre_driver_location');
-    }
-  }, [driverLocation]);
-
-  // Sincroniza a conexão e registro do motorista pelo socket
-  useEffect(() => {
-    if (socketRef.current && socketRef.current.connected && driverMobileVinculado) {
-      // Registra o aparelho
-      socketRef.current.emit('driver_register', { driverId: driverMobileVinculado.id });
-      
-      // Envia a coordenada GPS atual do aparelho se não estiver em modo offline
-      if (driverLocation && !offlineMode) {
-        socketRef.current.emit('driver_gps_update', {
-          driverId: driverMobileVinculado.id,
-          x: driverLocation.x,
-          y: driverLocation.y
-        });
-      }
-    }
-  }, [driverMobileVinculado, driverLocation, offlineMode, isConnected]);
-
-  useEffect(() => {
-    actionQueueRef.current = actionQueue;
-  }, [actionQueue]);
-
-  useEffect(() => {
-    // Carrega fila de sincronização salva localmente se houver
-    const savedQueue = localStorage.getItem('actionQueue');
-    if (savedQueue) {
-      setActionQueue(JSON.parse(savedQueue));
-    }
-
     if (!sessao) {
       if (socketRef.current) {
         socketRef.current.disconnect();
@@ -1912,37 +1576,8 @@ export default function App() {
     });
 
     socket.on('system_status', (data: any) => {
-      const syncedDeliveries = data.deliveries as Entrega[];
-      const nextDeliveries = syncedDeliveries.map(d => {
-        const offlineAction = actionQueueRef.current.find(a => a.entregaId === d.id);
-        if (offlineAction && offlineModeRef.current) {
-          let statusOpt = d.status;
-          if (offlineAction.acao === 'concluir') {
-            statusOpt = 'ENTREGUE';
-          } else if (offlineAction.acao === 'falhar') {
-            statusOpt = 'AGUARDANDO_RETORNO_CD';
-          } else if (offlineAction.acao === 'chegar') {
-            statusOpt = 'NO_LOCAL';
-          }
-          return {
-            ...d,
-            status: statusOpt,
-            recebedorNome: offlineAction.recebedorNome,
-            recebedorCPF: offlineAction.recebedorCPF,
-            justificativaDesvioCoordenada: offlineAction.justificativaDesvioCoordenada
-          };
-        }
-        return d;
-      });
-      setAllDeliveries(nextDeliveries);
+      setAllDeliveries(data.deliveries);
       setAllDrivers(data.drivers);
-      if (typeof data.lojaLat === 'number' && typeof data.lojaLng === 'number') {
-        setLojaCoordsLive(prev => {
-          if (prev && prev.lat === data.lojaLat && prev.lng === data.lojaLng) return prev;
-          return { lat: data.lojaLat, lng: data.lojaLng };
-        });
-      }
-      // Webhooks recebidos não são mais salvos no estado
     });
 
     // Eventos do broker → feed do "Centro de Operações" (buffer rolante, filtra ruído).
@@ -1981,18 +1616,6 @@ export default function App() {
     };
   }, [sessao]);
 
-  // Persiste a fila local
-  useEffect(() => {
-    localStorage.setItem('actionQueue', JSON.stringify(actionQueue));
-  }, [actionQueue]);
-
-  // Executa sincronização quando voltar a ficar online
-  useEffect(() => {
-    if (!offlineMode && actionQueue.length > 0) {
-      syncOfflineQueue();
-    }
-  }, [offlineMode]);
-
   // ---- Função helper para enviar mensagens ao bot WhatsApp via socket ----
   const whatsappMessagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -2007,424 +1630,6 @@ export default function App() {
     }
   }, [whatsappMessages, whatsappIsTyping, whatsappOpen]);
 
-
-
-  const syncOfflineQueue = async () => {
-    console.log('[Offline Sync] Iniciando outbox flush de ações acumuladas...', actionQueue);
-    const queueToProcess = [...actionQueue];
-    
-    for (const action of queueToProcess) {
-      try {
-        // 1. Sincroniza primeiro o buffer de coordenadas GPS offline em lote (bulk) se houver
-        const gpsKey = `offline_gps_${action.entregaId}`;
-        const cachedGps = localStorage.getItem(gpsKey);
-        if (cachedGps) {
-          const coordenadas = JSON.parse(cachedGps);
-          await apiFetch(`${BACKEND_URL}/api/deliveries/${action.entregaId}/telemetria-bulk`, {
-            method: 'POST',
-            body: JSON.stringify({ coordenadas })
-          });
-          localStorage.removeItem(gpsKey);
-        }
-
-         // 2. Sincroniza a ação (POD/Insucesso/Chegada)
-        let endpoint = '';
-        let payload = {};
-        
-        if (action.acao === 'concluir') {
-          endpoint = 'complete';
-          payload = {
-            recebedorNome: action.recebedorNome,
-            recebedorCPF: action.recebedorCPF,
-            comprovanteFotoUrl: action.comprovanteFotoUrl,
-            assinaturaBase64: action.assinaturaBase64,
-            justificativaDesvioCoordenada: action.justificativaDesvioCoordenada
-          };
-        } else if (action.acao === 'falhar') {
-          endpoint = 'fail';
-          payload = {
-            motivoInsucesso: action.motivoInsucesso
-          };
-        } else if (action.acao === 'chegar') {
-          endpoint = 'arrive';
-          payload = {};
-        }
-
-        const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${action.entregaId}/${endpoint}`, {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-        
-        if (response.ok) {
-          setActionQueue(prev => prev.filter(item => item.id !== action.id));
-        }
-      } catch (err) {
-        console.error(`[Offline Sync] Falha ao esvaziar outbox da ação ${action.id}:`, err);
-        break;
-      }
-    }
-  };
-
-  // Coordenadas reais da loja atual (resolvidas via Nominatim no backend a partir do endereço).
-  // Ordem de prioridade:
-  //   1. lojaCoordsLive — vem em tempo real pelo system_status (cobre backfill e edição de endereço sem precisar relogar)
-  //   2. currentLoja (admin observando uma loja) ou sessao (usuário-loja logado)
-  //   3. Fallback: ponto fixo da grade (10,10) dentro do bounding box padrão da cidade
-  const lojaLat =
-    lojaCoordsLive?.lat ??
-    (sessao?.tipo === 'loja' ? sessao.latitude : currentLoja?.latitude);
-  const lojaLng =
-    lojaCoordsLive?.lng ??
-    (sessao?.tipo === 'loja' ? sessao.longitude : currentLoja?.longitude);
-  const hubLatLng: [number, number] =
-    typeof lojaLat === 'number' && typeof lojaLng === 'number'
-      ? [lojaLat, lojaLng]
-      : gridToLatLng(10, 10);
-
-  // Recentraliza o mapa quando as coordenadas reais da loja chegarem (ou mudarem após edição).
-  useEffect(() => {
-    const map = leafletMapRef.current;
-    if (!map) return;
-    if (typeof lojaLat !== 'number' || typeof lojaLng !== 'number') return;
-    map.setView([lojaLat, lojaLng], map.getZoom());
-  }, [lojaLat, lojaLng]);
-
-  // 1. Inicialização do Mapa Leaflet
-  useEffect(() => {
-    if (!mapContainerRef.current) return;
-    if (leafletMapRef.current) return; // já inicializado
-
-    
-    // Inicializa o mapa com zoom ajustado
-    const map = L.map(mapContainerRef.current, {
-      center: hubLatLng,
-      zoom: 14,
-      zoomControl: false,
-      attributionControl: false
-    });
-
-    // Botões de zoom no canto superior direito para não poluir
-    L.control.zoom({ position: 'topright' }).addTo(map);
-
-    // Tile Layer claro estilo Waze (CartoDB Voyager) — vias e POIs em tema claro.
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      maxZoom: 20
-    }).addTo(map);
-
-    leafletMapRef.current = map;
-
-    // Marcador do Hub (Loja) com divIcon customizado
-    const hubIcon = L.divIcon({
-      className: 'hub-icon-wrapper',
-      html: hubIconHtml(hubName),
-      iconSize: [0, 0],
-      iconAnchor: [0, 0]
-    });
-
-    hubMarkerRef.current = L.marker(hubLatLng, { icon: hubIcon }).addTo(map);
-
-    return () => {
-      // Limpa tudo ao desmontar
-      if (leafletMapRef.current) {
-        leafletMapRef.current.remove();
-        leafletMapRef.current = null;
-        hubMarkerRef.current = null;
-        destinationMarkersRef.current.clear();
-        vehicleMarkersRef.current.clear();
-        routeLinesRef.current.clear();
-      }
-    };
-  }, [!!mapContainerRef.current]);
-
-  // 2. Sincronização dos Marcadores, Polylines e Veículos no Leaflet
-  useEffect(() => {
-    const map = leafletMapRef.current;
-    if (!map) return;
-
-    // A. Atualizar marcador do Hub com o nome da loja dinâmico
-    if (hubMarkerRef.current) {
-      const hubIcon = L.divIcon({
-        className: 'hub-icon-wrapper',
-        html: hubIconHtml(hubName),
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
-      });
-      hubMarkerRef.current.setLatLng(hubLatLng);
-      hubMarkerRef.current.setIcon(hubIcon);
-    }
-
-    // Filtra comandas ativas
-    const activeDels = deliveries.filter(
-      d => d.status === 'EM_TRANSITO' || d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA' || d.status === 'NO_LOCAL'
-    );
-
-    // B. Sincronizar Destinos
-    const currentDestKeys = new Set<string>();
-    activeDels.forEach(d => {
-      if (!d.rota?.path) return;
-      const endNode = d.rota.path[d.rota.path.length - 1];
-      // Prefere as coordenadas reais geocodificadas do endereço do cliente.
-      // Se não houver (entrega legada ou geocoder falhou), cai no ponto sintético da grade.
-      const endLatLng: [number, number] =
-        typeof d.destinoLatitude === 'number' && typeof d.destinoLongitude === 'number'
-          ? [d.destinoLatitude, d.destinoLongitude]
-          : gridToLatLng(endNode.x, endNode.y);
-      const isSkipped = d.incidentes?.some(i => i.tipo === 'route_deviation' && i.descricao.includes('AlertaDesvioSequencia'));
-      const hasArrived = d.status === 'NO_LOCAL';
-
-      const key = d.id;
-      currentDestKeys.add(key);
-
-      const isSelectedDest = d.id === selectedDeliveryId;
-      const destIcon = L.divIcon({
-        className: 'dest-icon-wrapper',
-        html: `<div class="map-destination ${hasArrived ? 'arrived' : ''} ${isSkipped ? 'skipped' : ''} ${isSelectedDest ? 'selected' : ''}" style="position: absolute; transform: translate(-50%, -50%); left: 0; top: 0;" title="Destino da Entrega ${d.id}"><div class="dest-label">${d.id}</div></div>`,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
-      });
-
-      if (destinationMarkersRef.current.has(key)) {
-        const marker = destinationMarkersRef.current.get(key);
-        marker.setLatLng(endLatLng);
-        marker.setIcon(destIcon);
-      } else {
-        const marker = L.marker(endLatLng, { icon: destIcon }).addTo(map);
-        marker.on('click', () => setSelectedDeliveryId(d.id));
-        destinationMarkersRef.current.set(key, marker);
-      }
-    });
-
-    // Remover destinos inativos do mapa
-    destinationMarkersRef.current.forEach((marker, key) => {
-      if (!currentDestKeys.has(key)) {
-        map.removeLayer(marker);
-        destinationMarkersRef.current.delete(key);
-      }
-    });
-
-    // C. Sincronizar Polylines (Rotas OSRM com cache)
-    const currentRouteKeys = new Set<string>();
-    activeDels.forEach((d, idx) => {
-      if (!d.rota?.path) return;
-      const key = d.id;
-      currentRouteKeys.add(key);
-
-      const startLatLng = hubLatLng;
-      const endNode = d.rota.path[d.rota.path.length - 1];
-      const endLatLng: [number, number] =
-        typeof d.destinoLatitude === 'number' && typeof d.destinoLongitude === 'number'
-          ? [d.destinoLatitude, d.destinoLongitude]
-          : gridToLatLng(endNode.x, endNode.y);
-
-      const cacheKey = `${d.id}-${hubLatLng[0].toFixed(5)}-${hubLatLng[1].toFixed(5)}-${endLatLng[0].toFixed(5)}-${endLatLng[1].toFixed(5)}`;
-      const isSelected = d.id === selectedDeliveryId;
-
-      // Linha CONTÍNUA (sólida). Cada entrega tem uma cor distinta da paleta — com 1
-      // entrega a rota é azul; a selecionada fica um pouco mais grossa/opaca pra destacar.
-      const color = ROUTE_COLORS[idx % ROUTE_COLORS.length];
-      const opacity = isSelected ? 1 : 0.85;
-      const weight = isSelected ? 6 : 4;
-      const dashArray: string | null = null;
-
-      const drawPolyline = (latlngs: [number, number][]) => {
-        if (routeLinesRef.current.has(key)) {
-          const polyline = routeLinesRef.current.get(key);
-          polyline.setLatLngs(latlngs);
-          polyline.setStyle({ color, opacity, weight, dashArray });
-        } else {
-          const polyline = L.polyline(latlngs, {
-            color,
-            opacity,
-            weight,
-            dashArray,
-            lineCap: 'round',
-            lineJoin: 'round'
-          }).addTo(map);
-          routeLinesRef.current.set(key, polyline);
-        }
-      };
-
-      if (osrmRoutesCache.has(cacheKey)) {
-        drawPolyline(osrmRoutesCache.get(cacheKey)!);
-      } else {
-        // Fallback linear provisório enquanto carrega
-        osrmRoutesCache.set(cacheKey, [startLatLng, endLatLng]);
-        drawPolyline([startLatLng, endLatLng]);
-
-        // Carrega rota real no OSRM de forma assíncrona
-        fetch(`https://router.project-osrm.org/route/v1/driving/${startLatLng[1]},${startLatLng[0]};${endLatLng[1]},${endLatLng[0]}?overview=full&geometries=geojson`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.code === 'Ok' && data.routes && data.routes[0]) {
-              const coordinates = data.routes[0].geometry.coordinates; // [[lng, lat], ...]
-              const latlngs = coordinates.map((coord: any) => [coord[1], coord[0]] as [number, number]);
-              osrmRoutesCache.set(cacheKey, latlngs);
-              setMapRoutesTrigger(prev => prev + 1);
-            }
-          })
-          .catch(err => console.error('Erro ao buscar rota no OSRM:', err));
-      }
-    });
-
-    // Remover polylines inativas
-    routeLinesRef.current.forEach((polyline, key) => {
-      if (!currentRouteKeys.has(key)) {
-        map.removeLayer(polyline);
-        routeLinesRef.current.delete(key);
-      }
-    });
-
-    // D. Sincronizar Veículos
-    const currentVehKeys = new Set<string>();
-
-    // D1. Veículos simulados locais (sem celular pareado)
-    const simulatedDels = activeDels.filter(d => {
-      if (!d.telemetria) return false;
-      const motoristaConectado = drivers.some(
-        drv => drv.id === d.motorista?.id && drv.dispositivoConectado && drv.localizacaoAtual
-      );
-      return !motoristaConectado;
-    });
-
-    simulatedDels.forEach(d => {
-      if (!d.telemetria) return;
-      const key = `sim-${d.id}`;
-      currentVehKeys.add(key);
-
-      const loc = d.telemetria.localizacaoAtual;
-      const latlng = gridToLatLng(loc.x, loc.y);
-      const isSelected = selectedDeliveryId === d.id;
-      const hasIncident = d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA';
-      const hasArrived = d.status === 'NO_LOCAL';
-      const isStale = d.incidentes?.some(
-        i => i.tipo === 'route_deviation' && i.descricao.includes('AlertaParadaProlongada')
-      );
-
-      let vehClass = 'map-vehicle';
-      if (isSelected) vehClass += ' selected';
-      if (hasIncident) vehClass += ' incident_alert';
-      if (hasArrived) vehClass += ' arrived';
-      if (isStale) vehClass += ' stale-driver';
-
-      const iconHtml = `
-        <div class="${vehClass}" style="position: absolute; transform: translate(-50%, -50%); left: 0; top: 0; cursor: pointer;">
-          <span style="display: flex; align-items: center; justify-content: center;">
-            ${getVehicleIconHtmlString(d.motorista?.vehicleType)}
-          </span>
-          <div class="vehicle-label">${d.id}</div>
-        </div>
-      `;
-
-      const vehIcon = L.divIcon({
-        className: 'veh-icon-wrapper',
-        html: iconHtml,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
-      });
-
-      if (vehicleMarkersRef.current.has(key)) {
-        const marker = vehicleMarkersRef.current.get(key);
-        marker.setLatLng(latlng);
-        marker.setIcon(vehIcon);
-      } else {
-        const marker = L.marker(latlng, { icon: vehIcon }).addTo(map);
-        marker.on('click', () => setSelectedDeliveryId(d.id));
-        vehicleMarkersRef.current.set(key, marker);
-      }
-    });
-
-    // D2. Veículos online reais (dispositivo móvel pareado)
-    const connectedDrivers = drivers.filter(d => d.dispositivoConectado && d.localizacaoAtual);
-    connectedDrivers.forEach(d => {
-      const key = `conn-${d.id}`;
-      currentVehKeys.add(key);
-
-      const loc = d.localizacaoAtual!;
-      const latlng = gridToLatLng(loc.x, loc.y);
-      const isSelected = driverMobileVinculado?.id === d.id;
-      const entregaAtiva = deliveries.find(
-        del => del.motorista?.id === d.id && 
-        (del.status === 'EM_TRANSITO' || del.status === 'ALERTA_INCIDENTE' || del.status === 'SLA_ALERTA' || del.status === 'NO_LOCAL')
-      );
-
-      let vehClass = 'map-vehicle';
-      if (isSelected) vehClass += ' selected';
-
-      const labelText = `${d.name.split(' ')[0]} ${entregaAtiva ? `(${entregaAtiva.id})` : ''}`;
-
-      const iconHtml = `
-        <div class="${vehClass}" style="position: absolute; transform: translate(-50%, -50%); left: 0; top: 0; border-color: var(--color-emerald); box-shadow: 0 0 12px var(--color-emerald); z-index: 25; cursor: pointer;">
-          <span style="color: var(--color-emerald); display: flex; align-items: center; justify-content: center;">
-            ${getVehicleIconHtmlString(d.vehicleType)}
-          </span>
-          <div class="vehicle-label" style="background-color: #064e3b; color: #34d399; border: 1px solid #059669; padding: 0.05rem 0.2rem; border-radius: 4px; white-space: nowrap;">
-            ${labelText}
-          </div>
-        </div>
-      `;
-
-      const vehIcon = L.divIcon({
-        className: 'veh-icon-wrapper',
-        html: iconHtml,
-        iconSize: [0, 0],
-        iconAnchor: [0, 0]
-      });
-
-      if (vehicleMarkersRef.current.has(key)) {
-        const marker = vehicleMarkersRef.current.get(key);
-        marker.setLatLng(latlng);
-        marker.setIcon(vehIcon);
-      } else {
-        const marker = L.marker(latlng, { icon: vehIcon }).addTo(map);
-        marker.on('click', () => {
-          if (entregaAtiva) {
-            setSelectedDeliveryId(entregaAtiva.id);
-          }
-        });
-        vehicleMarkersRef.current.set(key, marker);
-      }
-    });
-
-    // Remover marcadores de veículos antigos
-    vehicleMarkersRef.current.forEach((marker, key) => {
-      if (!currentVehKeys.has(key)) {
-        map.removeLayer(marker);
-        vehicleMarkersRef.current.delete(key);
-      }
-    });
-
-  }, [deliveries, drivers, selectedDeliveryId, driverMobileVinculado, hubName, mapRoutesTrigger]);
-
-  // Foco automático: ao clicar/selecionar uma comanda, enquadra o mapa na entrega
-  // daquele motoboy (loja → posição do motoboy → destino), revelando o trajeto e o
-  // destino. Reage só à MUDANÇA de seleção (não a cada tick), para o mapa não "pular".
-  useEffect(() => {
-    const map = leafletMapRef.current;
-    if (!map || !selectedDeliveryId) return;
-    const d = deliveries.find(x => x.id === selectedDeliveryId);
-    if (!d) return;
-
-    const pts: [number, number][] = [hubLatLng];
-    if (typeof d.destinoLatitude === 'number' && typeof d.destinoLongitude === 'number') {
-      pts.push([d.destinoLatitude, d.destinoLongitude]);
-    } else if (d.rota?.path?.length) {
-      const n = d.rota.path[d.rota.path.length - 1];
-      pts.push(gridToLatLng(n.x, n.y));
-    }
-    const drv = drivers.find(v => v.id === d.motorista?.id && v.localizacaoAtual);
-    if (drv?.localizacaoAtual) {
-      pts.push(gridToLatLng(drv.localizacaoAtual.x, drv.localizacaoAtual.y));
-    } else if (d.telemetria?.localizacaoAtual) {
-      pts.push(gridToLatLng(d.telemetria.localizacaoAtual.x, d.telemetria.localizacaoAtual.y));
-    }
-
-    if (pts.length >= 2) {
-      map.fitBounds(L.latLngBounds(pts), { padding: [70, 70], maxZoom: 16, animate: true });
-    } else {
-      map.setView(pts[0], 15, { animate: true });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDeliveryId]);
 
 
   const handlePrepararPedido = async (id: string, e: React.MouseEvent) => {
@@ -2646,35 +1851,6 @@ export default function App() {
     setSelectedForManifest(prev => prev.filter(id => !ids.includes(id)));
   };
 
-  const handleInjectIncident = async () => {
-    if (!selectedDeliveryId) return;
-    
-    let desc = incidentDesc;
-    if (!desc) {
-      if (incidentType === 'traffic_jam') desc = 'Engarrafamento severo detectado na via expressa.';
-      if (incidentType === 'flat_tire') desc = 'Pane mecânica do veículo. Parada forçada.';
-      if (incidentType === 'temperature_spike') desc = 'Alerta Térmico: Temperatura subindo rápido!';
-      if (incidentType === 'route_deviation') desc = 'Veículo fora do GPS planejado!';
-    }
-
-    try {
-      const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${selectedDeliveryId}/incident`, {
-        method: 'POST',
-        body: JSON.stringify({
-          type: incidentType,
-          description: desc,
-          severity: incidentSeverity
-        })
-      });
-
-      if (response.ok) {
-        setIncidentDesc('');
-      }
-    } catch (err) {
-      console.error('Erro ao injetar incidente:', err);
-    }
-  };
-
   const handleResolveIncidents = async (deliveryId: string) => {
     try {
       await apiFetch(`${BACKEND_URL}/api/deliveries/${deliveryId}/resolve`, {
@@ -2690,7 +1866,6 @@ export default function App() {
       await apiFetch(`${BACKEND_URL}/api/simulator/clear`, { method: 'POST' });
       setAllDeliveries([]);
       setSelectedDeliveryId(null);
-      setActionQueue([]);
       localStorage.removeItem('actionQueue');
       // Limpa os caches de gps offline
       Object.keys(localStorage).forEach(key => {
@@ -2760,151 +1935,6 @@ export default function App() {
       }
     } catch (err) {
       console.error('Erro ao criar comanda de pedido rápido:', err);
-    }
-  };
-
-  // Lógica do Simulador Mobile (Conclusão de POD e Outbox)
-  const handleDriverComplete = async (deliveryId: string) => {
-    if (!recebedorNome) {
-      alert('O nome do recebedor é obrigatório para comprovação física (POD)!');
-      return;
-    }
-
-    if (!isWithinGeofenceMobile && !requestJustification) {
-      alert('Validação de Cerca Virtual falhou! Você está fora do raio de entrega. Marque a caixa de liberação por justificativa para prosseguir.');
-      return;
-    }
-
-    if (!isWithinGeofenceMobile && requestJustification && !justificationText) {
-      alert('Escreva uma justificativa explicativa para a entrega fora de rota!');
-      return;
-    }
-
-    const payload: Partial<AcaoFilaSincronia> = {
-      recebedorNome,
-      recebedorCPF: '000.000.000-00',
-      comprovanteFotoUrl: 'foto_canhoto_assinado.png',
-      assinaturaBase64: 'Assinatura Simplificada',
-      justificativaDesvioCoordenada: !isWithinGeofenceMobile ? justificationText : undefined
-    };
-
-    if (offlineMode) {
-      // Adiciona ação na fila do outbox local
-      const newAction: AcaoFilaSincronia = {
-        id: `act-${Math.random().toString(36).substring(2, 6)}`,
-        acao: 'concluir',
-        entregaId: deliveryId,
-        timestamp: new Date().toISOString(),
-        ...payload
-      };
-      setActionQueue(prev => [...prev, newAction]);
-      
-      // Atualiza de forma otimista local
-      setAllDeliveries(prev => 
-        prev.map(d => d.id === deliveryId ? { 
-          ...d, 
-          status: 'ENTREGUE',
-          recebedorNome,
-          recebedorCPF: payload.recebedorCPF,
-          justificativaDesvioCoordenada: payload.justificativaDesvioCoordenada
-        } : d)
-      );
-      
-      // Limpa formulário
-      setRecebedorNome('');
-      setJustificationText('');
-      setRequestJustification(false);
-    } else {
-      try {
-        const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${deliveryId}/complete`, {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-        if (response.ok) {
-          setRecebedorNome('');
-          setJustificationText('');
-          setRequestJustification(false);
-        }
-      } catch (err) {
-        console.error('Erro ao concluir entrega:', err);
-      }
-    }
-  };
-
-  const handleDriverFail = async (deliveryId: string) => {
-    if (offlineMode) {
-      const newAction: AcaoFilaSincronia = {
-        id: `act-${Math.random().toString(36).substring(2, 6)}`,
-        acao: 'falhar',
-        entregaId: deliveryId,
-        motivoInsucesso: failReason,
-        timestamp: new Date().toISOString()
-      };
-      setActionQueue(prev => [...prev, newAction]);
-      
-      setAllDeliveries(prev => 
-        prev.map(d => d.id === deliveryId ? { ...d, status: 'AGUARDANDO_RETORNO_CD' } : d)
-      );
-    } else {
-      try {
-        await apiFetch(`${BACKEND_URL}/api/deliveries/${deliveryId}/fail`, {
-          method: 'POST',
-          body: JSON.stringify({ motivoInsucesso: failReason })
-        });
-      } catch (err) {
-        console.error('Erro ao registrar insucesso:', err);
-      }
-    }
-  };
-
-  const handleDriverArrive = async (deliveryId: string) => {
-    if (offlineMode) {
-      const newAction: AcaoFilaSincronia = {
-        id: `act-${Math.random().toString(36).substring(2, 6)}`,
-        acao: 'chegar',
-        entregaId: deliveryId,
-        timestamp: new Date().toISOString()
-      };
-      setActionQueue(prev => [...prev, newAction]);
-      
-      // Atualiza de forma otimista local
-      setAllDeliveries(prev => 
-        prev.map(d => d.id === deliveryId ? { ...d, status: 'NO_LOCAL' } : d)
-      );
-    } else {
-      try {
-        const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${deliveryId}/arrive`, {
-          method: 'POST'
-        });
-        if (!response.ok) {
-          const err = await response.json();
-          alert(err.error || 'Erro ao registrar chegada');
-        }
-      } catch (err) {
-        console.error('Erro ao registrar chegada:', err);
-      }
-    }
-  };
-
-  const handleUndo = async (deliveryId: string) => {
-    if (offlineMode) {
-      // Remove a última ação correspondente à entrega da fila local
-      setActionQueue(prev => prev.filter(item => item.entregaId !== deliveryId));
-      setAllDeliveries(prev => 
-        prev.map(d => d.id === deliveryId ? { ...d, status: 'NO_LOCAL' } : d)
-      );
-    } else {
-      try {
-        const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${deliveryId}/rollback`, {
-          method: 'POST'
-        });
-        if (!response.ok) {
-          const err = await response.json();
-          alert(err.error || 'Erro ao desfazer ação');
-        }
-      } catch (err) {
-        console.error('Erro ao estornar ação:', err);
-      }
     }
   };
 
@@ -2985,1687 +2015,159 @@ export default function App() {
   const alertDeliveries = deliveries.filter(d => d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA');
   const selectedRecebidas = deliveries.filter(d => selectedForManifest.includes(d.id) && d.status === 'RECEBIDO');
 
-  const getStatusWeight = (status: string) => {
-    switch (status) {
-      case 'NO_LOCAL': return 4;
-      case 'EM_TRANSITO':
-      case 'ALERTA_INCIDENTE':
-      case 'SLA_ALERTA':
-        return 3;
-      case 'DESPACHADO': return 2;
-      case 'RECEBIDO': return 1;
-      default: return 0;
-    }
-  };
-
-  // Encontra a entrega ativa associada ao motoboy pareado no celular simulador
-  const entregaAtivaMobile = (() => {
-    if (!driverMobileVinculado) return undefined;
-    const driverDels = deliveries.filter(d => 
-      d.motorista?.id === driverMobileVinculado.id && 
-      d.status !== 'ENTREGUE' && 
-      d.status !== 'RECUSADO_INSUCESSO' && 
-      d.status !== 'PRODUTO_RETORNADO_ESTOQUE'
-    );
-    if (driverDels.length === 0) return undefined;
-
-    driverDels.sort((a, b) => {
-      const weightA = getStatusWeight(a.status);
-      const weightB = getStatusWeight(b.status);
-      if (weightA !== weightB) {
-        return weightB - weightA;
-      }
-      const seqA = a.sequenciaEsperada ?? Infinity;
-      const seqB = b.sequenciaEsperada ?? Infinity;
-      return seqA - seqB;
-    });
-
-    return driverDels[0];
-  })();
-
-
-
-  // Cálculo de geofencing do simulador mobile pareado
-  const endNodeMobile = entregaAtivaMobile?.rota?.path[entregaAtivaMobile.rota.path.length - 1];
-  const currentLocMobile = driverLocation;
-  const distanceMobile = endNodeMobile && currentLocMobile
-    ? Math.sqrt(Math.pow(endNodeMobile.x - currentLocMobile.x, 2) + Math.pow(endNodeMobile.y - currentLocMobile.y, 2))
-    : 100;
-  const isWithinGeofenceMobile = distanceMobile < 3;
-
   if (!sessao) {
-    return (
-      <div className="login-page">
-        <div className="login-card">
-          <div className="login-logo">
-            <div className="login-brand">
-              <svg className="login-mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
-                <rect width="48" height="48" rx="10" fill="#070f1d" />
-                <path d="m5 11 12 13L5 37h9l12-13L14 11Zm16 0 12 13-12 13h9l12-13L30 11Z" fill="#2878ff" />
-              </svg>
-              <span className="login-word">DISTRE</span>
-            </div>
-            <p>Orquestração e Gestão de Entregas</p>
-          </div>
-          
-          <div className="login-tabs">
-            <button 
-              type="button" 
-              className={`login-tab ${loginTab === 'loja' ? 'active' : ''}`}
-              onClick={() => { setLoginTab('loja'); setLoginError(null); }}
-            >
-              Portal da Loja
-            </button>
-            <button 
-              type="button" 
-              className={`login-tab ${loginTab === 'admin' ? 'active' : ''}`}
-              onClick={() => { setLoginTab('admin'); setLoginError(null); }}
-            >
-              Administrador Master
-            </button>
-          </div>
-
-          <form className="login-form" onSubmit={handleLogin}>
-            <div className="form-group">
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Usuário</label>
-              <input 
-                type="text" 
-                className="form-input" 
-                placeholder={loginTab === 'admin' ? 'admin' : 'usuario_da_loja'}
-                value={loginUsuario}
-                onChange={e => setLoginUsuario(e.target.value)}
-                required
-              />
-            </div>
-            
-            <div className="form-group">
-              <label style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Senha</label>
-              <input 
-                type="password" 
-                className="form-input" 
-                placeholder="••••••••"
-                value={loginSenha}
-                onChange={e => setLoginSenha(e.target.value)}
-                required
-              />
-            </div>
-
-            {loginError && <div className="login-error">{loginError}</div>}
-
-            <button type="submit" className="login-btn">
-              Entrar no Sistema
-            </button>
-          </form>
-        </div>
-      </div>
-    );
+    return <LoginScreen mode={loginTab} username={loginUsuario} password={loginSenha} error={loginError}
+      onModeChange={mode => { const url=new URL(location.href);url.searchParams.set('perfil',mode);url.searchParams.delete('next');location.assign(url.href); }}
+      onUsernameChange={setLoginUsuario} onPasswordChange={setLoginSenha} onSubmit={handleLogin} />;
   }
 
   if (sessao.tipo === 'admin' && !lojaVisualizada) {
-    const totalLojas = empresas.reduce((acc, curr) => acc + (curr.totalLojas || 0), 0);
-    const lojasAtivas = empresas.reduce((acc, curr) => acc + (curr.lojasAtivas || 0), 0);
-
-    return (
-      <div className="app-container">
-        {/* Header Admin */}
-        <header className="app-header">
-          <div className="logo-section">
-            <div className="logo-icon" style={{ background: 'linear-gradient(135deg, var(--color-purple), var(--color-pink))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>M</div>
-            <div>
-              <h1>Distre - Painel Master</h1>
-            </div>
-            <span className="version-badge" style={{ background: 'var(--color-purple)', color: '#fff' }}>Master</span>
-          </div>
-          <div className="status-badges">
-            <div className="status-badge">
-              <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
-              <span>{isConnected ? 'Servidor Conectado' : 'Desconectado'}</span>
-            </div>
-          </div>
-          <div className="header-actions">
-            <button className="btn" style={{ background: '#1f293d', color: 'var(--color-rose)', border: '1px solid rgba(244, 63, 94, 0.2)' }} onClick={handleLogout}>Sair</button>
-          </div>
-        </header>
-
-        {/* Navigation Tabs — segmented control */}
-        <div style={{ display: 'flex', gap: 'var(--space-1)', background: 'var(--bg-secondary)', padding: 'var(--space-1)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-thin)', marginBottom: 'var(--space-6)' }}>
-          {([
-            { id: 'operacional', label: 'Gestão de Empresas & Lojas' },
-            { id: 'financeiro', label: 'Controle Financeiro & Cobrança (ERP)' },
-          ] as const).map(tab => {
-            const ativo = adminSubView === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setAdminSubView(tab.id)}
-                style={{
-                  flex: 1,
-                  background: ativo ? 'var(--bg-card)' : 'transparent',
-                  color: ativo ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  border: 'none',
-                  fontWeight: 600,
-                  fontSize: 'var(--text-sm)',
-                  padding: '0.6rem 1rem',
-                  borderRadius: 'var(--radius-sm)',
-                  boxShadow: ativo ? 'var(--shadow-sm)' : 'none',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s ease, color 0.15s ease',
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {adminSubView === 'financeiro' ? (
-          <div className="financeiro-panel-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            {/* KPI Cards Grid */}
-            <div className="report-kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-cyan)' }}>
-                <span className="kpi-label">MRR Atual (Assinaturas Ativas)</span>
-                <span className="kpi-value" style={{ color: 'var(--color-cyan)' }}>
-                  R$ {finDashboard?.mrrAtual.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0,00'}
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                  Projetado próximo mês: R$ {finDashboard?.mrrProjetado.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
-                </span>
-              </div>
-              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-amber)' }}>
-                <span className="kpi-label">Cobranças em Aberto</span>
-                <span className="kpi-value" style={{ color: 'var(--color-amber)' }}>
-                  {finDashboard?.totalFaturasEmAberto || 0} faturas
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                  Total: R$ {finDashboard?.valorEmAberto.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
-                </span>
-              </div>
-              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-rose)' }}>
-                <span className="kpi-label">Inadimplência</span>
-                <span className="kpi-value" style={{ color: 'var(--color-rose)' }}>
-                  {finDashboard?.taxaInadimplencia || 0}%
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                  {finDashboard?.lojasInadimplentes || 0} de {finDashboard?.totalLojas || 0} lojas atrasadas
-                </span>
-              </div>
-              <div className="report-kpi-card" style={{ borderLeft: '4px solid var(--color-emerald)' }}>
-                <span className="kpi-label">Faturamento Líquido (Mês Atual)</span>
-                <span className="kpi-value" style={{ color: 'var(--color-emerald)' }}>
-                  R$ {finDashboard?.faturamentoLiquidoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
-                </span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                  Faturamento bruto: R$ {finDashboard?.faturamentoBrutoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) || '0,00'}
-                </span>
-              </div>
-            </div>
-
-            {/* Sub-tabs for Financeiro */}
-            <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--border-thin)', paddingBottom: '0.5rem' }}>
-              <button
-                type="button"
-                className="btn btn-small"
-                style={{
-                  background: finSubTab === 'faturas' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                  color: finSubTab === 'faturas' ? 'var(--color-cyan)' : 'var(--text-secondary)',
-                  border: finSubTab === 'faturas' ? '1px solid var(--color-cyan)' : '1px solid transparent',
-                  borderRadius: '4px',
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  fontWeight: 600
-                }}
-                onClick={() => setFinSubTab('faturas')}
-              >
-                Faturas e Cobranças
-              </button>
-              <button
-                type="button"
-                className="btn btn-small"
-                style={{
-                  background: finSubTab === 'relatorios' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                  color: finSubTab === 'relatorios' ? 'var(--color-cyan)' : 'var(--text-secondary)',
-                  border: finSubTab === 'relatorios' ? '1px solid var(--color-cyan)' : '1px solid transparent',
-                  borderRadius: '4px',
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  fontWeight: 600
-                }}
-                onClick={() => setFinSubTab('relatorios')}
-              >
-                Relatórios Analíticos
-              </button>
-              <button
-                type="button"
-                className="btn btn-small"
-                style={{
-                  background: finSubTab === 'planos_config' ? 'rgba(6, 182, 212, 0.15)' : 'transparent',
-                  color: finSubTab === 'planos_config' ? 'var(--color-cyan)' : 'var(--text-secondary)',
-                  border: finSubTab === 'planos_config' ? '1px solid var(--color-cyan)' : '1px solid transparent',
-                  borderRadius: '4px',
-                  padding: '0.4rem 0.8rem',
-                  fontSize: '0.8rem',
-                  fontWeight: 600
-                }}
-                onClick={() => setFinSubTab('planos_config')}
-              >
-                Planos, Assinaturas e Configurações
-              </button>
-            </div>
-
-            {/* TAB: FATURAS */}
-            {finSubTab === 'faturas' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {/* Filtros e Nova Cobrança */}
-                <div className="card" style={{ padding: '1rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'end', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'end' }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Empresa</label>
-                      <select
-                        className="form-input"
-                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
-                        value={finFaturasFiltros.empresaId}
-                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, empresaId: e.target.value }))}
-                      >
-                        <option value="">Todas as Empresas</option>
-                        {empresas.map(emp => (
-                          <option key={emp.id} value={emp.id}>{emp.nome}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Status</label>
-                      <select
-                        className="form-input"
-                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
-                        value={finFaturasFiltros.status}
-                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, status: e.target.value }))}
-                      >
-                        <option value="">Todos os Status</option>
-                        <option value="PAGA">Paga</option>
-                        <option value="PENDENTE">Pendente</option>
-                        <option value="ATRASADA">Atrasada</option>
-                        <option value="CONTESTADA">Contestada</option>
-                        <option value="CANCELADA">Cancelada</option>
-                      </select>
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Vencimento Inicial</label>
-                      <input
-                        type="date"
-                        className="form-input"
-                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
-                        value={finFaturasFiltros.dataInicio}
-                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, dataInicio: e.target.value }))}
-                      />
-                    </div>
-
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Vencimento Final</label>
-                      <input
-                        type="date"
-                        className="form-input"
-                        style={{ height: '34px', padding: '0 0.5rem', background: 'var(--bg-primary)', border: '1px solid var(--border-thin)', color: 'var(--text-primary)', borderRadius: '4px' }}
-                        value={finFaturasFiltros.dataFim}
-                        onChange={e => setFinFaturasFiltros(prev => ({ ...prev, dataFim: e.target.value }))}
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    className="btn btn-success"
-                    style={{ height: '34px', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}
-                    onClick={() => setShowCobrarManualForm(true)}
-                  >
-                    + Cobrança Manual
-                  </button>
-                </div>
-
-                {/* Tabela de Faturas */}
-                <div className="card" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-thin)', overflow: 'hidden' }}>
-                  <div className="lojas-table-container">
-                    <table className="lojas-table">
-                      <thead>
-                        <tr>
-                          <th>ID / Ref</th>
-                          <th>Empresa</th>
-                          <th>CNPJ</th>
-                          <th>Mes/Ano</th>
-                          <th>Bruto</th>
-                          <th>Desconto</th>
-                          <th>Líquido</th>
-                          <th>Vencimento</th>
-                          <th>Pagamento</th>
-                          <th>Status</th>
-                          <th style={{ textAlign: 'right' }}>Ações</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {finFaturas.length === 0 ? (
-                          <tr>
-                            <td colSpan={11} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
-                              Nenhuma fatura encontrada com os filtros selecionados.
-                            </td>
-                          </tr>
-                        ) : (
-                          finFaturas.map(fat => {
-                            let badgeColor = 'gray';
-                            let statusText = fat.status;
-                            if (fat.status === 'PAGA') { badgeColor = 'var(--color-emerald)'; statusText = 'Paga'; }
-                            else if (fat.status === 'PENDENTE') { badgeColor = 'var(--color-amber)'; statusText = 'Pendente'; }
-                            else if (fat.status === 'ATRASADA') { badgeColor = 'var(--color-rose)'; statusText = 'Atrasada'; }
-                            else if (fat.status === 'CONTESTADA') { badgeColor = 'var(--color-purple)'; statusText = 'Contestada'; }
-                            else if (fat.status === 'CANCELADA') { badgeColor = '#4b5563'; statusText = 'Cancelada'; }
-
-                            return (
-                              <tr key={fat.id}>
-                                <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{fat.id}</td>
-                                <td><strong>{fat.empresaNome}</strong></td>
-                                <td style={{ color: 'var(--text-secondary)' }}>{fat.cnpj}</td>
-                                <td>{fat.referenciaMesAno}</td>
-                                <td style={{ fontFamily: 'var(--font-mono)' }}>R$ {fat.valorBruto.toFixed(2)}</td>
-                                <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-rose)' }}>-R$ {fat.valorDesconto.toFixed(2)}</td>
-                                <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>R$ {fat.valorLiquido.toFixed(2)}</td>
-                                <td>{new Date(fat.dataVencimento).toLocaleDateString('pt-BR')}</td>
-                                <td>{fat.dataPagamento ? new Date(fat.dataPagamento).toLocaleDateString('pt-BR') : '-'}</td>
-                                <td>
-                                  <span style={{
-                                    display: 'inline-block',
-                                    padding: '0.15rem 0.5rem',
-                                    borderRadius: '12px',
-                                    fontSize: '0.7rem',
-                                    fontWeight: 600,
-                                    background: `rgba(${badgeColor === 'var(--color-emerald)' ? '16,185,129' : badgeColor === 'var(--color-amber)' ? '245,158,11' : badgeColor === 'var(--color-rose)' ? '244,63,94' : badgeColor === 'var(--color-purple)' ? '139,92,246' : '75,85,99'}, 0.15)`,
-                                    color: badgeColor,
-                                    border: `1px solid ${badgeColor}`
-                                  }}>
-                                    {statusText}
-                                  </span>
-                                </td>
-                                <td>
-                                  <div style={{ display: 'flex', gap: '0.25rem', justifyContent: 'flex-end' }}>
-                                    {fat.status !== 'PAGA' && fat.status !== 'CANCELADA' && (
-                                      <>
-                                        <button
-                                          type="button"
-                                          className="btn btn-small btn-success"
-                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'var(--color-emerald)', color: '#000' }}
-                                          onClick={() => setShowBaixaManualForm(fat.id)}
-                                        >
-                                          Baixar
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn btn-small"
-                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'rgba(139, 92, 246, 0.2)', color: 'var(--color-purple)', border: '1px solid rgba(139, 92, 246, 0.3)' }}
-                                          onClick={() => {
-                                            setShowContestarForm(fat.id);
-                                            setContestarMotivo('');
-                                          }}
-                                        >
-                                          Contestar
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="btn btn-small"
-                                          style={{ fontSize: '0.7rem', padding: '0.2rem 0.4rem', background: 'rgba(244, 63, 94, 0.2)', color: 'var(--color-rose)', border: '1px solid rgba(244, 63, 94, 0.3)' }}
-                                          onClick={() => handleCancelarFatura(fat.id)}
-                                        >
-                                          Cancelar
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Paginação */}
-                  {finTotalPaginas > 1 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', borderTop: '1px solid var(--border-thin)' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        Página <strong>{finPaginaAtual}</strong> de <strong>{finTotalPaginas}</strong>
-                      </span>
-                      <div style={{ display: 'flex', gap: '0.5rem' }}>
-                        <button
-                          type="button"
-                          className="btn btn-small"
-                          disabled={finPaginaAtual === 1}
-                          onClick={() => setFinPaginaAtual(prev => Math.max(prev - 1, 1))}
-                        >
-                          Anterior
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-small"
-                          disabled={finPaginaAtual === finTotalPaginas}
-                          onClick={() => setFinPaginaAtual(prev => Math.min(prev + 1, finTotalPaginas))}
-                        >
-                          Próximo
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* TAB: RELATORIOS */}
-            {finSubTab === 'relatorios' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
-                  {/* Gráfico 1: Faturamento Bruto vs Líquido */}
-                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Faturamento Bruto vs. Líquido Mensal (Pagas)</h3>
-                    {finRelFaturamento.length === 0 ? (
-                      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Sem dados históricos suficientes.</div>
-                    ) : (
-                      <div>
-                        {/* Renderizar Gráfico SVG */}
-                        <svg width="100%" height="220" viewBox="0 0 500 220" style={{ overflow: 'visible' }}>
-                          <line x1="50" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="70" x2="480" y2="70" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="120" x2="480" y2="120" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="170" x2="480" y2="170" stroke="var(--border-thin)" strokeWidth="1" />
-                          
-                          {/* Desenha as barras */}
-                          {(() => {
-                            const maxVal = Math.max(...finRelFaturamento.map(d => Math.max(d.bruto, d.liquido)), 100);
-                            const scale = 150 / maxVal;
-                            
-                            return finRelFaturamento.slice(-5).map((d, idx) => {
-                              const x = 80 + idx * 80;
-                              const hBruto = d.bruto * scale;
-                              const hLiquido = d.liquido * scale;
-                              
-                              return (
-                                <g key={d.referencia}>
-                                  {/* Barra Bruto (Blue) */}
-                                  <rect x={x} y={170 - hBruto} width="18" height={hBruto} fill="url(#gradBruto)" rx="2" stroke="var(--color-blue)" strokeWidth="0.5" />
-                                  {/* Barra Liquido (Emerald) */}
-                                  <rect x={x + 22} y={170 - hLiquido} width="18" height={hLiquido} fill="url(#gradLiquido)" rx="2" stroke="var(--color-emerald)" strokeWidth="0.5" />
-                                  
-                                  {/* Labels */}
-                                  <text x={x + 20} y="185" fill="var(--text-secondary)" fontSize="9" textAnchor="middle">{d.referencia}</text>
-                                  {d.bruto > 0 && <text x={x + 9} y={165 - hBruto} fill="var(--color-blue)" fontSize="8" textAnchor="middle">R$ {d.bruto.toFixed(0)}</text>}
-                                  {d.liquido > 0 && <text x={x + 31} y={165 - hLiquido} fill="var(--color-emerald)" fontSize="8" textAnchor="middle">R$ {d.liquido.toFixed(0)}</text>}
-                                </g>
-                              );
-                            });
-                          })()}
-                          <defs>
-                            <linearGradient id="gradBruto" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="var(--color-blue)" stopOpacity="1" />
-                              <stop offset="100%" stopColor="rgba(59, 130, 246, 0.2)" stopOpacity="0.2" />
-                            </linearGradient>
-                            <linearGradient id="gradLiquido" x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="var(--color-emerald)" stopOpacity="1" />
-                              <stop offset="100%" stopColor="rgba(16, 185, 129, 0.2)" stopOpacity="0.2" />
-                            </linearGradient>
-                          </defs>
-                        </svg>
-                        <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            <span style={{ width: '12px', height: '12px', background: 'var(--color-blue)', borderRadius: '2px', border: '1px solid var(--color-blue)' }}></span>
-                            Faturamento Bruto
-                          </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            <span style={{ width: '12px', height: '12px', background: 'var(--color-emerald)', borderRadius: '2px', border: '1px solid var(--color-emerald)' }}></span>
-                            Faturamento Líquido
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Gráfico 2: Taxa de Inadimplência */}
-                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Taxa de Inadimplência Mensal (%)</h3>
-                    {finRelInadimplencia.length === 0 ? (
-                      <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Sem dados suficientes.</div>
-                    ) : (
-                      <div>
-                        <svg width="100%" height="220" viewBox="0 0 500 220" style={{ overflow: 'visible' }}>
-                          <line x1="50" y1="20" x2="480" y2="20" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="70" x2="480" y2="70" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="120" x2="480" y2="120" stroke="rgba(255,255,255,0.03)" strokeDasharray="3,3" />
-                          <line x1="50" y1="170" x2="480" y2="170" stroke="var(--border-thin)" strokeWidth="1" />
-                          
-                          {/* Desenhar linha/pontos */}
-                          {(() => {
-                            const points: string[] = [];
-                            finRelInadimplencia.slice(-5).forEach((d, idx) => {
-                              const x = 80 + idx * 80;
-                              const y = 170 - (d.taxaInadimplencia * 1.5);
-                              points.push(`${x},${y}`);
-                            });
-                            
-                            return (
-                              <g>
-                                {points.length > 1 && (
-                                  <polyline
-                                    fill="none"
-                                    stroke="var(--color-rose)"
-                                    strokeWidth="2.5"
-                                    points={points.join(' ')}
-                                  />
-                                )}
-                                {finRelInadimplencia.slice(-5).map((d, idx) => {
-                                  const x = 80 + idx * 80;
-                                  const y = 170 - (d.taxaInadimplencia * 1.5);
-                                  return (
-                                    <g key={d.referencia}>
-                                      <circle cx={x} cy={y} r="5" fill="var(--bg-card)" stroke="var(--color-rose)" strokeWidth="2.5" />
-                                      <text x={x} y="185" fill="var(--text-secondary)" fontSize="9" textAnchor="middle">{d.referencia}</text>
-                                      <text x={x} y={y - 10} fill="var(--color-rose)" fontSize="9" textAnchor="middle" fontWeight="bold">{d.taxaInadimplencia}%</text>
-                                    </g>
-                                  );
-                                })}
-                              </g>
-                            );
-                          })()}
-                        </svg>
-                        <div style={{ textAlign: 'center', marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                          Taxa % de MRR retido por faturas atrasadas sobre o total faturado no mês.
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
-                  {/* Churn Rate Financeiro */}
-                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Churn Rate Financeiro (MRR Perdido por Cancelamento)</h3>
-                    <div className="lojas-table-container">
-                      <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
-                        <thead>
-                          <tr>
-                            <th>Referência</th>
-                            <th>Faturas Emitidas</th>
-                            <th>Faturas Canceladas</th>
-                            <th>Receita Total</th>
-                            <th>Receita Perdida</th>
-                            <th>Churn Rate</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {finRelChurn.length === 0 ? (
-                            <tr>
-                              <td colSpan={6} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Sem dados de cancelamento.</td>
-                            </tr>
-                          ) : (
-                            finRelChurn.map(d => (
-                              <tr key={d.referencia}>
-                                <td style={{ fontWeight: 600 }}>{d.referencia}</td>
-                                <td>{d.faturasTotal}</td>
-                                <td style={{ color: 'var(--color-rose)' }}>{d.faturasCanceladas}</td>
-                                <td>R$ {d.receitaTotal.toFixed(2)}</td>
-                                <td style={{ color: 'var(--color-rose)' }}>R$ {d.receitaPerdida.toFixed(2)}</td>
-                                <td>
-                                  <strong style={{ color: d.churnRate > 0 ? 'var(--color-rose)' : 'var(--color-emerald)' }}>
-                                    {d.churnRate}%
-                                  </strong>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* Relatório de Previsibilidade */}
-                  <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Contas a Receber nos Próximos Meses (Previsibilidade)</h3>
-                    <div className="lojas-table-container">
-                      <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
-                        <thead>
-                          <tr>
-                            <th>Dia Vencimento</th>
-                            <th>Total de Assinaturas</th>
-                            <th>Faturamento Projetado (MRR)</th>
-                            <th>Projeção Trimestral (3 Meses)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {finRelPrevisibilidade.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Nenhuma assinatura ativa para previsão.</td>
-                            </tr>
-                          ) : (
-                            finRelPrevisibilidade.map(d => (
-                              <tr key={d.diaVencimento}>
-                                <td style={{ fontWeight: 600 }}>Dia {d.diaVencimento}</td>
-                                <td>{d.totalAssinaturas} assinatura(s)</td>
-                                <td style={{ color: 'var(--color-cyan)', fontWeight: 600 }}>R$ {d.mrrProjetado.toFixed(2)}</td>
-                                <td style={{ color: 'var(--color-emerald)', fontWeight: 600 }}>R$ {(d.mrrProjetado * 3).toFixed(2)}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB: PLANOS E CONFIGURAÇÕES */}
-            {finSubTab === 'planos_config' && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem' }}>
-                
-                {/* CONFIGURAÇÃO DE COBRANÇA */}
-                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Configurações de Cobrança e Inadimplência</h3>
-                  {finConfiguracoes && (
-                    <form onSubmit={handleSalvarConfigCobranca} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                      <div className="form-group">
-                        <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Carência para Bloqueio de Acesso (Dias)</label>
-                        <input
-                          type="number"
-                          className="form-input"
-                          value={finConfiguracoes.diasCarenciaBloqueio}
-                          onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, diasCarenciaBloqueio: parseInt(e.target.value) || 0 }))}
-                          required
-                        />
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Tempo limite com faturas vencidas antes de suspender acessos das lojas.</span>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Multa por Atraso (%)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="form-input"
-                            value={finConfiguracoes.multaPercentual}
-                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, multaPercentual: parseFloat(e.target.value) || 0 }))}
-                            required
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Juros ao Mês (%)</label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="form-input"
-                            value={finConfiguracoes.jurosMesPercentual}
-                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, jurosMesPercentual: parseFloat(e.target.value) || 0 }))}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Notificar E-mail (Dias Antes)</label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={finConfiguracoes.emailNotificacaoDiasAntes}
-                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, emailNotificacaoDiasAntes: parseInt(e.target.value) || 0 }))}
-                            required
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Notificar WhatsApp (Dias Atraso)</label>
-                          <input
-                            type="number"
-                            className="form-input"
-                            value={finConfiguracoes.whatsappNotificacaoDiasAtraso}
-                            onChange={e => setFinConfiguracoes((prev: any) => ({ ...prev, whatsappNotificacaoDiasAtraso: parseInt(e.target.value) || 0 }))}
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <button type="submit" className="btn btn-success" style={{ marginTop: '0.5rem', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}>
-                        Salvar Configurações
-                      </button>
-                    </form>
-                  )}
-                </div>
-
-                {/* PLANOS */}
-                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', fontWeight: 600 }}>Planos de Assinatura</h3>
-                    <button type="button" className="btn btn-success btn-small" onClick={startNovoPlano}>
-                      + Novo Plano
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {finPlanos.map(plan => (
-                      <div key={plan.id} style={{ padding: '0.75rem', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--border-thin)', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          <strong style={{ color: 'var(--color-cyan)' }}>{plan.nome}</strong>
-                          <span style={{ fontSize: '0.85rem', marginLeft: '0.5rem', color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                            R$ {plan.valorMensal.toFixed(2)}/mês
-                          </span>
-                          <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '0.2rem' }}>
-                            {plan.descricao}
-                          </p>
-                        </div>
-                        <button type="button" className="btn btn-small" onClick={() => startEditPlano(plan)} style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>
-                          Editar
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* ASSINATURAS DAS EMPRESAS */}
-                <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)', gridColumn: 'span 2' }}>
-                  <h3 style={{ fontSize: '0.9rem', color: 'var(--text-primary)', marginBottom: '1rem', fontWeight: 600 }}>Assinaturas Ativas de Empresas</h3>
-                  <div className="lojas-table-container">
-                    <table className="lojas-table" style={{ fontSize: '0.8rem' }}>
-                      <thead>
-                        <tr>
-                          <th>Empresa</th>
-                          <th>CNPJ</th>
-                          <th>Plano</th>
-                          <th>Valor Cobrado</th>
-                          <th>Dia Vencimento</th>
-                          <th>Status</th>
-                          <th>Próxima Cobrança</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {finAssinaturas.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)' }}>Sem assinaturas registradas.</td>
-                          </tr>
-                        ) : (
-                          finAssinaturas.map(sub => (
-                            <tr key={sub.id}>
-                              <td><strong>{sub.empresaNome}</strong></td>
-                              <td style={{ color: 'var(--text-secondary)' }}>{sub.cnpj}</td>
-                              <td><span className="badge-tenant ativo" style={{ background: 'var(--color-purple)' }}>{sub.planoNome}</span></td>
-                              <td style={{ fontFamily: 'var(--font-mono)' }}>R$ {sub.valorEfetivo.toFixed(2)}</td>
-                              <td>Todo dia {sub.diaVencimento}</td>
-                              <td>
-                                {(() => {
-                                  const estilos: Record<string, { bg: string; cor: string; label: string }> = {
-                                    ATIVA:     { bg: 'rgba(16,185,129,0.1)', cor: 'var(--color-emerald)', label: 'Ativa' },
-                                    TRIAL:     { bg: 'rgba(59,130,246,0.1)', cor: 'var(--color-blue, #3b82f6)', label: 'Trial' },
-                                    ATRASADA:  { bg: 'rgba(245,158,11,0.1)', cor: 'var(--color-amber)', label: 'Atrasada' },
-                                    SUSPENSA:  { bg: 'rgba(244,63,94,0.1)', cor: 'var(--color-rose)', label: 'Suspensa' },
-                                    CANCELADA: { bg: 'rgba(75,85,99,0.15)', cor: '#9ca3af', label: 'Cancelada' },
-                                  };
-                                  const e = estilos[sub.status] ?? estilos.CANCELADA;
-                                  return (
-                                    <span style={{
-                                      display: 'inline-block',
-                                      padding: '0.1rem 0.4rem',
-                                      borderRadius: '4px',
-                                      fontSize: '0.75rem',
-                                      background: e.bg,
-                                      color: e.cor
-                                    }}>
-                                      {e.label}
-                                    </span>
-                                  );
-                                })()}
-                              </td>
-                              <td>{sub.proximoFaturamento ? new Date(sub.proximoFaturamento).toLocaleDateString('pt-BR') : '-'}</td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-              </div>
-            )}
-          </div>
-        ) : (
-          <>
-            {/* Stats Grid */}
-            <div className="admin-stats-grid">
-          <div className="admin-stat-card">
-            <span className="admin-stat-label">Total de Empresas</span>
-            <span className="admin-stat-value">{empresas.length}</span>
-          </div>
-          <div className="admin-stat-card">
-            <span className="admin-stat-label">Lojas Cadastradas</span>
-            <span className="admin-stat-value">{totalLojas}</span>
-          </div>
-          <div className="admin-stat-card">
-            <span className="admin-stat-label">Lojas Ativas</span>
-            <span className="admin-stat-value" style={{ color: 'var(--color-emerald)' }}>{lojasAtivas}</span>
-          </div>
-        </div>
-
-        {/* Botão de Nova Empresa */}
-        <div className="admin-header">
-          <h2>Empresas e Redes Credenciadas</h2>
-          <button 
-            className="btn btn-success" 
-            onClick={() => setShowNovaEmpresaForm(!showNovaEmpresaForm)}
-          >
-            {showNovaEmpresaForm ? 'Cancelar' : '+ Nova Empresa'}
-          </button>
-        </div>
-
-        {/* Formulário de Nova Empresa */}
-        {showNovaEmpresaForm && (
-          <div className="card" style={{ marginBottom: '1.5rem', padding: '1.5rem', background: 'var(--bg-card)', border: '1px solid var(--border-thin)' }}>
-            <h3 style={{ fontSize: '1rem', marginBottom: '1rem', color: 'var(--color-cyan)' }}>Cadastrar Nova Empresa</h3>
-            <form onSubmit={handleCadastrarEmpresa} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'end' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Razão Social / Nome</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaNome} 
-                  onChange={e => setNovaEmpresaNome(e.target.value)} 
-                  placeholder="Ex: Pizzaria Bella Italia Ltda"
-                  required 
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>CNPJ</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaCnpj} 
-                  onChange={e => setNovaEmpresaCnpj(e.target.value)} 
-                  placeholder="Ex: 12.345.678/0001-99"
-                  required 
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Telefone (opcional)</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  value={novaEmpresaTelefone} 
-                  onChange={e => setNovaEmpresaTelefone(e.target.value)} 
-                  placeholder="(11) 99999-9999" 
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Email (opcional)</label>
-                <input 
-                  type="email" 
-                  className="form-input" 
-                  value={novaEmpresaEmail} 
-                  onChange={e => setNovaEmpresaEmail(e.target.value)} 
-                  placeholder="email@empresa.com" 
-                />
-              </div>
-              <button type="submit" className="btn btn-success" style={{ height: '38px' }}>Salvar Empresa</button>
-            </form>
-          </div>
-        )}
-
-        {/* Listagem de Empresas */}
-        <div className="empresas-container">
-          {empresas.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)', background: 'var(--bg-card)', border: '1px dashed var(--border-thin)', borderRadius: '12px' }}>
-              Nenhuma empresa cadastrada no sistema. Clique em "+ Nova Empresa" para começar.
-            </div>
-          ) : (
-            empresas.map(empresa => {
-              const isExpanded = expandedEmpresas.includes(empresa.id);
-              const lojas = lojasDaEmpresa[empresa.id] || [];
-              const isNovaLojaAberta = showNovaLojaForm === empresa.id;
-
-              return (
-                <div key={empresa.id} className="empresa-card">
-                  {/* Cabeçalho da Empresa */}
-                  <div className="empresa-card-header" onClick={() => toggleEmpresaExpandida(empresa.id)}>
-                    <div className="empresa-header-info">
-                      <svg 
-                        width="16" 
-                        height="16" 
-                        viewBox="0 0 24 24" 
-                        fill="none" 
-                        stroke="currentColor" 
-                        strokeWidth="2" 
-                        style={{ 
-                          transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', 
-                          transition: 'transform 0.2s ease',
-                          color: empresa.ativo ? 'var(--color-cyan)' : 'var(--text-secondary)'
-                        }}
-                      >
-                        <polyline points="9 18 15 12 9 6" />
-                      </svg>
-                      <span className="empresa-name" style={{ textDecoration: empresa.ativo ? 'none' : 'line-through', opacity: empresa.ativo ? 1 : 0.6 }}>{empresa.nome}</span>
-                      <span className="empresa-cnpj">{empresa.cnpj}</span>
-                      <span className={`badge-tenant ${empresa.ativo ? 'ativo' : 'inativo'}`}>
-                        {empresa.ativo ? 'Ativa' : 'Inativa'}
-                      </span>
-                    </div>
-
-                    <div className="empresa-actions" onClick={e => e.stopPropagation()}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginRight: '1rem' }}>
-                        {empresa.totalLojas || 0} loja(s)
-                      </span>
-                      <button 
-                        className="btn btn-small" 
-                        style={{ 
-                          fontSize: '0.7rem', 
-                          padding: '0.2rem 0.5rem',
-                          background: empresa.ativo ? 'rgba(244, 63, 94, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                          color: empresa.ativo ? 'var(--color-rose)' : 'var(--color-emerald)',
-                          border: empresa.ativo ? '1px solid rgba(244, 63, 94, 0.2)' : '1px solid rgba(16, 185, 129, 0.2)'
-                        }}
-                        onClick={() => handleToggleEmpresa(empresa.id)}
-                      >
-                        {empresa.ativo ? 'Desativar' : 'Ativar'}
-                      </button>
-                      <button 
-                        className="icon-btn danger" 
-                        title="Excluir Empresa"
-                        onClick={() => handleDeleteEmpresa(empresa.id)}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="3 6 5 6 21 6" />
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Lojas da Empresa (Conteúdo Expandido) */}
-                  {isExpanded && (
-                    <div className="empresa-card-content">
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h4 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lojas / Redes</h4>
-                        <button 
-                          className="btn btn-success btn-small"
-                          onClick={() => {
-                            const abrindo = !isNovaLojaAberta;
-                            setShowNovaLojaForm(abrindo ? empresa.id : null);
-                            if (abrindo && finPlanos.length === 0) carregarFinanceiroPlanos();
-                          }}
-                        >
-                          {isNovaLojaAberta ? 'Cancelar' : '+ Nova Loja'}
-                        </button>
-                      </div>
-
-                      {/* Form Nova Loja */}
-                      {isNovaLojaAberta && (
-                        <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'rgba(0, 0, 0, 0.3)', border: '1px solid var(--border-thin)', borderRadius: '8px' }}>
-                          <h5 style={{ fontSize: '0.8rem', color: 'var(--color-cyan)', marginBottom: '0.75rem' }}>Cadastrar Nova Loja na Rede {empresa.nome}</h5>
-                          <form onSubmit={e => handleCadastrarLoja(e, empresa.id)} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', alignItems: 'end' }}>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Nome Fantasia</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaNome} 
-                                onChange={e => setNovaLojaNome(e.target.value)} 
-                                placeholder="Loja Centro" 
-                                required 
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>CNPJ da Loja</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaCnpj} 
-                                onChange={e => setNovaLojaCnpj(e.target.value)} 
-                                placeholder="00.000.000/0000-00" 
-                                required 
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Usuário de Acesso</label>
-                              <input 
-                                type="text" 
-                                className="form-input" 
-                                value={novaLojaUsuario} 
-                                onChange={e => setNovaLojaUsuario(e.target.value)} 
-                                placeholder="ex: lojacentro" 
-                                required 
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Senha Inicial</label>
-                              <input 
-                                type="password" 
-                                className="form-input" 
-                                value={novaLojaSenha}
-                                onChange={e => setNovaLojaSenha(e.target.value)}
-                                placeholder="Senha da loja"
-                                required
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Plano de Assinatura</label>
-                              <select
-                                className="form-input"
-                                value={novaLojaPlanoId}
-                                onChange={e => setNovaLojaPlanoId(e.target.value)}
-                                required
-                              >
-                                <option value="">Selecione o plano...</option>
-                                {finPlanos.filter(p => p.ativo !== false).map(p => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.nome} — R$ {Number(p.valorMensal).toFixed(2)}/mês
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>CEP</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaCep}
-                                onChange={e => setNovaLojaCep(e.target.value)}
-                                placeholder="00000-000"
-                                maxLength={9}
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Endereço (Logradouro)</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaEndereco}
-                                onChange={e => setNovaLojaEndereco(e.target.value)}
-                                placeholder="Rua das Flores"
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Número</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaNumero}
-                                onChange={e => setNovaLojaNumero(e.target.value)}
-                                placeholder="123"
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Bairro</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaBairro}
-                                onChange={e => setNovaLojaBairro(e.target.value)}
-                                placeholder="Bairro"
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Cidade</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaCidade}
-                                onChange={e => setNovaLojaCidade(e.target.value)}
-                                placeholder="São Paulo"
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0 }}>
-                              <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>UF</label>
-                              <input
-                                type="text"
-                                className="form-input"
-                                value={novaLojaUf}
-                                onChange={e => setNovaLojaUf(e.target.value.toUpperCase())}
-                                placeholder="SP"
-                                maxLength={2}
-                              />
-                            </div>
-                            <div className="form-group" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.4rem', height: '34px' }}>
-                              <input 
-                                type="checkbox" 
-                                id="novaLojaRecebePedidos"
-                                checked={novaLojaRecebePedidos} 
-                                onChange={e => setNovaLojaRecebePedidos(e.target.checked)} 
-                                style={{ accentColor: 'var(--color-cyan)', cursor: 'pointer', width: '15px', height: '15px' }}
-                              />
-                              <label htmlFor="novaLojaRecebePedidos" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer', marginBottom: 0 }}>
-                                Ativar Fila de Pedidos (WhatsApp)
-                              </label>
-                            </div>
-                            <button type="submit" className="btn btn-success" style={{ height: '34px' }}>Salvar Loja</button>
-                          </form>
-                        </div>
-                      )}
-
-                      {/* Tabela de Lojas */}
-                      <div className="lojas-table-container">
-                        {lojas.length === 0 ? (
-                          <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                            Nenhuma loja cadastrada nesta empresa.
-                          </div>
-                        ) : (
-                          <table className="lojas-table">
-                            <thead>
-                              <tr>
-                                <th>Nome</th>
-                                <th>CNPJ</th>
-                                <th>Usuário</th>
-                                <th>Endereço</th>
-                                <th>Chave de Acesso</th>
-                                <th>Fila de Pedidos</th>
-                                <th>Status</th>
-                                <th style={{ textAlign: 'right' }}>Ações</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {lojas.map(loja => (
-                                <tr key={loja.id}>
-                                  <td style={{ fontWeight: 600 }}>{loja.nome}</td>
-                                  <td className="font-mono" style={{ fontSize: '0.78rem' }}>
-                                    {loja.cnpj || <em style={{ color: 'var(--text-muted)' }}>Não informado</em>}
-                                  </td>
-                                  <td className="font-mono">{loja.usuario}</td>
-                                  <td style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                                    {loja.endereco ? (
-                                      <>
-                                        {loja.endereco}
-                                        {loja.bairro && `, ${loja.bairro}`}
-                                        {loja.cidade && ` - ${loja.cidade}`}
-                                      </>
-                                    ) : (
-                                      <em style={{ color: 'var(--text-muted)' }}>Não informado</em>
-                                    )}
-                                  </td>
-                                  <td>
-                                    <div className="chave-acesso-box">
-                                      <span className="chave-acesso-text">{loja.chaveAcesso}</span>
-                                      <button 
-                                        type="button"
-                                        className="icon-btn" 
-                                        title="Copiar Chave de Acesso"
-                                        onClick={() => {
-                                          navigator.clipboard.writeText(loja.chaveAcesso);
-                                          alert('Chave copiada para a área de transferência!');
-                                        }}
-                                      >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                        </svg>
-                                      </button>
-                                      <button 
-                                        type="button"
-                                        className="icon-btn" 
-                                        title="Regenerar Chave"
-                                        onClick={() => handleRegenerarChaveLoja(empresa.id, loja.id)}
-                                      >
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-                                        </svg>
-                                      </button>
-                                    </div>
-                                  </td>
-                                  <td>
-                                    <span 
-                                      className={`badge-tenant ${loja.recebePedidos ? 'ativo' : 'inativo'}`}
-                                      style={{ cursor: 'pointer', border: loja.recebePedidos ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid rgba(156, 163, 175, 0.3)', background: loja.recebePedidos ? 'rgba(245, 158, 11, 0.08)' : 'rgba(156, 163, 175, 0.08)', color: loja.recebePedidos ? 'var(--color-amber)' : '#9ca3af' }}
-                                      onClick={() => handleToggleRecebePedidos(empresa.id, loja)}
-                                      title="Clique para alternar Fila de Pedidos"
-                                    >
-                                      {loja.recebePedidos ? 'Habilitada' : 'Desabilitada'}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    <span className={`badge-tenant ${loja.ativo ? 'ativo' : 'inativo'}`}>
-                                      {loja.ativo ? 'Ativa' : 'Inativa'}
-                                    </span>
-                                  </td>
-                                  <td>
-                                    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                                      <button 
-                                        className="btn btn-small btn-success" 
-                                        style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', background: 'var(--color-cyan)', color: '#000' }}
-                                        onClick={() => setLojaVisualizada({ id: loja.id, nome: loja.nome, nomeEmpresa: empresa.nome })}
-                                        disabled={!loja.ativo || !empresa.ativo}
-                                        title={(!loja.ativo || !empresa.ativo) ? 'Não é possível visualizar painel de loja ou empresa inativa' : 'Visualizar Dashboard'}
-                                      >
-                                        Painel
-                                      </button>
-                                      <button 
-                                        className="btn btn-small" 
-                                        style={{ fontSize: '0.7rem', padding: '0.15rem 0.4rem', background: '#1f293d', color: '#fff', border: '1px solid rgba(255,255,255,0.08)' }}
-                                        onClick={() => startEditLoja(loja)}
-                                        title="Editar Informações da Loja"
-                                      >
-                                        Editar
-                                      </button>
-                                      <button 
-                                        className="btn btn-small"
-                                        style={{ 
-                                          fontSize: '0.7rem', 
-                                          padding: '0.15rem 0.4rem',
-                                          background: loja.ativo ? 'rgba(244, 63, 94, 0.1)' : 'rgba(16, 185, 129, 0.1)',
-                                          color: loja.ativo ? 'var(--color-rose)' : 'var(--color-emerald)',
-                                          border: loja.ativo ? '1px solid rgba(244, 63, 94, 0.2)' : '1px solid rgba(16, 185, 129, 0.2)'
-                                        }}
-                                        onClick={() => handleToggleLoja(empresa.id, loja.id)}
-                                      >
-                                        {loja.ativo ? 'Bloquear' : 'Liberar'}
-                                      </button>
-                                      <button 
-                                        className="icon-btn danger" 
-                                        title="Excluir Loja"
-                                        onClick={() => handleDeleteLoja(empresa.id, loja.id)}
-                                      >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                          <polyline points="3 6 5 6 21 6" />
-                                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                                        </svg>
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </>
-    )}
-
-        {/* --- MODAIS DO MÓDULO FINANCEIRO --- */}
-        {showCobrarManualForm && createPortal(
-          <div className="report-modal-overlay" onClick={() => setShowCobrarManualForm(false)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>Gerar Cobrança Manual (Fatura Avulsa)</h2>
-                <button type="button" className="report-modal-close-btn" onClick={() => setShowCobrarManualForm(false)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleCobrarManual} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Empresa</label>
-                    <select
-                      className="form-input"
-                      value={manualCobrarEmpresaId}
-                      onChange={e => setManualCobrarEmpresaId(e.target.value)}
-                      required
-                    >
-                      <option value="">Selecione uma empresa...</option>
-                      {empresas.map(emp => (
-                        <option key={emp.id} value={emp.id}>{emp.nome}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Valor Cobrado (R$)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-input"
-                      value={manualCobrarValor}
-                      onChange={e => setManualCobrarValor(e.target.value)}
-                      placeholder="Ex: 299.00"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Referência / Descrição</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={manualCobrarDescricao}
-                      onChange={e => setManualCobrarDescricao(e.target.value)}
-                      placeholder="Ex: Mensalidade extra"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Data de Vencimento</label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      value={manualCobrarVencimento}
-                      onChange={e => setManualCobrarVencimento(e.target.value)}
-                      required
-                    />
-                  </div>
-                  {manualCobrarError && (
-                    <div style={{ color: 'var(--color-rose)', fontSize: '0.75rem' }}>{manualCobrarError}</div>
-                  )}
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem', background: 'linear-gradient(135deg, var(--color-cyan), var(--color-blue))', color: '#000', border: 'none', fontWeight: 600 }}>Gerar Cobrança</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-
-        {showBaixaManualForm && createPortal(
-          <div className="report-modal-overlay" onClick={() => setShowBaixaManualForm(null)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>Dar Baixa Manual na Fatura</h2>
-                <button type="button" className="report-modal-close-btn" onClick={() => setShowBaixaManualForm(null)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleBaixaManual} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Fatura ID</label>
-                    <input type="text" className="form-input" value={showBaixaManualForm} readOnly disabled />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Comprovante de Referência / Transação</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={baixaManualComprovante}
-                      onChange={e => setBaixaManualComprovante(e.target.value)}
-                      placeholder="Ex: Autenticação Pix E123456"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Observações</label>
-                    <textarea
-                      className="form-input"
-                      value={baixaManualObservacoes}
-                      onChange={e => setBaixaManualObservacoes(e.target.value)}
-                      placeholder="Ex: Recebido via transferência bancária direta."
-                      rows={3}
-                      style={{ resize: 'vertical', minHeight: '60px' }}
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem' }}>Confirmar Pagamento</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-
-        {showContestarForm && createPortal(
-          <div className="report-modal-overlay" onClick={() => setShowContestarForm(null)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>Marcar Fatura como Contestada</h2>
-                <button type="button" className="report-modal-close-btn" onClick={() => setShowContestarForm(null)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleContestarFatura} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Fatura ID</label>
-                    <input type="text" className="form-input" value={showContestarForm} readOnly disabled />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Motivo da Contestação</label>
-                    <textarea
-                      className="form-input"
-                      value={contestarMotivo}
-                      onChange={e => setContestarMotivo(e.target.value)}
-                      placeholder="Descreva o motivo relatado pela empresa para a contestação da cobrança..."
-                      rows={4}
-                      required
-                      style={{ resize: 'vertical', minHeight: '80px' }}
-                    />
-                  </div>
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem', background: 'var(--color-purple)', border: '1px solid var(--color-purple)', color: '#fff' }}>Registrar Contestação</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-
-        {showPlanoForm && createPortal(
-          <div className="report-modal-overlay" onClick={() => setShowPlanoForm(null)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>{showPlanoForm.id ? 'Editar Plano de Assinatura' : 'Criar Novo Plano de Assinatura'}</h2>
-                <button type="button" className="report-modal-close-btn" onClick={() => setShowPlanoForm(null)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleSalvarPlano} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Nome do Plano</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={planoNome}
-                      onChange={e => setPlanoNome(e.target.value)}
-                      placeholder="Ex: Silver Plus"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Descrição do Plano</label>
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={planoDescricao}
-                      onChange={e => setPlanoDescricao(e.target.value)}
-                      placeholder="Ex: Recomendado para redes médias"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Valor Mensal (R$)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      className="form-input"
-                      value={planoValorMensal}
-                      onChange={e => setPlanoValorMensal(e.target.value)}
-                      placeholder="Ex: 349.00"
-                      required
-                    />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Entregas/Mês</label>
-                      <input
-                        type="number"
-                        className="form-input"
-                        value={planoLimiteEntregas}
-                        onChange={e => setPlanoLimiteEntregas(e.target.value)}
-                        placeholder="Deixe em branco para ilimitado"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Lojas</label>
-                      <input
-                        type="number"
-                        className="form-input"
-                        value={planoLimiteLojas}
-                        onChange={e => setPlanoLimiteLojas(e.target.value)}
-                        placeholder="Deixe em branco para ilimitado"
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Limite Motoristas</label>
-                    <input
-                      type="number"
-                      className="form-input"
-                      value={planoLimiteMotoristas}
-                      onChange={e => setPlanoLimiteMotoristas(e.target.value)}
-                      placeholder="Deixe em branco para ilimitado"
-                    />
-                  </div>
-                  {planoError && (
-                    <div style={{ color: 'var(--color-rose)', fontSize: '0.75rem' }}>{planoError}</div>
-                  )}
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem' }}>Salvar Plano</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-
-        {editingLoja && createPortal(
-          <div className="report-modal-overlay" onClick={() => setEditingLoja(null)}>
-            <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
-              <div className="report-modal-header">
-                <h2>Editar Informações da Loja</h2>
-                <button className="report-modal-close-btn" onClick={() => setEditingLoja(null)}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18" />
-                    <line x1="6" y1="6" x2="18" y2="18" />
-                  </svg>
-                </button>
-              </div>
-              <div className="report-modal-body">
-                <form onSubmit={handleUpdateLoja} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Nome Fantasia</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaNome} 
-                      onChange={e => setEditLojaNome(e.target.value)} 
-                      required 
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>CNPJ da Loja</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaCnpj} 
-                      onChange={e => setEditLojaCnpj(e.target.value)} 
-                      required 
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Usuário de Acesso</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      value={editLojaUsuario} 
-                      onChange={e => setEditLojaUsuario(e.target.value)} 
-                      required 
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Alterar Senha (deixe em branco para manter a atual)</label>
-                    <input 
-                      type="password" 
-                      className="form-input" 
-                      value={editLojaSenha} 
-                      onChange={e => setEditLojaSenha(e.target.value)} 
-                      placeholder="Nova senha da loja"
-                    />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>CEP</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaCep}
-                        onChange={e => setEditLojaCep(e.target.value)}
-                        placeholder="00000-000"
-                        maxLength={9}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>UF</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaUf}
-                        onChange={e => setEditLojaUf(e.target.value.toUpperCase())}
-                        placeholder="SP"
-                        maxLength={2}
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.6rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Endereço (Logradouro)</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaEndereco}
-                        onChange={e => setEditLojaEndereco(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Número</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaNumero}
-                        onChange={e => setEditLojaNumero(e.target.value)}
-                        placeholder="123"
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Bairro</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaBairro}
-                        onChange={e => setEditLojaBairro(e.target.value)}
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Cidade</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        value={editLojaCidade}
-                        onChange={e => setEditLojaCidade(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                    <input
-                      type="checkbox"
-                      id="editLojaRecebePedidosMaster"
-                      checked={editLojaRecebePedidos} 
-                      onChange={e => setEditLojaRecebePedidos(e.target.checked)} 
-                      style={{ accentColor: 'var(--color-cyan)', cursor: 'pointer', width: '15px', height: '15px' }}
-                    />
-                    <label htmlFor="editLojaRecebePedidosMaster" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer', marginBottom: 0 }}>
-                      Ativar Fila de Pedidos (WhatsApp)
-                    </label>
-                  </div>
-                  <button type="submit" className="btn btn-success" style={{ width: '100%', marginTop: '0.5rem' }}>Salvar Alterações</button>
-                </form>
-              </div>
-            </div>
-          </div>
-        , document.body)}
-      </div>
-    );
+    return <AdminMaster {...{
+      reportAccess: {backendUrl:BACKEND_URL,token:sessao.token},
+      adminDataState,
+      refreshAdminData,
+      empresas,
+      isConnected,
+      handleLogout,
+      adminSubView,
+      setAdminSubView,
+      finDashboard,
+      finSubTab,
+      setFinSubTab,
+      finFaturasFiltros,
+      setFinFaturasFiltros,
+      setShowCobrarManualForm,
+      finFaturas,
+      setShowBaixaManualForm,
+      setShowContestarForm,
+      setContestarMotivo,
+      handleCancelarFatura,
+      finTotalPaginas,
+      finPaginaAtual,
+      setFinPaginaAtual,
+      finRelFaturamento,
+      finRelInadimplencia,
+      finRelChurn,
+      finRelPrevisibilidade,
+      finConfiguracoes,
+      handleSalvarConfigCobranca,
+      setFinConfiguracoes,
+      startNovoPlano,
+      finPlanos,
+      startEditPlano,
+      finAssinaturas,
+      setShowNovaEmpresaForm,
+      showNovaEmpresaForm,
+      handleCadastrarEmpresa,
+      novaEmpresaNome,
+      setNovaEmpresaNome,
+      novaEmpresaCnpj,
+      setNovaEmpresaCnpj,
+      novaEmpresaTelefone,
+      setNovaEmpresaTelefone,
+      novaEmpresaEmail,
+      setNovaEmpresaEmail,
+      expandedEmpresas,
+      lojasDaEmpresa,
+      showNovaLojaForm,
+      toggleEmpresaExpandida,
+      handleToggleEmpresa,
+      handleDeleteEmpresa,
+      setShowNovaLojaForm,
+      carregarFinanceiroPlanos,
+      handleCadastrarLoja,
+      novaLojaNome,
+      setNovaLojaNome,
+      novaLojaCnpj,
+      setNovaLojaCnpj,
+      novaLojaUsuario,
+      setNovaLojaUsuario,
+      novaLojaSenha,
+      setNovaLojaSenha,
+      novaLojaPlanoId,
+      setNovaLojaPlanoId,
+      novaLojaCep,
+      setNovaLojaCep,
+      novaLojaEndereco,
+      setNovaLojaEndereco,
+      novaLojaNumero,
+      setNovaLojaNumero,
+      novaLojaBairro,
+      setNovaLojaBairro,
+      novaLojaCidade,
+      setNovaLojaCidade,
+      novaLojaUf,
+      setNovaLojaUf,
+      novaLojaRecebePedidos,
+      setNovaLojaRecebePedidos,
+      handleRegenerarChaveLoja,
+      handleToggleRecebePedidos,
+      setLojaVisualizada,
+      startEditLoja,
+      handleToggleLoja,
+      handleDeleteLoja,
+      showCobrarManualForm,
+      handleCobrarManual,
+      manualCobrarEmpresaId,
+      setManualCobrarEmpresaId,
+      manualCobrarValor,
+      setManualCobrarValor,
+      manualCobrarDescricao,
+      setManualCobrarDescricao,
+      manualCobrarVencimento,
+      setManualCobrarVencimento,
+      manualCobrarError,
+      showBaixaManualForm,
+      handleBaixaManual,
+      baixaManualComprovante,
+      setBaixaManualComprovante,
+      baixaManualObservacoes,
+      setBaixaManualObservacoes,
+      showContestarForm,
+      handleContestarFatura,
+      contestarMotivo,
+      showPlanoForm,
+      setShowPlanoForm,
+      handleSalvarPlano,
+      planoNome,
+      setPlanoNome,
+      planoDescricao,
+      setPlanoDescricao,
+      planoValorMensal,
+      setPlanoValorMensal,
+      planoLimiteEntregas,
+      setPlanoLimiteEntregas,
+      planoLimiteLojas,
+      setPlanoLimiteLojas,
+      planoLimiteMotoristas,
+      setPlanoLimiteMotoristas,
+      planoError,
+      editingLoja,
+      setEditingLoja,
+      handleUpdateLoja,
+      editLojaNome,
+      setEditLojaNome,
+      editLojaCnpj,
+      setEditLojaCnpj,
+      editLojaUsuario,
+      setEditLojaUsuario,
+      editLojaSenha,
+      setEditLojaSenha,
+      editLojaCep,
+      setEditLojaCep,
+      editLojaUf,
+      setEditLojaUf,
+      editLojaEndereco,
+      setEditLojaEndereco,
+      editLojaNumero,
+      setEditLojaNumero,
+      editLojaBairro,
+      setEditLojaBairro,
+      editLojaCidade,
+      setEditLojaCidade,
+      editLojaRecebePedidos,
+      setEditLojaRecebePedidos
+    }} />;
   }
 
   // Dashboard da Loja
@@ -4728,6 +2230,12 @@ export default function App() {
           )}
         </div>
         <div className="header-actions">
+          <button
+            className="btn btn-primary"
+            onClick={() => window.location.assign(sessao?.tipo==='admin'&&tenantLojaId?`/area-cliente?lojaId=${encodeURIComponent(tenantLojaId)}`:'/area-cliente')}
+          >
+            Área do Cliente
+          </button>
           {/* Hierarquia: 1 primária (Gerar Pedido), 1 secundária (Entrega Rápida),
               destrutivo e logout rebaixados a ghost p/ não competir nem causar clique acidental. */}
           {/* "Gerar Pedido" e "Entrega Rápida" ocultados a pedido (jun/2026) */}
@@ -4740,6 +2248,7 @@ export default function App() {
           <button
             className="btn"
             style={{ background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border-thin)' }}
+            disabled={operacaoBloqueada!==false}
             onClick={handleClearSimulation}
             title="Apagar todos os dados da simulação"
           >
@@ -4757,6 +2266,8 @@ export default function App() {
         </div>
       </header>
 
+      {sessao.tipo==='loja'&&operacaoBloqueada!==false&&<section className="operation-payment-banner" role="status"><div><strong>{operacaoBloqueada?'Operação suspensa por inadimplência':'Verificando acesso à operação…'}</strong><p>{operacaoBloqueada?'Regularize o pagamento para continuar operando. Sua conta e suas cobranças continuam disponíveis.':'Aguarde a conferência da sua assinatura.'}</p></div><a className="btn btn-primary" href="/area-cliente?secao=cobrancas">Acessar cobranças e pagamentos</a></section>}
+      <div className={sessao.tipo==='loja'&&operacaoBloqueada!==false?'operation-payment-muted':undefined} inert={sessao.tipo==='loja'&&operacaoBloqueada!==false} aria-label="Área de operação">
       {/* 2. Incidents Alerts Banner */}
       {alertDeliveries.length > 0 && (
         <div className="incidents-container">
@@ -4796,7 +2307,7 @@ export default function App() {
 
       {/* 3. Seção de Entregas Cadastradas (Comandas) */}
       <section className="glass-panel deliveries-top-panel glow-cyan">
-        {!dispatchViewActive && !showProdutosModal && <div className="panel-header">
+        {!dispatchViewActive && !showProdutosModal && !showVitrineModal && <div className="panel-header">
           <h2 style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
             Controle de Comandas
           </h2>
@@ -4939,17 +2450,19 @@ export default function App() {
         )}
 
         {/* Kanban de Controle de Comandas — substitui as 2 filas verticais antigas */}
+        {sessao?.tipo==='loja'&&<ImplementationCard key={sessao.token} token={sessao.token} onLoaded={setImplementationState}/>}
+        {new URLSearchParams(location.search).get('retorno')==='implantacao'&&<a className="btn btn-secondary" href="/area-cliente?secao=implantacao">Voltar à implantação e verificar a tarefa</a>}
         <OperationsWorkspace
-          activeMenuKey={showProdutosModal ? 'produtos' : undefined}
-          onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não salvas do produto?')) return false; setShowProdutosModal(false); setCatalogoAlterado(false); return true; }}
-          workspace={showProdutosModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoProdutos backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onClose={() => setShowProdutosModal(false)} onEstoque={() => setShowEstoqueModal(true)} onVitrine={() => setShowVitrineModal(true)} onDirtyChange={setCatalogoAlterado} refreshKey={catalogoRefresh} /> : undefined}
+          activeMenuKey={showVitrineModal ? 'vitrine' : showProdutosModal ? 'produtos' : undefined}
+          onWorkspaceExit={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return false; setShowProdutosModal(false); setShowVitrineModal(false); setCatalogoAlterado(false); return true; }}
+          workspace={showVitrineModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoVitrine backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onDirtyChange={setCatalogoAlterado} onClose={() => { setShowVitrineModal(false); setCatalogoRefresh(v => v + 1); }} onProdutos={() => { setShowVitrineModal(false); setShowProdutosModal(true); }} /> : showProdutosModal && sessao?.tipo === 'loja' && sessao.lojaId ? <GestaoProdutos backendUrl={BACKEND_URL} token={sessao.token} lojaId={sessao.lojaId} nomeLoja={sessao.nomeLoja || 'Minha Loja'} onClose={() => setShowProdutosModal(false)} onEstoque={() => setShowEstoqueModal(true)} onVitrine={() => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowProdutosModal(false); setShowVitrineModal(true); }} onDirtyChange={setCatalogoAlterado} refreshKey={catalogoRefresh} /> : undefined}
           onDispatchViewChange={setDispatchViewActive}
           onDespacharProntos={despacharPedidosProntos}
           menuActions={[
             ...(tenantLojaId ? [{ key: 'configuracoes', label: 'Configurações', icon: 'settings' as const, onClick: () => setShowOperationSettings(true) }] : []),
             ...(sessao?.tipo === 'loja' && sessao.lojaId ? [
-              { key: 'produtos', label: 'Produtos', icon: 'products' as const, onClick: () => setShowProdutosModal(true) },
-              { key: 'vitrine', label: 'Configuração da vitrine', icon: 'products' as const, onClick: () => setShowVitrineModal(true) },
+              { key: 'produtos', label: 'Produtos', icon: 'products' as const, onClick: () => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowVitrineModal(false); setShowProdutosModal(true); } },
+              { key: 'vitrine', label: 'Configuração da vitrine', icon: 'products' as const, onClick: () => { if (catalogoAlterado && !window.confirm('Descartar as alterações não publicadas?')) return; setShowProdutosModal(false); setShowVitrineModal(true); } },
               { key: 'estoque', label: 'Estoque', icon: 'stock' as const, onClick: () => setShowEstoqueModal(true) },
             ] : []),
             { key: 'relatorios', label: 'Relatórios', icon: 'reports', onClick: () => { setReportPhase('filters'); setReportModalOpen(true); } },
@@ -4977,565 +2490,39 @@ export default function App() {
       {/* 4. Dashboard Main Body Grid */}
       <div className="dashboard-grid">
         
-        {/* Painel do Operador: detalhe da comanda aberta (Acompanhar / ›) + simulador do entregador */}
-        {selectedDelivery && (
-        <section className="glass-panel" style={{ minWidth: '0' }}>
-          <div className="split-telemetry-container">
-            
-            {/* Painel do Operador */}
-            {selectedDelivery ? (
-              <div className="operator-control-panel">
-                <h3 style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: 'var(--color-cyan)', fontWeight: 600 }}>
-                  Painel do Operador / Telemetria: <span className="font-mono">{selectedDelivery.id}</span>
-                </h3>
-                <div style={{ fontSize: '0.72rem', display: 'flex', flexDirection: 'column', gap: '0.2rem', color: 'var(--text-secondary)' }}>
-                  <div><strong>Cliente:</strong> {selectedDelivery.nomeCliente}</div>
-                  <div><strong>Status:</strong> <span className={`card-badge ${selectedDelivery.status}`} style={{ display: 'inline', fontSize: '0.62rem' }}>{getStatusText(selectedDelivery.status)}</span></div>
-                  
-                  {selectedDelivery.motorista && (
-                    <div><strong>Entregador:</strong> {selectedDelivery.motorista.name} ({getVehicleIcon(selectedDelivery.motorista.vehicleType)})</div>
-                  )}
-                </div>
-
-                {selectedDelivery.recebedorNome && (
-                  <div style={{ 
-                    marginTop: '0.4rem', 
-                    background: 'rgba(255, 255, 255, 0.02)', 
-                    border: '1px solid #1f293d', 
-                    padding: '0.4rem', 
-                    borderRadius: '6px', 
-                    fontSize: '0.68rem',
-                    color: 'var(--text-secondary)'
-                  }}>
-                    Recebedor: {selectedDelivery.recebedorNome}
-                  </div>
-                )}
-                {selectedDelivery.justificativaDesvioCoordenada && (
-                  <div style={{ color: 'var(--color-amber)', marginTop: '0.2rem', fontSize: '0.68rem' }}>
-                    ⚠️ <strong>Justificativa GPS:</strong> {selectedDelivery.justificativaDesvioCoordenada}
-                  </div>
-                )}
-
-                {selectedDelivery.status === 'AGUARDANDO_RETORNO_CD' && (
-                  <div style={{ marginTop: '0.4rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.2)', padding: '0.4rem', borderRadius: '6px', fontSize: '0.68rem' }}>
-                    <div style={{ color: 'var(--color-amber)', fontWeight: 'bold' }}>⚠️ EM CUSTÓDIA REVERSA (MOTORISTA):</div>
-                    <div style={{ color: 'var(--text-secondary)', marginBottom: '0.4rem' }}>
-                      O pedido falhou. Aguardando retorno a Loja para bipar conferência física.
-                    </div>
-                    <button
-                      className="btn btn-success btn-small"
-                      style={{ width: '100%', fontSize: '0.68rem', padding: '0.2rem' }}
-                      onClick={async () => {
-                        try {
-                          await apiFetch(`${BACKEND_URL}/api/deliveries/${selectedDelivery.id}/return-stock`, {
-                            method: 'POST'
-                          });
-                        } catch (err) {
-                          console.error('Erro ao bipar retorno ao estoque:', err);
-                        }
-                      }}
-                    >
-                      Bipar Código de Barras (Retorno ao Estoque)
-                    </button>
-                  </div>
-                )}
-
-                {selectedDelivery.status === 'PRODUTO_RETORNADO_ESTOQUE' && (
-                  <div style={{ marginTop: '0.4rem', background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)', padding: '0.4rem', borderRadius: '6px', fontSize: '0.68rem' }}>
-                    <div style={{ color: 'var(--color-cyan)', fontWeight: 'bold' }}>PEDIDO CANCELADO / DEVOLVIDO:</div>
-                    <div style={{ color: 'var(--text-secondary)' }}>
-                      Conferência física finalizada e saldo de produtos retornado ao estoque.
-                    </div>
-                  </div>
-                )}
-
-                {selectedDelivery.incidentes.filter(i => !i.resolvido).length > 0 && (
-                  <div style={{ marginTop: '0.4rem', background: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.3)', padding: '0.4rem', borderRadius: '6px' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--color-rose)', fontWeight: 'bold' }}>INCIDENTES ATIVOS:</div>
-                    {selectedDelivery.incidentes.filter(i => !i.resolvido).map(i => (
-                      <div key={i.id} style={{ fontSize: '0.65rem', marginTop: '0.1rem' }}>
-                        {i.descricao}
-                      </div>
-                    ))}
-                    <button 
-                      className="btn btn-success btn-small" 
-                      style={{ marginTop: '0.3rem', width: '100%', fontSize: '0.65rem', padding: '0.2rem' }}
-                      onClick={() => handleResolveIncidents(selectedDelivery.id)}
-                    >
-                      Resolver Alertas
-                    </button>
-                  </div>
-                )}
-
-                {/* Injetor de Incidentes */}
-                {(selectedDelivery.status === 'EM_TRANSITO' || selectedDelivery.status === 'ALERTA_INCIDENTE') && (
-                  <div style={{ marginTop: '0.5rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '0.4rem' }}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-rose)', marginBottom: '0.2rem' }}>Simular Pane/Atraso</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
-                      <select 
-                        className="form-select" 
-                        style={{ padding: '0.2rem', fontSize: '0.7rem' }}
-                        value={incidentType}
-                        onChange={(e) => setIncidentType(e.target.value)}
-                      >
-                        <option value="traffic_jam">Trânsito Intenso</option>
-                        <option value="flat_tire">Pneu Furado / Pane</option>
-                        <option value="temperature_spike">Quebra de Cadeia Fria</option>
-                        <option value="route_deviation">Desvio de GPS</option>
-                      </select>
-                      <div style={{ display: 'flex', gap: '0.2rem' }}>
-                        <button 
-                          className="btn btn-danger btn-small" 
-                          style={{ flex: 1, fontSize: '0.65rem', padding: '0.2rem' }}
-                          onClick={() => {
-                            setIncidentSeverity('aviso');
-                            setTimeout(handleInjectIncident, 50);
-                          }}
-                        >
-                          Aviso
-                        </button>
-                        <button 
-                          className="btn btn-danger btn-small" 
-                          style={{ flex: 1, fontSize: '0.65rem', padding: '0.2rem', backgroundColor: 'rgba(244, 63, 94, 0.4)' }}
-                          onClick={() => {
-                            setIncidentSeverity('critico');
-                            setTimeout(handleInjectIncident, 50);
-                          }}
-                        >
-                          Crítico
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="operator-control-panel" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', minHeight: '380px' }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: '1rem', opacity: 0.3 }}>Telemetria</div>
-                Selecione uma comanda active na listagem acima ou uma entrega no mapa para carregar a telemetria em tempo real do operador.
-              </div>
-            )}
-
-            {/* Simulador de App Mobile do Entregador */}
-            <div className="mobile-phone-simulator">
-              <div className="phone-bezel">
-                <div className="phone-screen">
-                  <div className="phone-header-bar">
-                    <span className="phone-time">13:40</span>
-                    <div className="phone-notch"></div>
-                    <div className="phone-signals">
-                      <span className={`signal-indicator ${offlineMode ? 'offline' : 'online'}`}>
-                        {offlineMode ? 'Sem sinal' : '5G'}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="phone-body-content">
-                    {!driverMobileVinculado ? (
-                      /* Tela de Pareamento por PIN */
-                      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                        <div className="phone-app-header">
-                          <h4>Entregador Mobile</h4>
-                        </div>
-                        <form onSubmit={handleVincularDriverMobile} style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem', padding: '1rem 0.5rem', flex: 1, justifyContent: 'center' }}>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textAlign: 'center', lineHeight: '1.1rem' }}>
-                            Para vincular o simulador móvel ao seu cadastro no painel, digite o PIN de 6 dígitos do motoboy.
-                          </div>
-                          <div className="phone-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                            <input 
-                              type="text" 
-                              className="phone-input"
-                              style={{ 
-                                background: '#141b27', 
-                                border: '1px solid #1f293d', 
-                                borderRadius: '6px', 
-                                padding: '0.5rem', 
-                                color: '#fff', 
-                                fontSize: '1rem', 
-                                letterSpacing: '2px',
-                                textAlign: 'center',
-                                fontWeight: 'bold',
-                                outline: 'none'
-                              }}
-                              placeholder="000-000" 
-                              maxLength={7}
-                              value={driverPinInput}
-                              onChange={(e) => {
-                                let val = e.target.value.replace(/\D/g, '');
-                                if (val.length > 3) {
-                                  val = val.substring(0, 3) + '-' + val.substring(3, 6);
-                                }
-                                setDriverPinInput(val);
-                              }}
-                            />
-                          </div>
-                          <button 
-                            type="submit"
-                            className="phone-btn"
-                            style={{ 
-                              background: 'var(--color-cyan)', 
-                              color: '#000', 
-                              width: '100%', 
-                              padding: '0.5rem', 
-                              borderRadius: '6px', 
-                              fontWeight: 600, 
-                              fontSize: '0.78rem',
-                              cursor: 'pointer',
-                              border: 'none',
-                              boxShadow: '0 0 10px var(--color-cyan)',
-                              marginTop: '0.5rem'
-                            }}
-                          >
-                            Vincular Aparelho
-                          </button>
-                        </form>
-                      </div>
-                    ) : (
-                      /* Tela do Celular Pareado */
-                      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                        <div className="phone-app-header" style={{ paddingBottom: '0.4rem', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'left' }}>
-                            <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--color-emerald)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              🏍️ {driverMobileVinculado.name}
-                            </span>
-                            <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>
-                              {driverMobileVinculado.id} ({driverMobileVinculado.vehicleType === 'refrigerated_truck' ? 'Caminhão' : driverMobileVinculado.vehicleType === 'motorcycle' ? 'Motocicleta' : driverMobileVinculado.vehicleType === 'van' ? 'Van' : 'Drone'})
-                            </span>
-                          </div>
-                          <button 
-                            type="button" 
-                            onClick={handleDesvincularDriverMobile}
-                            style={{ 
-                              background: 'rgba(244, 63, 94, 0.15)', 
-                              border: '1px solid rgba(244, 63, 94, 0.3)', 
-                              borderRadius: '4px', 
-                              color: 'var(--color-rose)', 
-                              fontSize: '0.62rem', 
-                              padding: '0.15rem 0.35rem',
-                              cursor: 'pointer',
-                              fontWeight: 600
-                            }}
-                          >
-                            Sair
-                          </button>
-                        </div>
-
-                        <div className="connection-switch-row" style={{ marginTop: '0.4rem', justifyContent: 'space-between', display: 'flex', alignItems: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: offlineMode ? 'var(--color-rose)' : 'var(--color-emerald)', display: 'inline-block', boxShadow: offlineMode ? '0 0 6px var(--color-rose)' : '0 0 6px var(--color-emerald)' }} />
-                            <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
-                              {offlineMode ? 'Modo Offline' : 'Online'}
-                            </span>
-                          </div>
-                          <label className="switch-label" style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.65rem', cursor: 'pointer' }}>
-                            <input 
-                              type="checkbox" 
-                              checked={offlineMode} 
-                              onChange={(e) => setOfflineMode(e.target.checked)} 
-                              style={{ accentColor: 'var(--color-rose)' }}
-                            />
-                            Simular Offline
-                          </label>
-                        </div>
-
-                        {actionQueue.length > 0 && (
-                          <div className="offline-badge-alert" style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.2)', color: 'var(--color-amber)', padding: '0.2rem', borderRadius: '4px', fontSize: '0.65rem', textAlign: 'center', marginTop: '0.3rem' }}>
-                            Fila Outbox: <strong>{actionQueue.length}</strong> pendente(s)
-                          </div>
-                        )}
-
-                        <div style={{ flex: 1, overflowY: 'auto', paddingRight: '2px', marginTop: '0.4rem' }}>
-                          {entregaAtivaMobile ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', textAlign: 'left' }}>
-                              <div className="phone-delivery-details" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #1f293d', padding: '0.4rem 0.5rem', borderRadius: '6px' }}>
-                                <div className="phone-del-id" style={{ fontSize: '0.72rem', fontWeight: 'bold' }}>ID: {entregaAtivaMobile.id}</div>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '0.1rem' }}>Destino: {entregaAtivaMobile.endereco}</div>
-                                <div className="phone-status-badge-container" style={{ marginTop: '0.2rem', fontSize: '0.65rem' }}>
-                                  Status: <span className={`phone-status-badge ${entregaAtivaMobile.status}`} style={{ fontSize: '0.6rem' }}>{getStatusText(entregaAtivaMobile.status)}</span>
-                                </div>
-                              </div>
-
-                              {entregaAtivaMobile.status === 'RECEBIDO' || entregaAtivaMobile.status === 'DESPACHADO' ? (
-                                <div className="phone-status-msg" style={{ fontSize: '0.7rem', textAlign: 'center', padding: '0.8rem 0.5rem', background: '#0f172a', borderRadius: '6px', color: 'var(--text-muted)' }}>
-                                  ⏳ Aguardando liberação e despacho no Hub Central.
-                                </div>
-                              ) : entregaAtivaMobile.status === 'EM_TRANSITO' || entregaAtivaMobile.status === 'ALERTA_INCIDENTE' || entregaAtivaMobile.status === 'SLA_ALERTA' ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                                  <div className="phone-status-msg animate-pulse" style={{ fontSize: '0.7rem', color: 'var(--color-cyan)', textAlign: 'center', padding: '0.4rem', background: 'rgba(0, 242, 254, 0.05)', borderRadius: '6px' }}>
-                                    🏍️ Rota em andamento para o cliente...
-                                    {driverLocation && (
-                                      <div style={{ fontSize: '0.62rem', marginTop: '0.2rem', color: 'var(--text-secondary)' }}>
-                                        Coordenadas GPS: <strong>x: {driverLocation.x}, y: {driverLocation.y}</strong>
-                                      </div>
-                                    )}
-                                  </div>
-                                  
-                                  {/* Controles de Movimentação do GPS */}
-                                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', margin: '0.2rem 0' }}>
-                                    <button 
-                                      type="button"
-                                      className="btn btn-secondary btn-small"
-                                      style={{ width: '32px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}
-                                      onClick={() => handleMoverGpsSimulado('N')}
-                                    >
-                                      ▲ N
-                                    </button>
-                                    <div style={{ display: 'flex', gap: '1.2rem' }}>
-                                      <button 
-                                        type="button"
-                                        className="btn btn-secondary btn-small"
-                                        style={{ width: '32px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}
-                                        onClick={() => handleMoverGpsSimulado('O')}
-                                      >
-                                        ◀ O
-                                      </button>
-                                      <button 
-                                        type="button"
-                                        className="btn btn-secondary btn-small"
-                                        style={{ width: '32px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}
-                                        onClick={() => handleMoverGpsSimulado('L')}
-                                      >
-                                        L ▶
-                                      </button>
-                                    </div>
-                                    <button 
-                                      type="button"
-                                      className="btn btn-secondary btn-small"
-                                      style={{ width: '32px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}
-                                      onClick={() => handleMoverGpsSimulado('S')}
-                                    >
-                                      ▼ S
-                                    </button>
-                                  </div>
-
-                                  {/* Botão de Confirmar Chegada ao Local */}
-                                  <button 
-                                    className="phone-btn"
-                                    style={{ 
-                                      background: 'var(--color-purple)', 
-                                      color: '#fff', 
-                                      width: '100%', 
-                                      padding: '0.45rem', 
-                                      borderRadius: '6px', 
-                                      fontWeight: 600, 
-                                      fontSize: '0.72rem', 
-                                      cursor: 'pointer',
-                                      border: 'none',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      gap: '0.3rem',
-                                      marginTop: '0.2rem',
-                                      boxShadow: '0 0 10px rgba(168, 85, 247, 0.2)'
-                                    }}
-                                    onClick={() => handleDriverArrive(entregaAtivaMobile.id)}
-                                  >
-                                    Confirmar Chegada ao Local
-                                  </button>
-                                </div>
-                              ) : entregaAtivaMobile.status === 'NO_LOCAL' ? (
-                                <div className="phone-actions-container" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                  
-                                  {/* Geofencing Indicator */}
-                                  {!isWithinGeofenceMobile ? (
-                                    <div style={{ padding: '0.4rem', background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.15)', borderRadius: '6px', fontSize: '0.68rem', color: 'var(--color-amber)' }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600 }}>
-                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ color: 'var(--color-amber)' }}>
-                                          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
-                                          <line x1="12" y1="9" x2="12" y2="13"/>
-                                          <line x1="12" y1="17" x2="12.01" y2="17"/>
-                                        </svg>
-                                        Divergência de GPS Detectada
-                                      </div>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', marginTop: '0.25rem' }}>
-                                        <input 
-                                          type="checkbox" 
-                                          id="divergencia-gps-mobile"
-                                          checked={requestJustification} 
-                                          onChange={(e) => setRequestJustification(e.target.checked)} 
-                                          style={{ accentColor: 'var(--color-amber)' }}
-                                        />
-                                        <label htmlFor="divergencia-gps-mobile" style={{ fontSize: '0.62rem', cursor: 'pointer' }}>Justificar divergência</label>
-                                      </div>
-                                      {requestJustification && (
-                                        <input 
-                                          type="text" 
-                                          className="phone-input"
-                                          style={{ marginTop: '0.3rem', fontSize: '0.68rem', padding: '0.25rem 0.4rem', background: '#141b27', border: '1px solid #1f293d', borderRadius: '4px', width: '100%', color: '#fff' }}
-                                          placeholder="Ex: GPS sem sinal / Prédio alto" 
-                                          value={justificationText}
-                                          onChange={(e) => setJustificationText(e.target.value)}
-                                        />
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <div style={{ fontSize: '0.68rem', color: '#34d399', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.15)', borderRadius: '6px', padding: '0.4rem', display: 'flex', alignItems: 'center' }}>
-                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginRight: '4px', color: '#10b981' }}>
-                                        <path d="M20 6L9 17l-5-5"/>
-                                      </svg>
-                                      GPS validado dentro da cerca virtual
-                                    </div>
-                                  )}
-
-                                  {/* Form Comprovação (POD) */}
-                                  <div className="phone-form-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Nome do Recebedor</label>
-                                    <input 
-                                      type="text" 
-                                      className="phone-input"
-                                      style={{ background: '#141b27', border: '1px solid #1f293d', borderRadius: '6px', padding: '0.35rem 0.5rem', color: '#fff', fontSize: '0.72rem', outline: 'none' }}
-                                      placeholder="Nome por extenso" 
-                                      value={recebedorNome}
-                                      onChange={(e) => setRecebedorNome(e.target.value)}
-                                    />
-                                  </div>
-
-                                  <button 
-                                    className="phone-btn"
-                                    style={{ 
-                                      background: '#10b981', 
-                                      color: '#fff', 
-                                      width: '100%', 
-                                      padding: '0.45rem', 
-                                      borderRadius: '6px', 
-                                      fontWeight: 600, 
-                                      fontSize: '0.72rem', 
-                                      cursor: 'pointer',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center',
-                                      gap: '0.3rem',
-                                      opacity: (!isWithinGeofenceMobile && !requestJustification) ? 0.5 : 1,
-                                      border: 'none'
-                                    }}
-                                    onClick={() => handleDriverComplete(entregaAtivaMobile.id)}
-                                    disabled={!isWithinGeofenceMobile && !requestJustification}
-                                  >
-                                    Confirmar Entrega (POD)
-                                  </button>
-
-                                  <div className="phone-divider" style={{ margin: '0.2rem 0', fontSize: '0.62rem', color: 'var(--text-muted)', textAlign: 'center' }}>Ou Registrar Falha</div>
-
-                                  <div className="phone-form-group">
-                                    <select 
-                                      className="phone-select" 
-                                      style={{ fontSize: '0.65rem', padding: '0.3rem' }}
-                                      value={failReason} 
-                                      onChange={(e) => setFailReason(e.target.value)}
-                                    >
-                                      <option value="01 - Cliente Ausente (3 tentativas de contato)">01 - Cliente Ausente (3 contato)</option>
-                                      <option value="02 - Endereço Não Localizado / Incompleto">02 - Endereço Não Localizado</option>
-                                      <option value="03 - Estabelecimento Fechado (Comercial)">03 - Estabelecimento Fechado</option>
-                                      <option value="04 - Recusa por Avaria ou Item Incorreto">04 - Recusa por Avaria</option>
-                                      <option value="05 - Falta de Segurança no Local (Área de Risco)">05 - Falta de Segurança</option>
-                                    </select>
-                                  </div>
-
-                                  <button 
-                                    className="phone-btn phone-btn-danger"
-                                    style={{ padding: '0.4rem', fontSize: '0.7rem' }}
-                                    onClick={() => handleDriverFail(entregaAtivaMobile.id)}
-                                  >
-                                    Reportar Insucesso / Devolução
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="phone-status-msg" style={{ fontSize: '0.7rem', textAlign: 'center', padding: '0.5rem', background: '#0f172a', borderRadius: '6px' }}>
-                                  Ciclo finalizado!<br />
-                                  Resultado: <strong>{getStatusText(entregaAtivaMobile.status)}</strong>
-                                  {((entregaAtivaMobile.status === 'ENTREGUE' || entregaAtivaMobile.status === 'AGUARDANDO_RETORNO_CD') && isWithinGeofenceMobile) && (
-                                    <button
-                                      className="phone-btn phone-btn-warning"
-                                      style={{ marginTop: '0.6rem', fontSize: '0.65rem', backgroundColor: 'var(--color-amber)', color: '#000', width: '100%', border: 'none', borderRadius: '4px', padding: '0.3rem', cursor: 'pointer', fontWeight: 'bold' }}
-                                      onClick={() => handleUndo(entregaAtivaMobile.id)}
-                                    >
-                                      Desfazer Última Ação (60s)
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            /* Caso não tenha entrega associada ao motoboy pareado */
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', marginTop: '0.4rem', textAlign: 'left' }}>
-                              <div style={{ fontSize: '0.72rem', textAlign: 'center', padding: '1.2rem 0.5rem', background: '#0f172a', borderRadius: '8px', color: 'var(--color-emerald)', border: '1px dashed rgba(16, 185, 129, 0.2)' }}>
-                                <div style={{ fontSize: '1.2rem', marginBottom: '0.2rem' }}></div>
-                                <strong>Online & Disponível</strong>
-                                <p style={{ fontSize: '0.62rem', color: 'var(--text-muted)', marginTop: '0.3rem' }}>
-                                  Aguardando nova comanda ser atribuída pela Loja...
-                                </p>
-                              </div>
-                              
-                              {/* Controles de GPS em modo livre */}
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', marginTop: '0.2rem' }}>
-                                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textAlign: 'center', fontWeight: '500' }}>
-                                  Simular Movimentação Livre (GPS):
-                                </div>
-                                {driverLocation && (
-                                  <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'monospace' }}>
-                                    x: {driverLocation.x}%, y: {driverLocation.y}%
-                                  </div>
-                                )}
-                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem', margin: '0.2rem 0' }}>
-                                  <button 
-                                    type="button"
-                                    className="btn btn-secondary btn-small"
-                                    style={{ width: '32px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}
-                                    onClick={() => handleMoverGpsSimulado('N')}
-                                  >
-                                    ▲ N
-                                  </button>
-                                  <div style={{ display: 'flex', gap: '1.2rem' }}>
-                                    <button 
-                                      type="button"
-                                      className="btn btn-secondary btn-small"
-                                      style={{ width: '32px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}
-                                      onClick={() => handleMoverGpsSimulado('O')}
-                                    >
-                                      ◀ O
-                                    </button>
-                                    <button 
-                                      type="button"
-                                      className="btn btn-secondary btn-small"
-                                      style={{ width: '32px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}
-                                      onClick={() => handleMoverGpsSimulado('L')}
-                                    >
-                                      L ▶
-                                    </button>
-                                  </div>
-                                  <button 
-                                    type="button"
-                                    className="btn btn-secondary btn-small"
-                                    style={{ width: '32px', height: '24px', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem' }}
-                                    onClick={() => handleMoverGpsSimulado('S')}
-                                  >
-                                    ▼ S
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-            </div>
-          </div>
-        </div>
-      </section>
-        )}
+        {selectedDelivery && <section className="glass-panel" style={{ minWidth: 0 }}>
+          <div className="panel-header"><h2>Gestão da entrega — {selectedDelivery.id}</h2></div>
+          <p><strong>Cliente:</strong> {selectedDelivery.nomeCliente}</p>
+          <p><strong>Endereço:</strong> {selectedDelivery.endereco}</p>
+          <p><strong>Status:</strong> {getStatusText(selectedDelivery.status)}</p>
+          {selectedDelivery.motorista && <p><strong>Entregador:</strong> {selectedDelivery.motorista.name}</p>}
+          {selectedDelivery.recebedorNome && <p><strong>Recebido por:</strong> {selectedDelivery.recebedorNome}</p>}
+          <ManualDeliveryActions key={selectedDelivery.id} status={selectedDelivery.status} onAction={async (action, payload) => {
+            const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${selectedDelivery.id}/${action}`, {
+              method: 'POST', body: JSON.stringify(payload)
+            });
+            const updated = await response.json();
+            if (!response.ok) throw new Error(updated.error || 'Não foi possível atualizar a entrega.');
+            setAllDeliveries(previous => previous.map(d => d.id === updated.id ? updated : d));
+          }} />
+          {selectedDelivery.status === 'AGUARDANDO_RETORNO_CD' && <ReturnStockAction key={selectedDelivery.id} onReturn={async () => {
+            const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${selectedDelivery.id}/return-stock`, {
+              method: 'POST', body: JSON.stringify({ confirmacaoIntegral: true })
+            });
+            const updated = await response.json();
+            if (!response.ok) throw new Error(updated.error || 'Não foi possível registrar o retorno.');
+            setAllDeliveries(previous => previous.map(d => d.id === updated.id ? updated : d));
+          }} />}
+          {selectedDelivery.status === 'PRODUTO_RETORNADO_ESTOQUE' && <p>Retorno integral confirmado e estoque estornado.</p>}
+        </section>}
 
         {/* Right Side: Frota de Motoristas */}
-        {!dispatchViewActive && !showProdutosModal && <section className="glass-panel">
+        {!dispatchViewActive && !showProdutosModal && !showVitrineModal && <section className="glass-panel">
           <div className="panel-header">
             <h2>Frota de Motoristas</h2>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '550px', overflowY: 'auto' }}>
             {drivers.map(d => {
-              const pinFormatado = d.codigoVinculo
-                ? `${d.codigoVinculo.substring(0, 3)}-${d.codigoVinculo.substring(3)}`
-                : '---';
               return (
                 <div key={d.id} className="driver-card">
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
@@ -5549,13 +2536,10 @@ export default function App() {
                           boxShadow: '0 0 8px var(--color-emerald)',
                           display: 'inline-block' 
                         }}
-                        title={'Online para despacho'}
+                        title={d.status === 'ocioso' ? 'Disponível para despacho' : 'Em entrega'}
                       />
                       {getVehicleIcon(d.vehicleType)} 
                       {d.name}
-                    </span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: '1.25rem', fontFamily: 'monospace' }}>
-                      PIN: <strong style={{ color: 'var(--color-cyan)' }}>{pinFormatado}</strong>
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -5581,7 +2565,7 @@ export default function App() {
         </section>}
 
       </div>
-      {showThermalReceipt && activeManifest && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && showThermalReceipt && activeManifest && createPortal(
         <div className="thermal-overlay">
           <div className="thermal-modal-content">
 
@@ -5772,17 +2756,6 @@ export default function App() {
           onClose={() => { setShowEstoqueModal(false); setCatalogoRefresh(v => v + 1); }}
           onProdutos={() => { setShowEstoqueModal(false); setShowProdutosModal(true); }} />
       )}
-      {/* Configuração da vitrine pública */}
-      {showVitrineModal && sessao?.tipo === 'loja' && sessao.lojaId && (
-        <GestaoVitrine
-          backendUrl={BACKEND_URL}
-          token={sessao.token}
-          lojaId={sessao.lojaId}
-          nomeLoja={sessao.nomeLoja || 'Minha Loja'}
-          onClose={() => { setShowVitrineModal(false); setCatalogoRefresh(v => v + 1); }}
-        />
-      )}
-
       {/* Módulo Fiscal: escolha NFC-e / NF-e ao concluir a separação (ou reemissão pelo card) */}
       {emissaoFiscal && comandaEmEmissao && (
         <EmissaoNotaModal
@@ -5814,7 +2787,7 @@ export default function App() {
       )}
 
       {/* Modal do Relatório Analítico */}
-      {reportModalOpen && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && reportModalOpen && createPortal(
         <div className="report-modal-overlay" onClick={() => setReportModalOpen(false)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="report-modal-header">
@@ -6355,7 +3328,7 @@ export default function App() {
       , document.body)}
 
       {/* Modal de Cadastro de Motoboy */}
-      {showDriverModal && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && showDriverModal && createPortal(
         <div className="report-modal-overlay" onClick={() => setShowDriverModal(false)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
             <div className="report-modal-header">
@@ -6487,7 +3460,7 @@ export default function App() {
         </div>
       , document.body)}
 
-      {showVehicleModal && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && showVehicleModal && createPortal(
         <div className="report-modal-overlay" onClick={() => setShowVehicleModal(false)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
             <div className="report-modal-header">
@@ -6566,7 +3539,7 @@ export default function App() {
         </div>
       , document.body)}
 
-      {editingLoja && createPortal(
+      {(sessao.tipo==='admin'||operacaoBloqueada===false) && editingLoja && createPortal(
         <div className="report-modal-overlay" onClick={() => setEditingLoja(null)}>
           <div className="report-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '480px' }}>
             <div className="report-modal-header">
@@ -6703,6 +3676,7 @@ export default function App() {
           </div>
         </div>
       , document.body)}
+      </div>
     </div>
   );
 }

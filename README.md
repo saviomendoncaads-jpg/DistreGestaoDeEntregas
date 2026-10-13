@@ -1,5 +1,11 @@
 # Distre - Gestão de Entregas
 
+## Consolidação do ERP
+
+O diagnóstico de ponta a ponta, correções incluídas e critérios para concluir o ERP estão em [Auditoria de consolidação — 12/10/2026](backend/docs/AUDITORIA_ERP_2026-10-12.md). O produto ainda possui pendências de ciclo comercial, compras, financeiro da loja, fiscal e operação sustentada; os relatórios atuais não certificam caixa ou margem.
+
+Consulte [Contratos e promoção desta release](backend/docs/RELEASE_CONSOLIDACAO_ERP.md) antes da implantação: rotas operacionais autenticadas, simulação desligada, ausência de senhas administrativas fixas, configuração explícita de cobranças/webhooks e migrações sem apagar entregas.
+
 Este projeto simula um ecossistema completo de rastreamento e orquestração de entregas de alto padrão operacional (padrão iFood, Loggi, Rappi), baseado em uma **Arquitetura Orientada a Eventos (EDA - Event-Driven Architecture)** e processamento em segundo plano orientado a **Agentes Inteligentes**.
 
 O sistema é composto por um **Backend em Node.js com TypeScript** que persiste os dados localmente em um banco de dados **SQL Server Express**, e um **Frontend em React com TypeScript** que renderiza o barramento de eventos, mapas de telemetria e o simulador do aplicativo mobile do entregador.

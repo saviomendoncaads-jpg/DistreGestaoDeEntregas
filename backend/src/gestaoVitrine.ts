@@ -1,9 +1,11 @@
+import { asyncHandler } from './http/asyncHandler';
+import { validarConfigVitrine, lerConfigVitrine, urlVitrine, ErroConfigVitrine } from './configVitrine';
 import { Router, Request, Response, NextFunction } from 'express';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { obterSessaoDoRequest, exigirLojaAdimplente } from './auth';
-import { obterProdutosDaLoja, salvarProduto, salvarProdutosEmLote, historicoProduto, deletarProduto, salvarLoja } from './database';
+import { obterProdutosDaLoja, salvarProduto, salvarProdutosEmLote, historicoProduto, deletarProduto, salvarConfiguracaoVitrine } from './database';
 import { lojas } from './tenants';
 import { Produto, Sessao } from './types';
 import { prepararProduto, verificarIdentificadores, ErroCatalogo } from './catalogoProduto';
@@ -54,14 +56,14 @@ function textoLimpo(valor: unknown, max: number): string {
 
 router.use(exigirSessao);
 
-router.get('/estoque', async (req: RequestComSessao, res: Response) => {
+router.get('/estoque', asyncHandler(async (req: RequestComSessao, res: Response) => {
   const lojaId = resolverLojaId(req);
   if (!lojaId) { res.status(400).json({ error: 'Selecione uma loja.' }); return; }
   try { res.json(await listarEstoque(lojaId)); }
   catch { res.status(500).json({ error: 'Erro ao carregar estoque.' }); }
-});
+}));
 
-router.post('/estoque/entradas', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.post('/estoque/entradas', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   const lojaId = resolverLojaId(req);
   if (!lojaId) { res.status(400).json({ error: 'Selecione uma loja.' }); return; }
   try {
@@ -70,10 +72,10 @@ router.post('/estoque/entradas', exigirLojaAdimplente, async (req: RequestComSes
   } catch (e) {
     res.status(e instanceof ErroEstoque ? e.status : 500).json({ error: e instanceof ErroEstoque ? e.message : 'Erro ao registrar entrada.' });
   }
-});
+}));
 
 // GET /api/gestao/produtos — catálogo próprio da loja (inclui inativos)
-router.get('/produtos', async (req: RequestComSessao, res: Response) => {
+router.get('/produtos', asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) {
@@ -84,7 +86,7 @@ router.get('/produtos', async (req: RequestComSessao, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Erro ao listar produtos.' });
   }
-});
+}));
 
 function responderErroCatalogo(res: Response, err: unknown) {
   if (err instanceof ErroCatalogo) { res.status(err.status).json({ error: err.message, campos: err.campos }); return; }
@@ -97,16 +99,16 @@ function novoProduto(body: Record<string, unknown>, lojaId: string): Produto {
   return { ...dados, id: 'prod-' + crypto.randomBytes(5).toString('hex'), codigoInterno: dados.codigoInterno || 'SKU-' + crypto.randomBytes(4).toString('hex').toUpperCase(), lojaId } as Produto;
 }
 
-router.get('/produtos/:id/historico', async (req: RequestComSessao, res: Response) => {
+router.get('/produtos/:id/historico', asyncHandler(async (req: RequestComSessao, res: Response) => {
   const lojaId = resolverLojaId(req);
   if (!lojaId) { res.status(400).json({ error: 'Selecione uma loja.' }); return; }
   try {
     if (!(await obterProdutosDaLoja(lojaId)).some(p => p.id === req.params.id)) { res.status(404).json({ error: 'Produto não encontrado.' }); return; }
     res.json(await historicoProduto(lojaId, String(req.params.id)));
   } catch (e) { responderErroCatalogo(res, e); }
-});
+}));
 
-router.post('/produtos/importar', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.post('/produtos/importar', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   const lojaId = resolverLojaId(req);
   if (!lojaId) { res.status(400).json({ error: 'Selecione uma loja.' }); return; }
   try {
@@ -137,9 +139,9 @@ router.post('/produtos/importar', exigirLojaAdimplente, async (req: RequestComSe
     await salvarProdutosEmLote(alterados, autorCatalogo(req), 'Importação por planilha');
     res.json({ resumo, produtos: alterados });
   } catch (e) { responderErroCatalogo(res, e); }
-});
+}));
 
-router.put('/produtos/lote', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.put('/produtos/lote', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   const lojaId = resolverLojaId(req);
   if (!lojaId) { res.status(400).json({ error: 'Selecione uma loja.' }); return; }
   try {
@@ -159,9 +161,9 @@ router.put('/produtos/lote', exigirLojaAdimplente, async (req: RequestComSessao,
     await salvarProdutosEmLote(produtos, autorCatalogo(req), 'Alteração em lote');
     res.json(produtos);
   } catch (e) { responderErroCatalogo(res, e); }
-});
+}));
 
-router.post('/produtos', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.post('/produtos', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   const lojaId = resolverLojaId(req);
   if (!lojaId) { res.status(400).json({ error: 'Selecione uma loja.' }); return; }
   try {
@@ -170,8 +172,8 @@ router.post('/produtos', exigirLojaAdimplente, async (req: RequestComSessao, res
     await salvarProduto(p, autorCatalogo(req), 'Cadastro do produto');
     res.status(201).json(p);
   } catch (e) { responderErroCatalogo(res, e); }
-});
-router.put('/produtos/:id', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+}));
+router.put('/produtos/:id', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   const lojaId = resolverLojaId(req);
   if (!lojaId) { res.status(400).json({ error: 'Selecione uma loja.' }); return; }
   try {
@@ -186,10 +188,10 @@ router.put('/produtos/:id', exigirLojaAdimplente, async (req: RequestComSessao, 
     await salvarProduto(atualizado, autorCatalogo(req), 'Edição do produto');
     res.json(atualizado);
   } catch (e) { responderErroCatalogo(res, e); }
-});
+}));
 
 // DELETE /api/gestao/produtos/:id — remove definitivamente do catálogo
-router.delete('/produtos/:id', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.delete('/produtos/:id', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
     const lojaId = resolverLojaId(req);
     if (!lojaId) {
@@ -211,27 +213,33 @@ router.delete('/produtos/:id', exigirLojaAdimplente, async (req: RequestComSessa
     console.error('[GestaoVitrine] Erro ao excluir produto:', err);
     res.status(500).json({ error: 'Erro ao excluir o produto.' });
   }
-});
+}));
 
-// PUT /api/gestao/loja — configurações da vitrine (hoje: logomarca)
-router.put('/loja', exigirLojaAdimplente, async (req: RequestComSessao, res: Response) => {
+router.get('/loja', (req: RequestComSessao, res: Response) => {
+  const loja = lojas.find(l => l.id === resolverLojaId(req));
+  if (!loja) { res.status(404).json({ error: 'Loja não encontrada.' }); return; }
+  res.json({ logoUrl: loja.logoUrl || '', configVitrine: lerConfigVitrine(loja.configVitrine) });
+});
+router.put('/loja', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
   try {
-    const lojaId = resolverLojaId(req);
-    const loja = lojas.find(l => l.id === lojaId);
-    if (!loja) {
-      res.status(404).json({ error: 'Loja não encontrada.' });
-      return;
+    const loja = lojas.find(l => l.id === resolverLojaId(req));
+    if (!loja) { res.status(404).json({ error: 'Loja não encontrada.' }); return; }
+    const nova = { ...loja };
+    if ('logoUrl' in (req.body || {})) nova.logoUrl = urlVitrine(req.body.logoUrl) || undefined;
+    if ('configVitrine' in (req.body || {})) {
+      nova.configVitrine = validarConfigVitrine(req.body.configVitrine);
+      const catalogo = await obterProdutosDaLoja(loja.id);
+      if (nova.configVitrine.produtosDestaque.some(id => !catalogo.some(p => p.id === id && p.ativo && (p.situacao || 'ativo') === 'ativo' && (p.publicado ?? p.ativo)))) throw new ErroConfigVitrine('Selecione destaques entre os produtos ativos e publicados desta loja.');
     }
-    if ('logoUrl' in (req.body || {})) {
-      loja.logoUrl = textoLimpo(req.body.logoUrl, 600) || undefined;
-    }
-    await salvarLoja(loja);
-    res.json({ success: true, logoUrl: loja.logoUrl });
-  } catch (err: any) {
+    await salvarConfiguracaoVitrine(nova);
+    Object.assign(loja, { logoUrl: nova.logoUrl, configVitrine: nova.configVitrine });
+    res.json({ success: true, logoUrl: loja.logoUrl || '', configVitrine: lerConfigVitrine(loja.configVitrine) });
+  } catch (err) {
+    if (err instanceof ErroConfigVitrine) { res.status(400).json({ error: err.message }); return; }
     console.error('[GestaoVitrine] Erro ao salvar loja:', err);
     res.status(500).json({ error: 'Erro ao salvar as configurações da loja.' });
   }
-});
+}));
 
 // POST /api/gestao/upload — recebe { dataUrl } (base64) e devolve a URL pública.
 // O router é montado com express.json({ limit: '5mb' }) no index.ts.

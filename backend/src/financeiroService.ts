@@ -1,8 +1,13 @@
+import { criarContratoRede } from './billing/networkContracts';
+import { carenciaValida } from './billing/billingPolicy';
+import { inicializarRecorrencia,executarCicloCobranca } from './billing/recurringBilling';
+import { demoHabilitada } from './security/sessionPolicy';
+import { asyncHandler } from './http/asyncHandler';
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import mssql from './db';
 import { pool } from './database';
-import { verificarAdmin, revogarSessoesDaEmpresa } from './auth';
+import { verificarAdmin } from './auth';
 import { empresas, lojas } from './tenants';
 import { getGateway } from './billing/gatewayFactory';
 import { appendLedger } from './billing/ledgerService';
@@ -15,115 +20,19 @@ const router = Router();
 // 1. ROTINA DE CRON / VERIFICAÇÃO DE INADIMPLÊNCIA
 // ==========================================
 
-export async function rotinaVerificacaoInadimplencia() {
-  try {
-    if (!pool) return;
-    console.log('[Financeiro] Executando rotina de verificação de faturas vencidas...');
-
-    // 1. Obter dias de carência das configurações
-    let diasCarenciaBloqueio = 5;
-    const configRes = await pool.request().query('SELECT TOP 1 DIAS_CARENCIA_BLOQUEIO FROM CONFIGURACOES_COBRANCA');
-    if (configRes.recordset.length > 0) {
-      diasCarenciaBloqueio = configRes.recordset[0].DIAS_CARENCIA_BLOQUEIO;
-    }
-
-    const hoje = new Date();
-    const hojeStr = hoje.toISOString().split('T')[0]; // YYYY-MM-DD
-
-    // 2. Buscar todas as faturas PENDENTES ou ATRASADAS para reavaliação
-    const faturasRes = await pool.request().query("SELECT * FROM FATURAS WHERE STATUS IN ('PENDENTE', 'ATRASADA')");
-    const faturas = faturasRes.recordset;
-
-    // Guardar empresas afetadas para atualização posterior
-    const empresasComPendencia = new Set<string>();
-    const empresasEmAtrasoCritico = new Set<string>();
-
-    for (const fat of faturas) {
-      const vencimento = new Date(fat.DATA_VENCIMENTO);
-      const vencimentoStr = vencimento.toISOString().split('T')[0];
-
-      if (vencimento < hoje && vencimentoStr !== hojeStr) {
-        // A fatura está vencida!
-        if (fat.STATUS === 'PENDENTE') {
-          console.log(`[Financeiro] Fatura ${fat.ID} vencida. Alterando status de PENDENTE para ATRASADA.`);
-          await pool.request()
-            .input('id', mssql.VarChar, fat.ID)
-            .query("UPDATE FATURAS SET STATUS = 'ATRASADA' WHERE ID = @id");
-          fat.STATUS = 'ATRASADA';
-        }
-
-        empresasComPendencia.add(fat.EMPRESA_ID);
-
-        // Calcular dias de atraso
-        const diffTime = Math.abs(hoje.getTime() - vencimento.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        if (diffDays > diasCarenciaBloqueio) {
-          empresasEmAtrasoCritico.add(fat.EMPRESA_ID);
-        }
-      } else {
-        // Se a data de vencimento é futura e por algum motivo estava como ATRASADA, corrige
-        if (fat.STATUS === 'ATRASADA') {
-          await pool.request()
-            .input('id', mssql.VarChar, fat.ID)
-            .query("UPDATE FATURAS SET STATUS = 'PENDENTE' WHERE ID = @id");
-          fat.STATUS = 'PENDENTE';
-        }
-      }
-    }
-
-    // 3. Atualizar status de cada empresa no banco e na memória
-    for (const emp of empresas) {
-      const statusAnterior = emp.statusFinanceiro;
-
-      // SUSPENSO/CANCELADO são de responsabilidade EXCLUSIVA da máquina de estados
-      // da assinatura (saída desses estados só via pagamento/reativação, que deriva
-      // o status da empresa). A rotina não toca neles — evita o conflito de duas
-      // lógicas brigando pelo STATUS_FINANCEIRO (ex.: rotina resetar SUSPENSO->REGULAR).
-      if (statusAnterior === 'SUSPENSO' || statusAnterior === 'CANCELADO') {
-        continue;
-      }
-
-      let novoStatus = 'REGULAR';
-      if (empresasEmAtrasoCritico.has(emp.id)) {
-        novoStatus = 'INADIMPLENTE';
-      }
-
-      if (statusAnterior !== novoStatus) {
-        console.log(`[Financeiro] Alterando status financeiro da empresa ${emp.nome} (${emp.id}): ${statusAnterior} -> ${novoStatus}`);
-        
-        // Atualiza banco
-        await pool.request()
-          .input('id', mssql.VarChar, emp.id)
-          .input('status', mssql.VarChar, novoStatus)
-          .query('UPDATE EMPRESAS SET STATUS_FINANCEIRO = @status WHERE ID = @id');
-        
-        // Atualiza em memória
-        emp.statusFinanceiro = novoStatus;
-
-        // Se ficou INADIMPLENTE, desloga todas as sessões das lojas vinculadas a essa empresa
-        if (novoStatus === 'INADIMPLENTE') {
-          console.log(`[Financeiro] Revogando sessões de lojas da empresa ${emp.nome} devido à inadimplência.`);
-          await revogarSessoesDaEmpresa(emp.id);
-        }
-      }
-    }
-
-    console.log('[Financeiro] Rotina de verificação concluída.');
-  } catch (err) {
-    console.error('[Financeiro] Erro ao executar rotina de inadimplência:', err);
-  }
-}
+export async function rotinaVerificacaoInadimplencia() { await executarCicloCobranca(); }
 
 // Inicializador da rotina e seed
 export async function inicializarFinanceiro() {
-  // Executa imediatamente na inicialização
+  // A rotina deve executar somente na instância responsável pelos jobs.
   await seedFinanceiro();
+  await inicializarRecorrencia();
+  if (process.env.RUN_BACKGROUND_JOBS === 'false') return;
   await rotinaVerificacaoInadimplencia();
 
   // Executa a cada 5 minutos
-  setInterval(async () => {
-    await rotinaVerificacaoInadimplencia();
+  setInterval(() => {
+    rotinaVerificacaoInadimplencia().catch(e => console.error('[Financeiro] Falha no ciclo:', e.message));
   }, 5 * 60 * 1000);
 }
 
@@ -132,8 +41,8 @@ async function seedFinanceiro() {
   try {
     if (!pool) return;
     // Produção (SEED_DEMO=false): não cria empresa/loja/faturas de demonstração.
-    if (process.env.SEED_DEMO === 'false') {
-      console.log('[Financeiro] SEED_DEMO=false — seed de demonstração pulado (produção).');
+    if (!demoHabilitada()) {
+      console.log('[Financeiro] Seed de demonstração desabilitado.');
       return;
     }
 
@@ -294,14 +203,15 @@ async function seedFinanceiro() {
 // ==========================================
 
 // Listar todas as faturas (com paginação e filtros)
-router.get('/faturas', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/faturas', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { status, empresaId, dataInicio, dataFim, page, limit } = req.query;
     
     let query = `
-      SELECT F.*, E.NOME as EmpresaNome, E.CNPJ as EmpresaCNPJ
+      SELECT F.*, E.NOME as EmpresaNome, E.CNPJ as EmpresaCNPJ, L.NOME as LojaNome
       FROM FATURAS F
       JOIN EMPRESAS E ON F.EMPRESA_ID = E.ID
+      LEFT JOIN LOJAS L ON L.ID=F.LOJA_ID
       WHERE 1=1
     `;
 
@@ -370,10 +280,10 @@ router.get('/faturas', verificarAdmin, async (req: Request, res: Response) => {
     console.error('[Financeiro] Erro ao buscar faturas:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Criar cobrança manual (Fatura Avulsa)
-router.post('/cobrar-manual', verificarAdmin, async (req: Request, res: Response) => {
+router.post('/cobrar-manual', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { empresaId, valor, descricao, vencimento } = req.body;
     if (!empresaId || !valor || !vencimento) {
@@ -461,10 +371,10 @@ router.post('/cobrar-manual', verificarAdmin, async (req: Request, res: Response
     console.error('[Financeiro] Erro ao criar fatura manual:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Baixa manual (Conciliação)
-router.put('/faturas/:id/baixa-manual', verificarAdmin, async (req: Request, res: Response) => {
+router.put('/faturas/:id/baixa-manual', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { dataPagamento, comprovanteReferencia, observacoes } = req.body;
@@ -560,14 +470,14 @@ router.put('/faturas/:id/baixa-manual', verificarAdmin, async (req: Request, res
     console.error('[Financeiro] Erro ao dar baixa manual na fatura:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // ==========================================
 // 3. RELATÓRIOS E AGREGAÇÕES ANALÍTICAS
 // ==========================================
 
 // Relatório: Faturamento Bruto vs Líquido Mensal
-router.get('/relatorios/faturamento', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/relatorios/faturamento', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const query = `
       SELECT 
@@ -594,10 +504,10 @@ router.get('/relatorios/faturamento', verificarAdmin, async (req: Request, res: 
     console.error('[Financeiro] Erro no relatório de faturamento:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Relatório: Taxa de Inadimplência
-router.get('/relatorios/inadimplencia', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/relatorios/inadimplencia', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const query = `
       SELECT 
@@ -626,10 +536,10 @@ router.get('/relatorios/inadimplencia', verificarAdmin, async (req: Request, res
     console.error('[Financeiro] Erro no relatório de inadimplência:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Relatório: Previsibilidade de Receita (Contas a Receber baseado em Assinaturas)
-router.get('/relatorios/previsibilidade', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/relatorios/previsibilidade', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const query = `
       SELECT 
@@ -654,10 +564,10 @@ router.get('/relatorios/previsibilidade', verificarAdmin, async (req: Request, r
     console.error('[Financeiro] Erro no relatório de previsibilidade:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Obter configurações de cobrança
-router.get('/configuracoes', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/configuracoes', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const result = await pool.request().query('SELECT TOP 1 * FROM CONFIGURACOES_COBRANCA');
     if (result.recordset.length > 0) {
@@ -676,12 +586,13 @@ router.get('/configuracoes', verificarAdmin, async (req: Request, res: Response)
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Atualizar configurações de cobrança
-router.put('/configuracoes', verificarAdmin, async (req: Request, res: Response) => {
+router.put('/configuracoes', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { diasCarenciaBloqueio, multaPercentual, jurosMesPercentual, emailNotificacaoDiasAntes, whatsappNotificacaoDiasAtraso } = req.body;
+    carenciaValida(diasCarenciaBloqueio);
     
     await pool.request()
       .input('id', mssql.VarChar, 'default')
@@ -710,14 +621,14 @@ router.put('/configuracoes', verificarAdmin, async (req: Request, res: Response)
     console.error('[Financeiro] Erro ao atualizar configurações de cobrança:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // ==========================================
 // 4. NOVOS ENDPOINTS — DASHBOARD, CHURN, ASSINATURAS, PLANOS
 // ==========================================
 
 // Dashboard KPIs Consolidados
-router.get('/dashboard', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/dashboard', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     // MRR Atual (soma dos planos de assinaturas ativas)
     const mrrRes = await pool.request().query(`
@@ -776,10 +687,10 @@ router.get('/dashboard', verificarAdmin, async (req: Request, res: Response) => 
     console.error('[Financeiro] Erro no dashboard:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Relatório: Churn Rate Financeiro
-router.get('/relatorios/churn', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/relatorios/churn', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const query = `
       SELECT 
@@ -812,16 +723,23 @@ router.get('/relatorios/churn', verificarAdmin, async (req: Request, res: Respon
     console.error('[Financeiro] Erro no relatório de churn:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
+
+router.post('/contratos',verificarAdmin,asyncHandler(async(req,res)=>{
+ try{if(req.body?.confirmacao!==true){res.status(400).json({error:'Confirme a substituição dos contratos futuros; faturas anteriores permanecem exigíveis.'});return;}
+ const result=await criarContratoRede({...req.body,valor:Number(req.body.valor)});res.status(result.repetido?200:201).json(result);
+ }catch(e){res.status(400).json({error:e instanceof Error?e.message:'Falha no contrato'});}
+}));
 
 // Listar Assinaturas
-router.get('/assinaturas', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/assinaturas', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const result = await pool.request().query(`
-      SELECT AE.*, P.NOME as PlanoNome, P.VALOR_MENSAL as PlanoValor, E.NOME as EmpresaNome, E.CNPJ as EmpresaCNPJ
+      SELECT AE.*, P.NOME as PlanoNome, P.VALOR_MENSAL as PlanoValor, E.NOME as EmpresaNome, E.CNPJ as EmpresaCNPJ, L.NOME as LojaNome
       FROM ASSINATURAS_EMPRESAS AE
       JOIN PLANOS P ON AE.PLANO_ID = P.ID
       JOIN EMPRESAS E ON AE.EMPRESA_ID = E.ID
+      LEFT JOIN LOJAS L ON L.ID=AE.LOJA_ID
       ORDER BY AE.STATUS, E.NOME
     `);
 
@@ -835,6 +753,9 @@ router.get('/assinaturas', verificarAdmin, async (req: Request, res: Response) =
       planoValor: Number(r.PlanoValor),
       valorPersonalizado: r.VALOR_PERSONALIZADO ? Number(r.VALOR_PERSONALIZADO) : null,
       valorEfetivo: r.VALOR_PERSONALIZADO ? Number(r.VALOR_PERSONALIZADO) : Number(r.PlanoValor),
+      escopo: r.LOJA_ID ? 'LOJA' : 'REDE',
+      lojaId: r.LOJA_ID || null,
+      lojaNome: r.LojaNome || null,
       status: r.STATUS,
       diaVencimento: r.DIA_VENCIMENTO,
       proximoFaturamento: r.PROXIMO_FATURAMENTO || undefined,
@@ -847,10 +768,10 @@ router.get('/assinaturas', verificarAdmin, async (req: Request, res: Response) =
     console.error('[Financeiro] Erro ao listar assinaturas:', err);
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Listar Planos
-router.get('/planos', verificarAdmin, async (req: Request, res: Response) => {
+router.get('/planos', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const result = await pool.request().query('SELECT * FROM PLANOS ORDER BY VALOR_MENSAL');
     const planos = result.recordset.map((r: any) => ({
@@ -868,10 +789,10 @@ router.get('/planos', verificarAdmin, async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Criar Plano
-router.post('/planos', verificarAdmin, async (req: Request, res: Response) => {
+router.post('/planos', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { nome, descricao, valorMensal, limiteEntregasMes, limiteLojas, limiteMotoristas } = req.body;
     if (!nome || valorMensal === undefined) {
@@ -895,10 +816,10 @@ router.post('/planos', verificarAdmin, async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Editar Plano
-router.put('/planos/:id', verificarAdmin, async (req: Request, res: Response) => {
+router.put('/planos/:id', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { nome, descricao, valorMensal, limiteEntregasMes, limiteLojas, limiteMotoristas, ativo } = req.body;
@@ -918,10 +839,10 @@ router.put('/planos/:id', verificarAdmin, async (req: Request, res: Response) =>
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Contestar Fatura
-router.put('/faturas/:id/contestar', verificarAdmin, async (req: Request, res: Response) => {
+router.put('/faturas/:id/contestar', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { motivo } = req.body;
@@ -969,10 +890,10 @@ router.put('/faturas/:id/contestar', verificarAdmin, async (req: Request, res: R
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Cancelar Fatura
-router.put('/faturas/:id/cancelar', verificarAdmin, async (req: Request, res: Response) => {
+router.put('/faturas/:id/cancelar', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -1012,6 +933,6 @@ router.put('/faturas/:id/cancelar', verificarAdmin, async (req: Request, res: Re
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 export default router;

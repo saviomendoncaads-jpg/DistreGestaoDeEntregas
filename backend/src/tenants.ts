@@ -1,3 +1,4 @@
+import { asyncHandler } from './http/asyncHandler';
 import { Router, Request, Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import crypto from 'crypto';
@@ -148,13 +149,13 @@ const router = Router();
 // ─── FUNIL PÚBLICO: PREÇOS + CADASTRO SELF-SERVICE ─────────────────────────────
 
 // Planos ativos (público) — alimenta a página de preços e o formulário de cadastro.
-router.get('/planos', async (_req: Request, res: Response) => {
+router.get('/planos', asyncHandler(async (_req: Request, res: Response) => {
   try {
     res.json(await listarPlanosAtivos());
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
-});
+}));
 
 // Limite anti-abuso para o cadastro público (cria tenants reais).
 const signupLimiter = rateLimit({
@@ -168,7 +169,7 @@ const signupLimiter = rateLimit({
 // Cadastro self-service: a empresa cria a própria conta (empresa + 1ª loja),
 // escolhe um plano e recebe a cobrança (Pix/Boleto) da 1ª mensalidade para ativar.
 // Mirror do fluxo administrativo, porém público — com rollback se qualquer etapa falhar.
-router.post('/signup', signupLimiter, async (req: Request, res: Response) => {
+router.post('/signup', signupLimiter, asyncHandler(async (req: Request, res: Response) => {
   const { empresa: empIn, loja: lojaIn, planoId, diaVencimento } = req.body || {};
 
   if (!empIn?.nome || !empIn?.cnpj) {
@@ -297,7 +298,7 @@ router.post('/signup', signupLimiter, async (req: Request, res: Response) => {
     res.status(400).json({ error: `Falha ao criar assinatura: ${subErr.message}` });
     return;
   }
-});
+}));
 
 // ─── EMPRESAS ────────────────────────────────────────────────────────────────
 
@@ -312,7 +313,7 @@ router.get('/empresas', verificarAdmin, (_req: Request, res: Response) => {
 });
 
 // Criar empresa
-router.post('/empresas', verificarAdmin, async (req: Request, res: Response) => {
+router.post('/empresas', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const { nome, cnpj, telefone, email } = req.body;
   if (!nome || !cnpj) {
     res.status(400).json({ error: 'Nome e CNPJ são obrigatórios' });
@@ -339,10 +340,10 @@ router.post('/empresas', verificarAdmin, async (req: Request, res: Response) => 
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao salvar empresa no banco de dados', details: err.message });
   }
-});
+}));
 
 // Atualizar empresa
-router.put('/empresas/:id', verificarAdmin, async (req: Request, res: Response) => {
+router.put('/empresas/:id', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const empresa = empresas.find(e => e.id === req.params.id);
   if (!empresa) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
   const { nome, cnpj, telefone, email } = req.body;
@@ -366,10 +367,10 @@ router.put('/empresas/:id', verificarAdmin, async (req: Request, res: Response) 
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao atualizar empresa no banco de dados', details: err.message });
   }
-});
+}));
 
 // Ativar/desativar empresa
-router.patch('/empresas/:id/toggle', verificarAdmin, async (req: Request, res: Response) => {
+router.patch('/empresas/:id/toggle', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const empresa = empresas.find(e => e.id === req.params.id);
   if (!empresa) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
   empresa.ativo = !empresa.ativo;
@@ -380,10 +381,10 @@ router.patch('/empresas/:id/toggle', verificarAdmin, async (req: Request, res: R
     empresa.ativo = !empresa.ativo; // Reverter estado em caso de falha
     res.status(500).json({ error: 'Erro ao alterar status da empresa', details: err.message });
   }
-});
+}));
 
 // Remover empresa (somente se não tiver lojas)
-router.delete('/empresas/:id', verificarAdmin, async (req: Request, res: Response) => {
+router.delete('/empresas/:id', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const idx = empresas.findIndex(e => e.id === req.params.id);
   if (idx === -1) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
   if (lojas.some(l => l.empresaId === req.params.id)) {
@@ -397,7 +398,7 @@ router.delete('/empresas/:id', verificarAdmin, async (req: Request, res: Respons
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao remover empresa no banco de dados', details: err.message });
   }
-});
+}));
 
 // ─── LOJAS ───────────────────────────────────────────────────────────────────
 
@@ -412,7 +413,7 @@ router.get('/empresas/:empresaId/lojas', verificarAdmin, (req: Request, res: Res
 });
 
 // Criar loja
-router.post('/empresas/:empresaId/lojas', verificarAdmin, async (req: Request, res: Response) => {
+router.post('/empresas/:empresaId/lojas', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const empresa = empresas.find(e => e.id === req.params.empresaId);
   if (!empresa) { res.status(404).json({ error: 'Empresa não encontrada' }); return; }
   const { nome, cnpj, endereco, numero, bairro, cidade, uf, cep, usuario, senha, recebePedidos, planoId, diaVencimento } = req.body;
@@ -490,10 +491,10 @@ router.post('/empresas/:empresaId/lojas', verificarAdmin, async (req: Request, r
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao salvar loja no banco de dados', details: err.message });
   }
-});
+}));
 
 // Atualizar loja
-router.put('/empresas/:empresaId/lojas/:lojaId', verificarAdmin, async (req: Request, res: Response) => {
+router.put('/empresas/:empresaId/lojas/:lojaId', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const loja = lojas.find(l => l.id === req.params.lojaId && l.empresaId === req.params.empresaId);
   if (!loja) { res.status(404).json({ error: 'Loja não encontrada' }); return; }
   const { nome, cnpj, endereco, numero, bairro, cidade, uf, cep, usuario, senha, recebePedidos } = req.body;
@@ -550,10 +551,10 @@ router.put('/empresas/:empresaId/lojas/:lojaId', verificarAdmin, async (req: Req
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao atualizar loja no banco de dados', details: err.message });
   }
-});
+}));
 
 // Ativar/desativar loja
-router.patch('/empresas/:empresaId/lojas/:lojaId/toggle', verificarAdmin, async (req: Request, res: Response) => {
+router.patch('/empresas/:empresaId/lojas/:lojaId/toggle', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const loja = lojas.find(l => l.id === req.params.lojaId && l.empresaId === req.params.empresaId);
   if (!loja) { res.status(404).json({ error: 'Loja não encontrada' }); return; }
   loja.ativo = !loja.ativo;
@@ -565,10 +566,10 @@ router.patch('/empresas/:empresaId/lojas/:lojaId/toggle', verificarAdmin, async 
     loja.ativo = !loja.ativo; // Reverter
     res.status(500).json({ error: 'Erro ao atualizar status da loja', details: err.message });
   }
-});
+}));
 
 // Alterar senha da loja
-router.patch('/empresas/:empresaId/lojas/:lojaId/alterar-senha', verificarAdmin, async (req: Request, res: Response) => {
+router.patch('/empresas/:empresaId/lojas/:lojaId/alterar-senha', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const loja = lojas.find(l => l.id === req.params.lojaId && l.empresaId === req.params.empresaId);
   if (!loja) { res.status(404).json({ error: 'Loja não encontrada' }); return; }
   const { novaSenha } = req.body;
@@ -582,11 +583,11 @@ router.patch('/empresas/:empresaId/lojas/:lojaId/alterar-senha', verificarAdmin,
     loja.senhaHash = antigaSenhaHash; // Reverter
     res.status(500).json({ error: 'Erro ao alterar senha da loja', details: err.message });
   }
-});
+}));
 
 // Self-service: a loja autenticada define manualmente as próprias coordenadas
 // (tipicamente vindo da Geolocation API do navegador — "use minha localização atual").
-router.post('/loja-atual/coordenadas', async (req: Request, res: Response) => {
+router.post('/loja-atual/coordenadas', asyncHandler(async (req: Request, res: Response) => {
   const sessao = obterSessaoDoRequest(req);
   if (sessao?.tipo !== 'loja' || !sessao.lojaId) {
     res.status(403).json({ error: 'Apenas sessões de loja podem usar este endpoint.' });
@@ -615,10 +616,10 @@ router.post('/loja-atual/coordenadas', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao salvar coordenadas', details: err.message });
   }
-});
+}));
 
 // Self-service: a loja autenticada força a re-geocodificação do próprio endereço.
-router.post('/loja-atual/regeocode', async (req: Request, res: Response) => {
+router.post('/loja-atual/regeocode', asyncHandler(async (req: Request, res: Response) => {
   const sessao = obterSessaoDoRequest(req);
   if (sessao?.tipo !== 'loja' || !sessao.lojaId) {
     res.status(403).json({ error: 'Apenas sessões de loja podem usar este endpoint.' });
@@ -643,10 +644,10 @@ router.post('/loja-atual/regeocode', async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao salvar nova localização', details: err.message });
   }
-});
+}));
 
 // Forçar nova geocodificação do endereço da loja (ignora cache do banco — refaz a chamada externa).
-router.post('/empresas/:empresaId/lojas/:lojaId/regeocode', verificarAdmin, async (req: Request, res: Response) => {
+router.post('/empresas/:empresaId/lojas/:lojaId/regeocode', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const loja = lojas.find(l => l.id === req.params.lojaId && l.empresaId === req.params.empresaId);
   if (!loja) { res.status(404).json({ error: 'Loja não encontrada' }); return; }
   if (!loja.endereco && !loja.bairro && !loja.cidade && !loja.cep) {
@@ -667,10 +668,10 @@ router.post('/empresas/:empresaId/lojas/:lojaId/regeocode', verificarAdmin, asyn
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao salvar nova localização', details: err.message });
   }
-});
+}));
 
 // Regenerar chave de acesso
-router.post('/empresas/:empresaId/lojas/:lojaId/regenerar-chave', verificarAdmin, async (req: Request, res: Response) => {
+router.post('/empresas/:empresaId/lojas/:lojaId/regenerar-chave', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const loja = lojas.find(l => l.id === req.params.lojaId && l.empresaId === req.params.empresaId);
   if (!loja) { res.status(404).json({ error: 'Loja não encontrada' }); return; }
   const antigaChave = loja.chaveAcesso;
@@ -682,10 +683,10 @@ router.post('/empresas/:empresaId/lojas/:lojaId/regenerar-chave', verificarAdmin
     loja.chaveAcesso = antigaChave; // Reverter
     res.status(500).json({ error: 'Erro ao regenerar chave de acesso', details: err.message });
   }
-});
+}));
 
 // Remover loja
-router.delete('/empresas/:empresaId/lojas/:lojaId', verificarAdmin, async (req: Request, res: Response) => {
+router.delete('/empresas/:empresaId/lojas/:lojaId', verificarAdmin, asyncHandler(async (req: Request, res: Response) => {
   const idx = lojas.findIndex(l => l.id === req.params.lojaId && l.empresaId === req.params.empresaId);
   if (idx === -1) { res.status(404).json({ error: 'Loja não encontrada' }); return; }
   try {
@@ -695,6 +696,6 @@ router.delete('/empresas/:empresaId/lojas/:lojaId', verificarAdmin, async (req: 
   } catch (err: any) {
     res.status(500).json({ error: 'Erro ao remover loja do banco de dados', details: err.message });
   }
-});
+}));
 
 export default router;

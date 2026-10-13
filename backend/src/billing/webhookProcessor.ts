@@ -1,3 +1,4 @@
+import {reconciliarAcessoCobranca} from './recurringBilling';
 import mssql, { Transaction } from '../db';
 import { pool } from '../database';
 import { getGateway } from './gatewayFactory';
@@ -134,6 +135,7 @@ async function darBaixaPorWebhook(norm: WebhookNormalizado, gatewayEventId: stri
       console.warn('[Webhook] Falha ao reativar assinatura:', e?.message);
     }
   }
+  await reconciliarAcessoCobranca();
 }
 
 /** payment.refunded: reabre a fatura e lança estorno no ledger. */

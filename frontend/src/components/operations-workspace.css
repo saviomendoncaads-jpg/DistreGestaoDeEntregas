@@ -49,11 +49,12 @@
 .ops-view-switch button[aria-pressed=true] { background: #2563eb; color: white; }
 
 /* ─── Cards de resumo ─────────────────────────────────────────────────────── */
-.ops-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+.ops-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 .ops-metric { --cor: #2563eb; --fundo: #eff6ff; display: flex; align-items: center; gap: 14px; text-align: left; padding: 16px 18px; border: 2px solid transparent; border-radius: 12px; background: var(--fundo); cursor: pointer; color: #17263d; font-family: inherit; }
 .ops-metric--separacao { --cor: #d97706; --fundo: #fff7ed; }
 .ops-metric--prontos { --cor: #16a34a; --fundo: #ecfdf5; }
 .ops-metric--atrasados { --cor: #dc2626; --fundo: #fef2f2; }
+.ops-metric--concluidos { --cor: #64748b; --fundo: #f1f5f9; }
 .ops-metric[aria-pressed=true] { border-color: var(--cor); }
 .ops-metric-icone { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 12px; background: white; color: var(--cor); flex-shrink: 0; box-shadow: 0 1px 3px #0f172a12; }
 .ops-metric--prontos .ops-metric-icone { background: var(--cor); color: white; }

@@ -1,6 +1,8 @@
+import type { ConfigVitrine } from './configVitrine';
 export type StatusEntrega =
   | 'RECEBIDO'
   | 'EM_PREPARO'
+  | 'SEPARADO'
   | 'DESPACHADO'
   | 'EM_TRANSITO'
   | 'NO_LOCAL'
@@ -113,6 +115,8 @@ export interface Entrega {
   nomeLoja?: string;
   nomeEmpresa?: string;
   tipoComanda?: 'pedido' | 'entrega';
+  pedidoOrigemId?: string;
+  entregaVinculadaId?: string;
 }
 
 export interface LogWebhook {
@@ -175,6 +179,7 @@ export interface Loja {
   statusFinanceiro?: string;  // 'REGULAR' | 'INADIMPLENTE' | 'SUSPENSO' | 'CANCELADO' — billing por loja
   latitude?: number;   // coordenada geográfica resolvida a partir do endereço (Nominatim)
   longitude?: number;
+  configVitrine?: ConfigVitrine;
   logoUrl?: string;    // logomarca exibida no cabeçalho da vitrine pública
 }
 
@@ -185,6 +190,7 @@ export interface Sessao {
   nomeEmpresa?: string;
   token: string;
   criadoEm: string;
+  expiraEm?: string;
   recebePedidos?: boolean;
   latitude?: number;
   longitude?: number;

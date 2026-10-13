@@ -53,3 +53,13 @@ backend/uploads/
 
 # Chave que cifra as credenciais fiscais (certificado A1, CSC, tokens) - NUNCA versionar
 backend/.chave-fiscal
+
+# Lockfile do backend e backups privados
+!backend/package-lock.json
+*.bak
+*.pfx
+*.p12
+output/
+.validation/
+.release-staging/
+.release-backups/

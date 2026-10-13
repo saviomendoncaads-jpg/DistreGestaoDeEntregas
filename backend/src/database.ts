@@ -1,3 +1,5 @@
+import { demoHabilitada } from './security/sessionPolicy';
+import { lerConfigVitrine } from './configVitrine';
 import mssql, { ConnectionPool, Transaction } from './db';
 import { Entrega, Motorista, Empresa, Loja, TipoVeiculo, Produto, Sessao } from './types';
 import { hashPassword, verifyPassword } from './security/password';
@@ -55,30 +57,22 @@ export async function conectarBanco() {
     await inicializarBanco();
   } catch (err) {
     console.error('[Banco de Dados] Erro ao conectar ao SQL Server:', err);
+    await pool?.close().catch(() => {});
+    throw err;
   }
 }
 
 async function inicializarBanco() {
   const query = `
-    IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'nomeCliente')
-    BEGIN
-      DROP TABLE ENTREGAS;
-    END
-
-    IF OBJECT_ID('ENTREGAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'DATA_HORA_CONCLUSAO')
-    BEGIN
-      DROP TABLE ENTREGAS;
-    END
-
-    IF OBJECT_ID('ENTREGAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'VALOR')
-    BEGIN
-      DROP TABLE ENTREGAS;
-    END
-
-    IF OBJECT_ID('ENTREGAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'LOJA_ID')
-    BEGIN
-      DROP TABLE ENTREGAS;
-    END
+    -- Nunca apagar dados operacionais durante o boot.
+    IF OBJECT_ID('ENTREGAS', 'U') IS NOT NULL AND COL_LENGTH('ENTREGAS', 'nomeCliente') IS NOT NULL
+      THROW 50001, 'Schema legado de ENTREGAS: execute uma migracao revisada antes de iniciar. Os dados foram preservados.', 1;
+    IF OBJECT_ID('ENTREGAS', 'U') IS NOT NULL AND COL_LENGTH('ENTREGAS', 'DATA_HORA_CONCLUSAO') IS NULL
+      ALTER TABLE ENTREGAS ADD DATA_HORA_CONCLUSAO VARCHAR(100) NULL;
+    IF OBJECT_ID('ENTREGAS', 'U') IS NOT NULL AND COL_LENGTH('ENTREGAS', 'VALOR') IS NULL
+      ALTER TABLE ENTREGAS ADD VALOR DECIMAL(10,2) NULL;
+    IF OBJECT_ID('ENTREGAS', 'U') IS NOT NULL AND COL_LENGTH('ENTREGAS', 'LOJA_ID') IS NULL
+      ALTER TABLE ENTREGAS ADD LOJA_ID VARCHAR(100) NULL;
 
     IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='ENTREGAS' AND xtype='U')
     CREATE TABLE ENTREGAS (
@@ -158,6 +152,9 @@ async function inicializarBanco() {
     BEGIN
       ALTER TABLE ENTREGAS ADD REFERENCIA NVARCHAR(MAX) NULL;
     END
+
+    IF COL_LENGTH('ENTREGAS', 'PEDIDO_ORIGEM_ID') IS NULL
+      ALTER TABLE ENTREGAS ADD PEDIDO_ORIGEM_ID VARCHAR(50) NULL;
 
     -- Coordenadas reais do destino (geocodificadas a partir do endereço do cliente)
     IF OBJECT_ID('ENTREGAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('ENTREGAS') AND name = 'DESTINO_LAT')
@@ -338,6 +335,8 @@ async function inicializarBanco() {
     END
 
     -- Logomarca da loja exibida no cabeçalho da vitrine pública (Painel do Cliente)
+    IF OBJECT_ID('LOJAS') IS NOT NULL AND COL_LENGTH('LOJAS', 'CONFIG_VITRINE') IS NULL
+      ALTER TABLE LOJAS ADD CONFIG_VITRINE NVARCHAR(MAX) NULL;
     IF OBJECT_ID('LOJAS') IS NOT NULL AND NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('LOJAS') AND name = 'LOGO_URL')
     BEGIN
       ALTER TABLE LOJAS ADD LOGO_URL NVARCHAR(600) NULL;
@@ -530,6 +529,17 @@ async function inicializarBanco() {
   try {
     await pool.request().query(query);
 
+    // Vínculo aditivo: legados ambíguos não são ligados automaticamente.
+    await pool.request().query(`
+      UPDATE filho SET PEDIDO_ORIGEM_ID = pai.ID
+      FROM ENTREGAS filho JOIN ENTREGAS pai ON filho.REFERENCIA = 'Origem: Pedido ' + pai.ID AND filho.LOJA_ID = pai.LOJA_ID
+      WHERE filho.PEDIDO_ORIGEM_ID IS NULL AND filho.TIPO_COMANDA = 'entrega' AND pai.TIPO_COMANDA = 'pedido'
+        AND (SELECT COUNT(*) FROM ENTREGAS c WHERE c.LOJA_ID = pai.LOJA_ID AND c.TIPO_COMANDA = 'entrega'
+          AND (c.PEDIDO_ORIGEM_ID = pai.ID OR c.REFERENCIA = 'Origem: Pedido ' + pai.ID)) = 1;
+      IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_ENTREGAS_PEDIDO_ORIGEM' AND object_id = OBJECT_ID('ENTREGAS'))
+        CREATE UNIQUE INDEX UX_ENTREGAS_PEDIDO_ORIGEM ON ENTREGAS(PEDIDO_ORIGEM_ID) WHERE PEDIDO_ORIGEM_ID IS NOT NULL;
+    `);
+
     // Trigger de imutabilidade do ledger — precisa rodar em batch isolado (CREATE TRIGGER
     // deve ser a 1ª instrução do batch e o driver mssql não suporta o separador "GO").
     await pool.request().query(`
@@ -563,7 +573,7 @@ async function inicializarBanco() {
 
     // Seed dos produtos padrão (demo — pulado em produção via SEED_DEMO=false)
     const prodCount = await pool.request().query('SELECT COUNT(*) as qtd FROM PRODUTOS');
-    if (prodCount.recordset[0].qtd === 0 && process.env.SEED_DEMO !== 'false') {
+    if (prodCount.recordset[0].qtd === 0 && demoHabilitada()) {
       const defaultProducts = [
         { id: 'prod-1', nome: 'Pizza Margherita', preco: 42.90, imagemUrl: 'https://images.unsplash.com/photo-1574071318508-1cdbab80d002?w=500', descricao: 'Molho de tomate italiano, mussarela fresca e manjericão.' },
         { id: 'prod-2', nome: 'Pizza Calabresa', preco: 45.90, imagemUrl: 'https://images.unsplash.com/photo-1534308983496-4fabb1a015ee?w=500', descricao: 'Calabresa artesanal fatiada, cebola roxa e orégano.' },
@@ -585,15 +595,17 @@ async function inicializarBanco() {
       console.log('[Banco de Dados] Produtos padrão cadastrados com sucesso.');
     }
     
-    // Seed do administrador master
-    const countRes = await pool.request().query('SELECT COUNT(*) as qtd FROM ADMINISTRADORES WHERE USUARIO = \'admin\'');
-    if (countRes.recordset[0].qtd === 0) {
-      const hash = await hashPassword('@Shaythresh666');
-      await pool.request()
-        .input('usuario', mssql.VarChar, 'admin')
-        .input('senhaHash', mssql.VarChar, hash)
-        .query('INSERT INTO ADMINISTRADORES (USUARIO, SENHA_HASH) VALUES (@usuario, @senhaHash)');
-      console.log('[Banco de Dados] Administrador padrão "admin" cadastrado no banco de dados com a senha criptografada.');
+    // Provisionamento explícito: nenhuma senha administrativa fixa entra no banco.
+    const adminUsuario = process.env.ADMIN_USUARIO;
+    const adminSenha = process.env.ADMIN_SENHA;
+    if (adminUsuario && adminSenha) {
+      const countRes = await pool.request().input('usuario', mssql.VarChar, adminUsuario)
+        .query('SELECT COUNT(*) as qtd FROM ADMINISTRADORES WHERE USUARIO = @usuario');
+      if (countRes.recordset[0].qtd === 0) {
+        const hash = await hashPassword(adminSenha);
+        await pool.request().input('usuario', mssql.VarChar, adminUsuario).input('senhaHash', mssql.VarChar, hash)
+          .query('INSERT INTO ADMINISTRADORES (USUARIO, SENHA_HASH) VALUES (@usuario, @senhaHash)');
+      }
     }
 
     // Seed dos planos padrão
@@ -629,6 +641,7 @@ async function inicializarBanco() {
     }
   } catch (err) {
     console.error('[Banco de Dados] Erro ao inicializar tabelas:', err);
+    throw err;
   }
 }
 
@@ -651,11 +664,8 @@ export async function salvarEvento(evt: Entrega | any) {
   }
 }
 
-export async function obterEntregas(): Promise<Entrega[]> {
-  try {
-    if (!pool) return [];
-    const result = await pool.request().query('SELECT * FROM ENTREGAS');
-    return result.recordset.map((row: any) => ({
+export function entregaDoRegistro(row: any): Entrega {
+  return ({
       id: row.ID,
       nomeCliente: row.NOME_CLIENTE,
       endereco: row.ENDERECO,
@@ -689,11 +699,23 @@ export async function obterEntregas(): Promise<Entrega[]> {
       cidade: row.CIDADE || undefined,
       formaPagamento: row.FORMA_PAGAMENTO || undefined,
       despachadoEm: row.DESPACHADO_EM || undefined,
+      pedidoOrigemId: row.PEDIDO_ORIGEM_ID || undefined,
+      entregaVinculadaId: row.ENTREGA_VINCULADA_ID || undefined,
       tipoComanda: (row.TIPO_COMANDA || 'entrega') as 'pedido' | 'entrega',
       referencia: row.REFERENCIA || undefined,
       destinoLatitude: row.DESTINO_LAT !== null && row.DESTINO_LAT !== undefined ? Number(row.DESTINO_LAT) : undefined,
       destinoLongitude: row.DESTINO_LNG !== null && row.DESTINO_LNG !== undefined ? Number(row.DESTINO_LNG) : undefined
-    }));
+    });
+}
+
+export async function obterEntregas(): Promise<Entrega[]> {
+  try {
+    if (!pool) return [];
+    const result = await pool.request().query(`SELECT e.*, vinculo.ENTREGA_VINCULADA_ID FROM ENTREGAS e
+      OUTER APPLY (SELECT CASE WHEN COUNT(*) = 1 THEN MAX(c.ID) END ENTREGA_VINCULADA_ID FROM ENTREGAS c
+        WHERE e.TIPO_COMANDA = 'pedido' AND c.TIPO_COMANDA = 'entrega' AND c.LOJA_ID = e.LOJA_ID
+          AND (c.PEDIDO_ORIGEM_ID = e.ID OR c.REFERENCIA = 'Origem: Pedido ' + e.ID)) vinculo`);
+    return result.recordset.map(entregaDoRegistro);
   } catch (err) {
     console.error('[Banco de Dados] Erro ao obter entregas:', err);
     return [];
@@ -702,7 +724,7 @@ export async function obterEntregas(): Promise<Entrega[]> {
 
 export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
   try {
-    if (!pool) { if (transaction) throw new Error('Banco de dados indisponível.'); return; }
+    if (!pool) throw new Error('Banco de dados indisponível.');
     const query = `
       MERGE INTO ENTREGAS AS target
       USING (SELECT @id AS ID) AS source
@@ -742,11 +764,12 @@ export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
           DESPACHADO_EM = @despachadoEm,
           TIPO_COMANDA = @tipoComanda,
           REFERENCIA = @referencia,
+          PEDIDO_ORIGEM_ID = @pedidoOrigem,
           DESTINO_LAT = @destinoLat,
           DESTINO_LNG = @destinoLng
       WHEN NOT MATCHED THEN
-        INSERT (ID, NOME_CLIENTE, ENDERECO, ITENS, PRIORIDADE, TIPO_CARGA, STATUS, MOTORISTA, ROTA, TELEMETRIA, INCIDENTES, URL_WEBHOOK, LOGS_WEBHOOK, CRIADO_EM, ATUALIZADO_EM, RECEBEDOR_NOME, RECEBEDOR_CPF, COMPROVANTE_FOTO_URL, ASSINATURA_BASE64, JUSTIFICATIVA_DESVIO_COORDENADA, DATA_HORA_CONCLUSAO, SEQUENCIA_ESPERADA, SEQUENCIA_REALIZADA, VALOR, LOJA_ID, NOME_LOJA, NOME_EMPRESA, CLIENTE_DOCUMENTO, ROMANEIO_ID, BAIRRO, CIDADE, FORMA_PAGAMENTO, DESPACHADO_EM, TIPO_COMANDA, REFERENCIA, DESTINO_LAT, DESTINO_LNG)
-        VALUES (@id, @nomeCliente, @endereco, @itens, @prioridade, @tipoCarga, @status, @motorista, @rota, @telemetria, @incidentes, @urlWebhook, @logsWebhook, @criadoEm, @atualizadoEm, @recebedorNome, @recebedorCPF, @comprovanteFotoUrl, @assinaturaBase64, @justificativaDesvioCoordenada, @dataHoraConclusao, @sequenciaEsperada, @sequenciaRealizada, @valor, @lojaId, @nomeLoja, @nomeEmpresa, @clienteDocumento, @romaneioId, @bairro, @cidade, @formaPagamento, @despachadoEm, @tipoComanda, @referencia, @destinoLat, @destinoLng);
+        INSERT (ID, NOME_CLIENTE, ENDERECO, ITENS, PRIORIDADE, TIPO_CARGA, STATUS, MOTORISTA, ROTA, TELEMETRIA, INCIDENTES, URL_WEBHOOK, LOGS_WEBHOOK, CRIADO_EM, ATUALIZADO_EM, RECEBEDOR_NOME, RECEBEDOR_CPF, COMPROVANTE_FOTO_URL, ASSINATURA_BASE64, JUSTIFICATIVA_DESVIO_COORDENADA, DATA_HORA_CONCLUSAO, SEQUENCIA_ESPERADA, SEQUENCIA_REALIZADA, VALOR, LOJA_ID, NOME_LOJA, NOME_EMPRESA, CLIENTE_DOCUMENTO, ROMANEIO_ID, BAIRRO, CIDADE, FORMA_PAGAMENTO, DESPACHADO_EM, TIPO_COMANDA, REFERENCIA, PEDIDO_ORIGEM_ID, DESTINO_LAT, DESTINO_LNG)
+        VALUES (@id, @nomeCliente, @endereco, @itens, @prioridade, @tipoCarga, @status, @motorista, @rota, @telemetria, @incidentes, @urlWebhook, @logsWebhook, @criadoEm, @atualizadoEm, @recebedorNome, @recebedorCPF, @comprovanteFotoUrl, @assinaturaBase64, @justificativaDesvioCoordenada, @dataHoraConclusao, @sequenciaEsperada, @sequenciaRealizada, @valor, @lojaId, @nomeLoja, @nomeEmpresa, @clienteDocumento, @romaneioId, @bairro, @cidade, @formaPagamento, @despachadoEm, @tipoComanda, @referencia, @pedidoOrigem, @destinoLat, @destinoLng);
     `;
     
     await (transaction ? new mssql.Request(transaction) : pool.request())
@@ -784,13 +807,14 @@ export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
       .input('formaPagamento', mssql.VarChar, e.formaPagamento || null)
       .input('despachadoEm', mssql.VarChar, e.despachadoEm || null)
       .input('tipoComanda', mssql.VarChar, e.tipoComanda || 'entrega')
+      .input('pedidoOrigem', mssql.VarChar(50), e.pedidoOrigemId || null)
       .input('referencia', mssql.NVarChar, e.referencia || null)
       .input('destinoLat', mssql.Float, e.destinoLatitude !== undefined ? e.destinoLatitude : null)
       .input('destinoLng', mssql.Float, e.destinoLongitude !== undefined ? e.destinoLongitude : null)
       .query(query);
   } catch (err) {
     console.error(`[Banco de Dados] Erro ao salvar entrega ${e.id}:`, err);
-    if (transaction) throw err;
+    throw err;
   }
 }
 
@@ -876,6 +900,7 @@ export async function obterSessoesValidas(): Promise<Sessao[]> {
     nomeEmpresa: row.NOME_EMPRESA ?? undefined,
     token: row.TOKEN,
     criadoEm: row.CRIADO_EM,
+    expiraEm: row.EXPIRA_EM,
     recebePedidos: row.RECEBE_PEDIDOS == null ? undefined : !!row.RECEBE_PEDIDOS,
     latitude: row.LATITUDE ?? undefined,
     longitude: row.LONGITUDE ?? undefined,
@@ -1052,6 +1077,7 @@ export async function obterLojas(): Promise<Loja[]> {
       statusFinanceiro: row.STATUS_FINANCEIRO || 'REGULAR',
       latitude: row.LATITUDE !== null && row.LATITUDE !== undefined ? Number(row.LATITUDE) : undefined,
       longitude: row.LONGITUDE !== null && row.LONGITUDE !== undefined ? Number(row.LONGITUDE) : undefined,
+      configVitrine: lerConfigVitrine(row.CONFIG_VITRINE),
       logoUrl: row.LOGO_URL || undefined
     }));
   } catch (err) {
@@ -1088,8 +1114,8 @@ export async function salvarLoja(l: Loja) {
           LONGITUDE = @longitude,
           LOGO_URL = @logoUrl
       WHEN NOT MATCHED THEN
-        INSERT (ID, EMPRESA_ID, NOME, CNPJ, ENDERECO, NUMERO, BAIRRO, CIDADE, UF, CEP, USUARIO, SENHA_HASH, CHAVE_ACESSO, ATIVO, CRIADO_EM, RECEBE_PEDIDOS, STATUS_FINANCEIRO, LATITUDE, LONGITUDE, LOGO_URL)
-        VALUES (@id, @empresaId, @nome, @cnpj, @endereco, @numero, @bairro, @cidade, @uf, @cep, @usuario, @senhaHash, @chaveAcesso, @ativo, @criadoEm, @recebePedidos, @statusFinanceiro, @latitude, @longitude, @logoUrl);
+        INSERT (ID, EMPRESA_ID, NOME, CNPJ, ENDERECO, NUMERO, BAIRRO, CIDADE, UF, CEP, USUARIO, SENHA_HASH, CHAVE_ACESSO, ATIVO, CRIADO_EM, RECEBE_PEDIDOS, STATUS_FINANCEIRO, LATITUDE, LONGITUDE, LOGO_URL, CONFIG_VITRINE)
+        VALUES (@id, @empresaId, @nome, @cnpj, @endereco, @numero, @bairro, @cidade, @uf, @cep, @usuario, @senhaHash, @chaveAcesso, @ativo, @criadoEm, @recebePedidos, @statusFinanceiro, @latitude, @longitude, @logoUrl, @configVitrine);
     `;
     await pool.request()
       .input('id', mssql.VarChar, l.id)
@@ -1111,6 +1137,7 @@ export async function salvarLoja(l: Loja) {
       .input('statusFinanceiro', mssql.VarChar, l.statusFinanceiro || 'REGULAR')
       .input('latitude', mssql.Float, l.latitude !== undefined ? l.latitude : null)
       .input('longitude', mssql.Float, l.longitude !== undefined ? l.longitude : null)
+      .input('configVitrine', mssql.NVarChar(mssql.MAX), JSON.stringify(l.configVitrine ?? lerConfigVitrine(null)))
       .input('logoUrl', mssql.NVarChar, l.logoUrl || null)
       .query(query);
   } catch (err) {
@@ -1316,3 +1343,13 @@ export async function deletarProduto(id: string, lojaId: string): Promise<boolea
   return (result.rowsAffected?.[0] || 0) > 0;
 }
 
+
+/** Updates only public settings, without rewriting credentials or operational store fields. */
+export async function salvarConfiguracaoVitrine(l: Loja, tx?: Transaction) {
+  if (!pool) throw new Error('Banco indisponível.');
+  const r = await (tx ? new mssql.Request(tx) : pool.request()).input('id',mssql.VarChar,l.id)
+    .input('logo',mssql.NVarChar(600),l.logoUrl || null)
+    .input('config',mssql.NVarChar(mssql.MAX),JSON.stringify(l.configVitrine ?? lerConfigVitrine(null)))
+    .query('UPDATE LOJAS SET LOGO_URL=@logo, CONFIG_VITRINE=@config WHERE ID=@id');
+  if (r.rowsAffected[0] !== 1) throw new Error('Loja não encontrada no banco.');
+}

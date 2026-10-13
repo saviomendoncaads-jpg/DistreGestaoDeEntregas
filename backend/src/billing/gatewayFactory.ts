@@ -14,23 +14,22 @@ export function getGateway(): PaymentGatewayAdapter {
   if (instancia) return instancia;
 
   const escolhido = (process.env.PAYMENT_GATEWAY || 'MOCK').toUpperCase();
+  if (process.env.NODE_ENV === 'production' && escolhido !== 'ASAAS') {
+    throw new Error('Produção requer PAYMENT_GATEWAY=ASAAS e credenciais reais.');
+  }
   switch (escolhido) {
     case 'ASAAS': {
       const apiKey = process.env.ASAAS_API_KEY;
       if (!apiKey) {
-        console.warn('[Billing] PAYMENT_GATEWAY=ASAAS mas ASAAS_API_KEY ausente. Caindo para MockAdapter.');
-        instancia = new MockAdapter();
-        return instancia;
+        throw new Error('PAYMENT_GATEWAY=ASAAS exige ASAAS_API_KEY.');
       }
       console.log('[Billing] Gateway de pagamento ativo: ASAAS (cobrança real).');
       instancia = new AsaasAdapter(apiKey);
       return instancia;
     }
+    default: throw new Error('Gateway de pagamento não suportado.');
     case 'MOCK':
-    default:
-      if (escolhido !== 'MOCK') {
-        console.warn(`[Billing] Gateway "${escolhido}" ainda não implementado. Usando MockAdapter.`);
-      }
+
       instancia = new MockAdapter();
       return instancia;
   }

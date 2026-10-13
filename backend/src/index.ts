@@ -1,5 +1,9 @@
 import 'dotenv/config'; // carrega backend/.env ANTES de tudo (database.ts lê process.env no load)
+import { configurarAutenticacaoSocket, desconectarSessoesInvalidas } from './security/socketAuth';
+import { podeAcessarLoja } from './security/sessionPolicy';
+import { responderErro } from './http/asyncHandler';
 import express from 'express';
+import { asyncSocketHandler } from './http/asyncSocketHandler';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -9,25 +13,28 @@ import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import tenantsRouter, { carregarTenantsDoBanco, lojas } from './tenants';
-import authRouter, { sessions, carregarSessoesDoBanco, verificarApiKeyIntegracao } from './auth';
+import authRouter, { obterSessaoPorToken, carregarSessoesDoBanco, verificarApiKeyIntegracao } from './auth';
 import apiRouter, { deliveries, webhooksReceived, drivers, carregarEntregasDoBanco, carregarMotoristasDoBanco, carregarVeiculosDoBanco } from './gateway';
-import whatsappRouter, { whatsappBotService, whatsappSessions } from './whatsapp';
+import whatsappRouter, { whatsappBotService, obterSessaoWhatsapp } from './whatsapp';
 import { broker } from './broker';
 import { dispatcherAgent } from './dispatcher';
 import { monitorAgent } from './monitor';
 import { integratorAgent } from './integrator';
-import { conectarBanco, salvarMotorista, limparSessoesExpiradas } from './database';
+import { conectarBanco, limparSessoesExpiradas, pool } from './database';
 import { Entrega, Motorista } from './types';
+import clientBillingRouter from './billing/clientBilling';
 import financeiroRouter, { inicializarFinanceiro } from './financeiroService';
 import integracaoPedidosRouter from './integracaoPedidos';
 import integracaoEntregasRouter from './integracaoEntregas';
 import vitrineRouter from './vitrine';
 import gestaoVitrineRouter, { uploadsDir } from './gestaoVitrine';
 import { inicializarEstoque } from './estoque';
+import implantacaoRouter, { inicializarImplantacao } from './implantacao';
 import fiscalRouter from './fiscal/fiscalRoutes';
 import webhookRouter from './billing/webhookRoutes';
 import { iniciarWorkerWebhooks } from './billing/webhookProcessor';
 import { iniciarDunning } from './billing/dunningScheduler';
+import commercialReportsRouter from './commercialReports';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -77,6 +84,7 @@ app.use('/api/billing/webhooks', express.raw({ type: '*/*' }), webhookRouter);
 // Gestão da vitrine (painel da loja): CRUD de produtos, logo e upload de imagens.
 // Montado ANTES do json global para usar um limite maior (imagens em base64).
 app.use('/api/gestao', express.json({ limit: '5mb' }), gestaoVitrineRouter);
+app.use('/api/implantacao', express.json({ limit: '20kb' }), implantacaoRouter);
 
 // Módulo Fiscal: NFC-e / NF-e por loja (emitente, credenciais, emissão, DANFE, cancelamento).
 // Antes do json global: o upload do certificado A1 (base64) passa do limite padrão.
@@ -97,14 +105,15 @@ const authLimiter = rateLimit({
 app.use('/api/auth', authLimiter, authRouter);
 
 // Roteador de gestão de empresas e lojas (multi-tenant)
-console.log('[Debug] tenantsRouter:', tenantsRouter, typeof tenantsRouter);
 app.use('/api', tenantsRouter);
 
 // Roteador do assistente virtual WhatsApp
 app.use('/api/whatsapp', whatsappRouter);
 
 // Roteador do Módulo Financeiro (admin)
+app.use('/api/cliente/cobrancas', clientBillingRouter);
 app.use('/api/admin/financeiro', financeiroRouter);
+app.use('/api/admin/relatorios', commercialReportsRouter);
 
 // Roteadores de integração ERP: autenticados por API key (X-Api-Key = chaveAcesso da loja)
 app.use('/api/integracao', verificarApiKeyIntegracao, integracaoPedidosRouter);
@@ -126,7 +135,11 @@ app.use('/api/vitrine', vitrineLimiter, vitrineRouter);
 app.use('/api', apiRouter);
 
 // Endpoint básico de status de saúde do servidor
-app.get('/health', (req, res) => {
+app.get('/health', async (_req, res) => {
+  try {
+    if (!pool?.connected) throw new Error('Banco desconectado');
+    await pool.request().query('SELECT 1 AS pronto');
+  } catch { res.status(503).json({ status: 'indisponivel' }); return; }
   res.json({
     status: 'saudavel',
     timestamp: new Date().toISOString(),
@@ -150,6 +163,7 @@ app.use('/uploads', express.static(uploadsDir, { maxAge: '7d', immutable: true }
 
 // APP em /app — SPA: /app e subrotas servem o index.html do app.
 app.get(['/app', '/app/*'], (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
+app.get(['/implantacao', '/implantacao/', '/area-cliente', '/area-cliente/'], (_req, res) => res.sendFile(path.join(frontendDist, 'index.html')));
 
 // Cardápio público (Painel do Cliente) em /loja/<lojaId> — mesma SPA React;
 // o main.tsx roteia pelo pathname e carrega só o chunk da vitrine.
@@ -164,6 +178,8 @@ app.get('*', (req, res, next) => {
   res.sendFile(path.join(siteDir, 'index.html'));
 });
 
+app.use(responderErro);
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
@@ -171,6 +187,8 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST']
   }
 });
+
+configurarAutenticacaoSocket(io);
 
 // Multi-instância: com REDIS_URL definido, os broadcasts do socket.io são propagados
 // entre réplicas via Redis pub/sub. Sem REDIS_URL = instância única (idêntico ao atual).
@@ -194,7 +212,9 @@ async function configurarAdapterRedis(): Promise<void> {
 
 // Transmite eventos do Broker para todos os clientes WebSocket
 broker.registerBroadcastCallback((event, queueSize) => {
-  io.emit('broker_event', {
+  const lojaId = deliveries.get(event.deliveryId)?.lojaId;
+  const destino = lojaId ? io.to('admin').to(`loja-${lojaId}`) : io.to('admin');
+  destino.emit('broker_event', {
     event,
     queueSize,
     metrics: broker.getQueueMetrics()
@@ -207,23 +227,14 @@ io.on('connection', (socket) => {
 
   // Identifica a sessão pelo token enviado no handshake
   const token = socket.handshake.auth?.token as string | undefined;
-  const sessao = token ? sessions.get(token) : undefined;
+  const sessao = obterSessaoPorToken(token);
+  if (!sessao) { socket.disconnect(true); return; }
 
   // Coloca o socket na sala correta
   if (sessao?.tipo === 'loja' && sessao.lojaId) {
     socket.join(`loja-${sessao.lojaId}`);
   } else if (sessao?.tipo === 'admin') {
     socket.join('admin');
-  } else {
-    // Se o cliente forneceu um token de autenticação, mas a sessão não foi encontrada (ex: após restart),
-    // emitimos um evento de sessão expirada e forçamos desconexão.
-    if (token) {
-      console.log(`[Socket] Token inválido ou expirado. Forçando desconexão: ${socket.id}`);
-      socket.emit('session_expired');
-      socket.disconnect(true);
-      return;
-    }
-    socket.join('public'); // Sem token e sem sessão = sala publica sem acesso administrativo/vazamento
   }
 
   // Filtra entregas e drivers pela loja da sessão
@@ -253,120 +264,12 @@ io.on('connection', (socket) => {
     queue: broker.getQueueMetrics()
   });
 
-  // Controle de vinculação do socket ao motoboy
-  let driverIdVinculado: string | undefined;
-
-  socket.on('driver_register', async (data: { driverId: string }) => {
-    const driver = drivers.find(d => d.id === data.driverId);
-    if (!driver) return;
-
-    // Se a sessão for de loja e o motorista for de outra loja, recusa
-    if (sessao?.tipo === 'loja' && sessao.lojaId !== driver.lojaId) {
-      console.warn(`[Socket] Tentativa bloqueada: Loja ${sessao.lojaId} tentando registrar driver ${driver.id} da loja ${driver.lojaId}`);
-      socket.emit('driver_register_error', { error: 'O motoboy pertence a outra loja.' });
-      return;
-    }
-
-    driverIdVinculado = data.driverId;
-    console.log(`[Socket] Aparelho móvel registrado para o motoboy: ${data.driverId}`);
-    
-    // Atualiza status online
-    driver.dispositivoConectado = true;
-    driver.ultimaAtualizacao = new Date().toISOString();
-    await salvarMotorista(driver);
-
-    if (driver.lojaId) {
-      // Vincula o socket à sala da loja do motoboy para receber atualizações do sistema filtradas por sua loja
-      socket.leave('public');
-      socket.leave('admin');
-      
-      // Sai de outras salas de loja para evitar acumulação/flicker
-      Array.from(socket.rooms).forEach(room => {
-        if (room.startsWith('loja-') && room !== `loja-${driver.lojaId}`) {
-          socket.leave(room);
-        }
-      });
-
-      socket.join(`loja-${driver.lojaId}`);
-
-      // Envia estado inicial filtrado específico da loja para o motoboy
-      const todas = Array.from(deliveries.values());
-      const entregasLoja = todas.filter(d => d.lojaId === driver.lojaId);
-      const driversLoja = drivers.filter(d => d.lojaId === driver.lojaId);
-      socket.emit('initial_state', {
-        deliveries: entregasLoja,
-        drivers: driversLoja,
-        eventHistory: [],
-        webhooksReceived: [],
-        agents: {
-          dispatcher: dispatcherAgent.getAgentState(),
-          monitor: monitorAgent.getAgentState(),
-          integrator: integratorAgent.getAgentState()
-        },
-        queue: broker.getQueueMetrics()
-      });
-    }
-  });
-
-  socket.on('driver_gps_update', async (data: { driverId: string, x: number, y: number }) => {
-    const { driverId, x, y } = data;
-    const driver = drivers.find(d => d.id === driverId);
-    if (driver) {
-      driver.dispositivoConectado = true;
-      driver.localizacaoAtual = { x, y };
-      driver.ultimaAtualizacao = new Date().toISOString();
-      
-      // Se esse motorista estiver em uma entrega ativa ("ocupado"), também atualiza as coordenadas da entrega ativa
-      const todasEntregas = Array.from(deliveries.values());
-      const getStatusWeight = (status: string) => {
-        switch (status) {
-          case 'NO_LOCAL': return 4;
-          case 'EM_TRANSITO':
-          case 'ALERTA_INCIDENTE':
-          case 'SLA_ALERTA':
-            return 3;
-          case 'DESPACHADO': return 2;
-          case 'RECEBIDO': return 1;
-          default: return 0;
-        }
-      };
-      const motoristaEntregas = todasEntregas.filter(d => 
-        d.motorista?.id === driverId && 
-        (d.status === 'EM_TRANSITO' || d.status === 'NO_LOCAL' || d.status === 'ALERTA_INCIDENTE' || d.status === 'SLA_ALERTA')
-      );
-      motoristaEntregas.sort((a, b) => {
-        const weightA = getStatusWeight(a.status);
-        const weightB = getStatusWeight(b.status);
-        if (weightA !== weightB) {
-          return weightB - weightA;
-        }
-        const seqA = a.sequenciaEsperada ?? Infinity;
-        const seqB = b.sequenciaEsperada ?? Infinity;
-        return seqA - seqB;
-      });
-      const entregaAtiva = motoristaEntregas[0];
-      if (entregaAtiva) {
-        if (!entregaAtiva.telemetria) {
-          entregaAtiva.telemetria = {
-            velocidadeKmh: 45,
-            combustivelBateriaPct: 88,
-            localizacaoAtual: { x, y },
-            timestamp: new Date().toISOString()
-          };
-        } else {
-          entregaAtiva.telemetria.localizacaoAtual = { x, y };
-          entregaAtiva.telemetria.timestamp = new Date().toISOString();
-        }
-      }
-
-      await salvarMotorista(driver);
-    }
-  });
-
   // Listeners para o Simulador de WhatsApp
-  socket.on('whatsapp_send_msg', async (data: { phone: string; text: string; lojaId: string }) => {
+  socket.on('whatsapp_send_msg', asyncSocketHandler(async (data: { phone: string; text: string; lojaId: string }) => {
+    if (!data || typeof data.phone !== 'string' || typeof data.text !== 'string' || data.text.length > 2000) return;
     const { phone, text, lojaId } = data;
     const targetLojaId = sessao?.tipo === 'loja' && sessao.lojaId ? sessao.lojaId : lojaId;
+    if (!targetLojaId || !lojas.some(l => l.id === targetLojaId && l.ativo) || !podeAcessarLoja(sessao, targetLojaId)) return;
     const room = `loja-${targetLojaId}`;
 
     // 1. Transmite a mensagem enviada pelo cliente (para atualizar todos os painéis da loja/admin)
@@ -410,35 +313,27 @@ io.on('connection', (socket) => {
         isTyping: false
       });
     }
-  });
+  }));
 
   socket.on('whatsapp_get_history', (data: { phone: string; lojaId: string }) => {
+    if (!data || typeof data.phone !== 'string') return;
     const { phone, lojaId } = data;
     const targetLojaId = sessao?.tipo === 'loja' && sessao.lojaId ? sessao.lojaId : lojaId;
-    const session = whatsappSessions.get(phone);
+    if (!targetLojaId || !podeAcessarLoja(sessao, targetLojaId)) return;
+    const session = obterSessaoWhatsapp(targetLojaId, phone);
     socket.emit('whatsapp_history', {
       phone,
       messages: session?.messages || []
     });
   });
 
-  socket.on('disconnect', async () => {
-    console.log(`[Socket] Cliente desconectado: ${socket.id}`);
-    if (driverIdVinculado) {
-      const driver = drivers.find(d => d.id === driverIdVinculado);
-      if (driver) {
-        // Desconectar o celular não altera a disponibilidade operacional.
-        driver.dispositivoConectado = true;
-        driver.ultimaAtualizacao = new Date().toISOString();
-        await salvarMotorista(driver);
-        console.log(`[Socket] Celular do motoboy ${driverIdVinculado} desconectado; motoboy permanece online.`);
-      }
-    }
-  });
+  socket.on('disconnect', () => console.log(`[Socket] Cliente desconectado: ${socket.id}`));
+
 });
 
 // Transmissão periódica do status do sistema (a cada 1 segundo) — filtrado por sala
 setInterval(() => {
+  desconectarSessoesInvalidas(io);
   const agentStates = {
     dispatcher: dispatcherAgent.getAgentState(),
     monitor: monitorAgent.getAgentState(),
@@ -480,6 +375,7 @@ async function startServer() {
   // Conecta ao SQL Server
   await conectarBanco();
   await inicializarEstoque();
+  await inicializarImplantacao();
 
   // Carrega os tenants (empresas/lojas) do banco de dados / realiza migração se necessário
   await carregarTenantsDoBanco();
@@ -524,4 +420,7 @@ async function startServer() {
   });
 }
 
-startServer(); // Inicializa o servidor completo
+startServer().catch(error => {
+  console.error('[Boot] Inicialização interrompida:', error?.message);
+  process.exit(1);
+});

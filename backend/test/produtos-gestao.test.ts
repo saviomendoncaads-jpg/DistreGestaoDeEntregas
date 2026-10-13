@@ -7,7 +7,7 @@ vi.mock('../src/auth', () => ({
   exigirLojaAdimplente: (_req: unknown, _res: unknown, next: () => void) => next()
 }));
 vi.mock('../src/database', () => ({
-  obterProdutosDaLoja: vi.fn(), salvarProduto: vi.fn(), salvarProdutosEmLote: vi.fn(), historicoProduto: vi.fn(), deletarProduto: vi.fn(), salvarLoja: vi.fn()
+  obterProdutosDaLoja: vi.fn(), salvarProduto: vi.fn(), salvarProdutosEmLote: vi.fn(), historicoProduto: vi.fn(), deletarProduto: vi.fn(), salvarLoja: vi.fn(), salvarConfiguracaoVitrine: vi.fn()
 }));
 vi.mock('../src/tenants', () => ({ lojas: [] }));
 vi.mock('../src/estoque', () => ({ listarEstoque: vi.fn(), receberMercadoria: vi.fn(), ErroEstoque: class extends Error {} }));

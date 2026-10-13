@@ -1,3 +1,4 @@
+import { somarQuantidade } from '../quantidadeCompra';
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from 'react';
 import type { ItemCarrinho, ProdutoVitrine } from '../types';
 
@@ -14,7 +15,7 @@ interface EstadoCarrinho {
 }
 
 type AcaoCarrinho =
-  | { tipo: 'adicionar'; produto: ProdutoVitrine }
+  | { tipo: 'adicionar'; produto: ProdutoVitrine; quantidade?: number }
   | { tipo: 'incrementar'; produtoId: string }
   | { tipo: 'decrementar'; produtoId: string }
   | { tipo: 'remover'; produtoId: string }
@@ -24,12 +25,10 @@ type AcaoCarrinho =
 function reducerCarrinho(estado: EstadoCarrinho, acao: AcaoCarrinho): EstadoCarrinho {
   switch (acao.tipo) {
     case 'adicionar': {
-      if (acao.produto.estoqueDisponivel === 0) return estado;
       const existente = estado.itens.find(i => i.produto.id === acao.produto.id);
-      if (existente) {
-        return reducerCarrinho(estado, { tipo: 'incrementar', produtoId: acao.produto.id });
-      }
-      return { itens: [...estado.itens, { produto: acao.produto, quantidade: 1 }] };
+      const quantidade = somarQuantidade(existente?.quantidade ?? 0, acao.quantidade ?? 1, acao.produto.estoqueDisponivel);
+      if (!quantidade || quantidade <= (existente?.quantidade ?? 0)) return estado;
+      return { itens: existente ? estado.itens.map(i => i.produto.id === acao.produto.id ? { ...i, produto: acao.produto, quantidade } : i) : [...estado.itens, { produto: acao.produto, quantidade }] };
     }
     case 'incrementar':
       return {
@@ -85,7 +84,7 @@ interface ContextoCarrinho {
   itens: ItemCarrinho[];
   totalItens: number;
   subtotal: number;
-  adicionar: (produto: ProdutoVitrine) => void;
+  adicionar: (produto: ProdutoVitrine, quantidade?: number) => void;
   incrementar: (produtoId: string) => void;
   decrementar: (produtoId: string) => void;
   remover: (produtoId: string) => void;
@@ -114,7 +113,7 @@ export function CarrinhoProvider({ lojaId, children }: { lojaId: string; childre
       itens: estado.itens,
       totalItens,
       subtotal,
-      adicionar: produto => dispatch({ tipo: 'adicionar', produto }),
+      adicionar: (produto, quantidade = 1) => dispatch({ tipo: 'adicionar', produto, quantidade }),
       incrementar: produtoId => dispatch({ tipo: 'incrementar', produtoId }),
       decrementar: produtoId => dispatch({ tipo: 'decrementar', produtoId }),
       remover: produtoId => dispatch({ tipo: 'remover', produtoId }),
