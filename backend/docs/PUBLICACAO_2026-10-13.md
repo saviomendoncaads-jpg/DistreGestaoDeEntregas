@@ -95,3 +95,8 @@ A inadimplência restringe operações, nunca o login da conta: sessão continua
 Cobranças abertas passam a oferecer exclusivamente Pagar com Pix. A chave aleatória fornecida pela administração fica na configuração privada PIX_PLATAFORMA_CHAVE, sem fixação no código. O cliente vê valor, referência e chave selecionável, pode copiar a chave e recebe confirmação visual da cópia. A atualização de situação informa quando ainda existem pendências. Não há boleto, cartão, QR/Pix fictício nem baixa ao clicar: recebimento é conferido e baixado no Master, mantendo a regra de liberação por todas as obrigações impeditivas. Faturas pagas/canceladas e valores inválidos não oferecem pagamento.
 
 249 testes aprovados, incluindo 45 SQL. Navegador verificou abertura dos dados Pix, chave exata, conteúdo da área de transferência, ausência de boleto, resposta de atualização, celular, ausência de baixa automática e liberação após confirmação administrativa em banco temporário.
+
+
+## Pagamento total em um único Pix
+
+Resumo de cobranças oferece Pagar total em aberto com Pix. Mostra a soma em centavos, quantidade e referências das faturas abertas (incluindo a vencer), chave e cópia, permitindo uma transferência e um comprovante para conferência administrativa. Faturas pagas/canceladas são excluídas; opção requer chave comum válida para todas as faturas. Pagamento individual continua disponível e nenhum clique realiza baixa/liberação.
