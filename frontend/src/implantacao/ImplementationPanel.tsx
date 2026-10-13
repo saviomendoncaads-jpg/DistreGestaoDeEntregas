@@ -1,4 +1,4 @@
-import {getPanelSession,sessionKey} from '../auth/sessions';
+import {getPanelSession,getPanelRole,sessionKey} from '../auth/sessions';
 import { useCallback, useEffect, useState } from 'react';
 import ClientSections,{sectionLabels,type ClientSection} from './ClientSections';
 import Sidebar from './Sidebar';
@@ -14,7 +14,7 @@ export default function ImplementationPanel(){
  const requested=new URLSearchParams(location.search).get('secao');
  const section:ClientSection=location.pathname.startsWith('/implantacao')?'implantacao':requested&&Object.hasOwn(sectionLabels,requested)?requested as ClientSection:'inicio';
  const load=useCallback(async()=>{if(!session)return;try{setError('');setState(await implementationRequest(session.token,session.tipo==='loja'&&section==='implantacao'?'/inicio':'',session.tipo==='loja'&&section==='implantacao'?'POST':'GET',lojaId));}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar.');}},[session,lojaId,section]);
- useEffect(()=>{if(!session){location.replace('/app?perfil=loja&next=area-cliente');return;}if(session.tipo==='admin'&&!lojaId){location.replace('/app?perfil=admin&adminArea=implantacao');return;}void load();},[session,lojaId,load]);
+ useEffect(()=>{if(!session){location.replace(getPanelRole()==='admin'?'/app?perfil=admin&adminArea=implantacao':'/app?perfil=loja&next=area-cliente');return;}if(session.tipo==='admin'&&!lojaId){location.replace('/app?perfil=admin&adminArea=implantacao');return;}void load();},[session,lojaId,load]);
  async function complete(step:number){if(!session||busy)return;setBusy(true);setError('');try{setState(await implementationRequest(session.token,`/etapas/${step}`,'POST',lojaId));}catch(e){setError(e instanceof Error?e.message:'Não foi possível concluir.');}finally{setBusy(false);}}
  return <div className="imp-shell"><Sidebar name={state?.nomeLoja} section={section} lojaId={lojaId}/><div className="imp-page">
   <header className="imp-topbar"><span>Área do Cliente / <strong>{sectionLabels[section]}</strong></span><span className="imp-preview-badge">{session?.tipo==='admin'?'ACOMPANHAMENTO':'PROGRESSO DA LOJA'}</span></header>
