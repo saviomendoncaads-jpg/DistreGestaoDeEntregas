@@ -29,6 +29,24 @@ export const AULAS: Aula[] = [
     "duracao": "1 min 15 s",
     "segundos": 75,
     "tamanhoMb": 5.1
+  },
+  {
+    "id": "saldo-inicial",
+    "passo": 4,
+    "titulo": "Importação de estoque",
+    "resumo": "Registre o saldo inicial de todos os produtos e deixe o estoque pronto para vender.",
+    "duracao": "1 min 07 s",
+    "segundos": 67,
+    "tamanhoMb": 4.7
+  },
+  {
+    "id": "imagens-produtos",
+    "passo": 5,
+    "titulo": "Imagens para o e-commerce",
+    "resumo": "Envie a foto principal de cada produto para a vitrine da loja online.",
+    "duracao": "1 min 08 s",
+    "segundos": 68,
+    "tamanhoMb": 4.1
   }
 ];
 
@@ -60,6 +78,13 @@ export const MANUAIS: Manual[] = [
     "titulo": "Importação de estoque",
     "paginas": 6,
     "tamanhoKb": 984
+  },
+  {
+    "id": "imagens-produtos",
+    "passo": 5,
+    "titulo": "Imagens para o e-commerce",
+    "paginas": 6,
+    "tamanhoKb": 860
   }
 ];
 
