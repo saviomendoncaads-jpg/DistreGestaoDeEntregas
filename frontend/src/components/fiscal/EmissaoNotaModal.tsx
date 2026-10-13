@@ -68,7 +68,7 @@ export default function EmissaoNotaModal({
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [precisaConfig, setPrecisaConfig] = useState(false);
-  const [offline,setOffline]=useState(false),[justificativa,setJustificativa]=useState('');
+  const [offline,setOffline]=useState(false),[justificativa,setJustificativa]=useState('Falha de comunicação com a SEFAZ no momento da emissão.');
 
   const campo = (k: keyof DestinatarioNota) => ({
     value: dest[k] || '',
@@ -195,7 +195,7 @@ export default function EmissaoNotaModal({
             {precisaConfig && <button type="button" className="fiscal-link" onClick={onAbrirConfig}>Abrir dados fiscais</button>}
           </div>
         )}
-        {sefazDireta&&escolha==='NFCE'&&<div className="fiscal-documento-detalhe"><label><input type="checkbox" checked={offline} onChange={e=>setOffline(e.target.checked)}/> Emitir em contingência offline por falha de comunicação</label>{offline&&<><p className="fiscal-dica">A NFC-e será assinada e ficará pendente de autorização. Transmita em Notas e eventos assim que a conexão retornar, dentro do prazo da sua UF.</p><label className="fiscal-campo"><span>Motivo da falha técnica</span><textarea className="form-input" rows={3} maxLength={256} value={justificativa} onChange={e=>setJustificativa(e.target.value)}/></label></>}</div>}
+        {sefazDireta&&escolha==='NFCE'&&<div className="fiscal-documento-detalhe fiscal-contingencia"><label className="fiscal-contingencia-opcao"><input type="checkbox" checked={offline} onChange={e=>setOffline(e.target.checked)}/> Emitir em contingência offline por falha de comunicação</label>{offline&&<><p className="fiscal-dica">A NFC-e será assinada e ficará pendente de autorização. Transmita em Notas e eventos assim que a conexão retornar, dentro do prazo da sua UF.</p><label className="fiscal-campo"><span>Motivo da falha técnica</span><textarea className="form-input" rows={3} maxLength={256} value={justificativa} onChange={e=>setJustificativa(e.target.value)}/></label></>}</div>}
 
         <div className="kanban-modal-actions">
           <button className="kanban-btn kanban-btn-ghost" onClick={onFechar} disabled={enviando}>Cancelar</button>

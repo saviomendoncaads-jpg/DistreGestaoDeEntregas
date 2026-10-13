@@ -1,4 +1,8 @@
 /* Módulo Fiscal — modais (sobre o tema escuro do .kanban-modal) e selo da nota no card. */
+.fiscal-modal .fiscal-contingencia-opcao { display: flex; align-items: flex-start; gap: 8px; color: #f1f5f9; font-size: 0.8rem; line-height: 1.4; cursor: pointer; }
+.fiscal-modal .fiscal-contingencia-opcao input { flex-shrink: 0; margin-top: 3px; accent-color: #10b981; }
+.fiscal-modal .fiscal-contingencia .fiscal-campo > span, .fiscal-modal .fiscal-contingencia .fiscal-dica { color: #cbd5e1; }
+.fiscal-modal .fiscal-contingencia textarea.form-input { color: #f1f5f9; background: #141c28; }
 
 .kanban-modal.fiscal-modal { width:min(520px,calc(100vw - 32px)); max-width:520px; max-height: calc(100vh - 2rem); overflow-y: auto; }
 .kanban-modal.fiscal-modal--config { width:min(760px,calc(100vw - 32px)); max-width:760px; }
