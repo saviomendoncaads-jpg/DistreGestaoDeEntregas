@@ -2202,10 +2202,6 @@ export default function App() {
           <span className="version-badge">v2.1-br</span>
         </div>
         <div className="status-badges">
-          <div className="status-badge">
-            <span className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}></span>
-            <span>{isConnected ? 'Servidor Conectado' : 'Desconectado'}</span>
-          </div>
           {/* "Entregas Ativas" ocultado a pedido (jun/2026) */}
           {false && (
             <div className="status-badge" style={{ color: 'var(--color-cyan)' }}>
