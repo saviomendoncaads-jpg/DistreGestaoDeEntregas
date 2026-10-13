@@ -1,40 +1,286 @@
 {
   "meta": {
-    "titulo": "Imagens para o e-commerce", "fps": 30, "largura": 1920, "altura": 1080,
-    "voz": "pt-BR-ThalitaMultilingualNeural", "velocidade": "-5%",
+    "titulo": "Imagens para o e-commerce",
+    "fps": 30,
+    "largura": 1920,
+    "altura": 1080,
+    "voz": "pt-BR-ThalitaMultilingualNeural",
+    "velocidade": "-5%",
     "resumo": "Envie a foto principal de cada produto para a vitrine da loja online.",
-    "capa": { "titulo": "Imagens da", "destaque": "loja online", "subtitulo": "Aula 5 da implantação", "selo": "Aula 5", "tela": "3-enviada" },
-    "abertura": { "titulo": "Imagens para o e-commerce", "subtitulo": "Aula 5 da implantação ·", "destaque": "Distre" },
-    "fecho": { "itens": ["Editar o produto", "Selecionar imagens", "Salvar", "Repetir"], "frase": "Vitrine com fotos,", "destaque": "cliente com confiança", "rodape": "Próxima etapa: operação e PDV" }
+    "capa": {
+      "titulo": "Imagens da",
+      "destaque": "loja online",
+      "subtitulo": "Aula 5 da implantação",
+      "selo": "Aula 5",
+      "tela": "3-enviada"
+    },
+    "abertura": {
+      "titulo": "Imagens para o e-commerce",
+      "subtitulo": "Aula 5 da implantação ·",
+      "destaque": "Distre"
+    },
+    "fecho": {
+      "itens": [
+        "Editar o produto",
+        "Selecionar imagens",
+        "Salvar",
+        "Repetir"
+      ],
+      "frase": "Vitrine com fotos,",
+      "destaque": "cliente com confiança",
+      "rodape": "Próxima etapa: operação e PDV"
+    }
   },
   "cenas": [
-    { "id": "01-abertura", "tipo": "titulo", "titulo": "Imagens para o e-commerce", "narracao": "", "duracao_fixa": 3 },
-    { "id": "02-porque", "tipo": "tela", "narracao": "Na loja online, o cliente compra pelo que vê. Por isso, todo produto precisa de uma imagem principal.",
-      "visual": { "tela": "1-lista", "plano0": { "x": 0.5, "y": 0.5, "z": 1.0 },
-        "pontos": [ { "alvo": "pendencias", "palavra": "compra", "zoom": 1.8, "etiqueta": "produtos com pendências", "lado": "acima", "moldura": false },
-                    { "alvo": "primeiraPendencia", "palavra": "imagem", "zoom": 2.4, "etiqueta": "Completar: Foto", "lado": "acima", "cor": "branca" } ] } },
-    { "id": "03-editar", "tipo": "tela", "narracao": "Em Produtos, clique em Editar no produto e abra a seção Imagens.",
-      "visual": { "segmentos": [
-        { "tela": "1-lista", "plano0": { "x": 0.7, "y": 0.75, "z": 1.5 }, "pontos": [ { "alvo": "editar", "palavra": "editar", "zoom": 2.2, "etiqueta": "Editar", "lado": "acima", "cursor": true } ] },
-        { "tela": "2-imagens", "palavra": "seção", "atraso": -6, "plano0": { "x": 0.4, "y": 0.6, "z": 1.3 }, "pontos": [ { "alvo": "secao", "palavra": "imagens", "zoom": 1.9, "etiqueta": "Imagens", "lado": "acima", "cor": "branca" } ] } ] } },
-    { "id": "04-enviar", "tipo": "tela", "narracao": "Clique em Selecionar imagens e escolha o arquivo. O Distre aceita PNG, JPG ou WEBP, de até três megabytes, e até oito imagens por produto.",
-      "visual": { "gravacao": "enviar", "posicoes": "2-imagens", "gravacaoPasso": "auto", "gravacaoAtraso": 6, "plano0": { "x": 0.6, "y": 0.55, "z": 1.25 },
-        "pontos": [ { "alvo": "dropzone", "palavra": "selecionar", "zoom": 1.6, "etiqueta": "Selecionar imagens", "lado": "acima", "moldura": true },
-                    { "alvo": "regras", "palavra": "png", "zoom": 2.4, "etiqueta": "PNG, JPG ou WEBP · até 3 MB · 8 imagens", "lado": "abaixo", "cor": "branca", "moldura": false } ] } },
-    { "id": "05-principal", "tipo": "tela", "narracao": "A primeira imagem é a principal, a que aparece na vitrine. Use foto quadrada, com fundo claro e o produto bem visível.",
-      "visual": { "tela": "3-enviada", "plano0": { "x": 0.5, "y": 0.55, "z": 1.1 },
-        "pontos": [ { "alvo": "principal", "palavra": "principal", "zoom": 2.2, "etiqueta": "imagem principal", "lado": "acima" },
-                    { "alvo": "previa", "palavra": "vitrine", "zoom": 1.5, "etiqueta": "assim aparece na vitrine", "lado": "esquerda", "cor": "branca" } ] } },
-    { "id": "06-salvar", "tipo": "tela", "narracao": "Salve as alterações. O produto sai da lista de pendências.",
-      "visual": { "segmentos": [
-        { "gravacao": "salvar", "posicoes": "3-enviada", "gravacaoPasso": "auto", "gravacaoAtraso": 6, "ate": "clique", "plano0": { "x": 0.6, "y": 0.8, "z": 1.2 }, "pontos": [] },
-        { "tela": "4-lista-final", "palavra": "pendências", "atraso": -6, "plano0": { "x": 0.5, "y": 0.5, "z": 1.05 }, "pontos": [ { "alvo": "primeiraLinha", "palavra": "pendências", "zoom": 1.6, "etiqueta": "agora com foto", "lado": "acima", "cor": "branca" } ] } ] } },
-    { "id": "07-repetir", "tipo": "tela", "narracao": "Repita para os outros produtos. Quando todos tiverem imagem, o indicador de pendências chega a zero.",
-      "visual": { "tela": "4-lista-final", "plano0": { "x": 0.5, "y": 0.5, "z": 1.05 },
-        "pontos": [ { "alvo": "tabela", "palavra": "repita", "zoom": 1.15, "etiqueta": "um produto de cada vez", "lado": "acima", "moldura": false },
-                    { "alvo": "pendencias", "palavra": "zero", "zoom": 2.0, "etiqueta": "pendências: 0", "lado": "acima", "cor": "branca" } ] } },
-    { "id": "08-dicas", "tipo": "quadro", "narracao": "Capriche na foto: formato quadrado, fundo claro, produto inteiro e sem texto ou marca d'água.",
-      "visual": { "quadro": { "titulo": "Uma boa foto de produto", "itens": ["Formato quadrado", "Fundo claro", "Produto inteiro e nítido", "Sem texto nem marca d'água"], "palavras": ["quadrado", "claro", "inteiro", "sem"] } } },
-    { "id": "99-fecho", "tipo": "titulo", "narracao": "Imagens prontas. Na próxima etapa, vamos conhecer a operação do dia a dia." }
+    {
+      "id": "01-abertura",
+      "tipo": "titulo",
+      "titulo": "Imagens para o e-commerce",
+      "narracao": "",
+      "duracao_fixa": 3
+    },
+    {
+      "id": "02-porque",
+      "tipo": "tela",
+      "narracao": "Na loja online, o cliente compra pelo que vê. Por isso, todo produto precisa de uma imagem principal.",
+      "visual": {
+        "tela": "1-lista",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1
+        },
+        "pontos": [
+          {
+            "alvo": "pendencias",
+            "palavra": "compra",
+            "zoom": 1.8,
+            "etiqueta": "produtos com pendências",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "primeiraPendencia",
+            "palavra": "imagem",
+            "zoom": 2.4,
+            "etiqueta": "Completar: Foto",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "03-editar",
+      "tipo": "tela",
+      "narracao": "Em Produtos, clique em Editar no produto e abra a seção Imagens.",
+      "visual": {
+        "segmentos": [
+          {
+            "tela": "1-lista",
+            "plano0": {
+              "x": 0.7,
+              "y": 0.75,
+              "z": 1.5
+            },
+            "pontos": [
+              {
+                "alvo": "editar",
+                "palavra": "editar",
+                "zoom": 2.2,
+                "etiqueta": "Editar",
+                "lado": "acima",
+                "cursor": true
+              }
+            ]
+          },
+          {
+            "tela": "2-imagens",
+            "palavra": "seção",
+            "atraso": -6,
+            "plano0": {
+              "x": 0.4,
+              "y": 0.6,
+              "z": 1.3
+            },
+            "pontos": [
+              {
+                "alvo": "secao",
+                "palavra": "imagens",
+                "zoom": 1.9,
+                "etiqueta": "Imagens",
+                "lado": "acima",
+                "cor": "branca"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "04-enviar",
+      "tipo": "tela",
+      "narracao": "Clique em Selecionar imagens e escolha o arquivo. O Distre aceita PNG, JPG ou WEBP, de até três megabytes, e até oito imagens por produto.",
+      "visual": {
+        "gravacao": "enviar",
+        "posicoes": "2-imagens",
+        "gravacaoPasso": "auto",
+        "gravacaoAtraso": 6,
+        "plano0": {
+          "x": 0.6,
+          "y": 0.55,
+          "z": 1.25
+        },
+        "pontos": [
+          {
+            "alvo": "dropzone",
+            "palavra": "selecionar",
+            "zoom": 1.6,
+            "etiqueta": "Selecionar imagens",
+            "lado": "acima",
+            "moldura": true
+          },
+          {
+            "alvo": "regras",
+            "palavra": "png",
+            "zoom": 2.4,
+            "etiqueta": "PNG, JPG ou WEBP · até 3 MB · 8 imagens",
+            "lado": "abaixo",
+            "cor": "branca",
+            "moldura": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "05-principal",
+      "tipo": "tela",
+      "narracao": "A primeira imagem é a principal, a que aparece na vitrine. Use foto quadrada, com fundo claro e o produto bem visível.",
+      "visual": {
+        "tela": "3-enviada",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.55,
+          "z": 1.1
+        },
+        "pontos": [
+          {
+            "alvo": "principal",
+            "palavra": "principal",
+            "zoom": 2.2,
+            "etiqueta": "imagem principal",
+            "lado": "acima"
+          },
+          {
+            "alvo": "previa",
+            "palavra": "vitrine",
+            "zoom": 1.5,
+            "etiqueta": "assim aparece na vitrine",
+            "lado": "esquerda",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "06-salvar",
+      "tipo": "tela",
+      "narracao": "Salve as alterações. O produto sai da lista de pendências.",
+      "visual": {
+        "segmentos": [
+          {
+            "gravacao": "salvar",
+            "posicoes": "3-enviada",
+            "gravacaoPasso": "auto",
+            "gravacaoAtraso": 6,
+            "ate": "clique",
+            "plano0": {
+              "x": 0.6,
+              "y": 0.8,
+              "z": 1.2
+            },
+            "pontos": []
+          },
+          {
+            "tela": "4-lista-final",
+            "palavra": "pendências",
+            "atraso": -6,
+            "plano0": {
+              "x": 0.5,
+              "y": 0.5,
+              "z": 1.05
+            },
+            "pontos": [
+              {
+                "alvo": "primeiraLinha",
+                "palavra": "pendências",
+                "zoom": 1.6,
+                "etiqueta": "agora com foto",
+                "lado": "acima",
+                "cor": "branca"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "07-repetir",
+      "tipo": "tela",
+      "narracao": "Repita para os outros produtos. Quando todos tiverem imagem, o indicador de pendências chega a zero.",
+      "visual": {
+        "tela": "4-lista-final",
+        "plano0": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 1.05
+        },
+        "pontos": [
+          {
+            "alvo": "primeiraLinha",
+            "palavra": "repita",
+            "zoom": 1.3,
+            "etiqueta": "um produto de cada vez",
+            "lado": "acima",
+            "moldura": false
+          },
+          {
+            "alvo": "pendencias",
+            "palavra": "zero",
+            "zoom": 2,
+            "etiqueta": "pendências: 0",
+            "lado": "acima",
+            "cor": "branca"
+          }
+        ]
+      }
+    },
+    {
+      "id": "08-dicas",
+      "tipo": "quadro",
+      "narracao": "Capriche na foto: formato quadrado, fundo claro, produto inteiro e sem texto ou marca d'água.",
+      "visual": {
+        "quadro": {
+          "titulo": "Uma boa foto de produto",
+          "itens": [
+            "Formato quadrado",
+            "Fundo claro",
+            "Produto inteiro e nítido",
+            "Sem texto nem marca d'água"
+          ],
+          "palavras": [
+            "quadrado",
+            "claro",
+            "inteiro",
+            "sem"
+          ]
+        }
+      }
+    },
+    {
+      "id": "99-fecho",
+      "tipo": "titulo",
+      "narracao": "Imagens prontas. Na próxima etapa, vamos conhecer a operação do dia a dia."
+    }
   ]
 }
