@@ -1,3 +1,4 @@
+import {getPanelSession,sessionKey} from '../auth/sessions';
 import { useCallback, useEffect, useState } from 'react';
 import ClientSections,{sectionLabels,type ClientSection} from './ClientSections';
 import Sidebar from './Sidebar';
@@ -8,11 +9,12 @@ import './implementation.css';
 export default function ImplementationPanel(){
  useEffect(()=>{document.title='Distre - Área do Cliente';},[]);
  const [session]=useState(getSession);const [state,setState]=useState<ImplementationState|null>(null);const [error,setError]=useState('');const [busy,setBusy]=useState(false);
+ useEffect(()=>{if(!session)return;const sync=(event:StorageEvent)=>{if(event.key===sessionKey(session.tipo)&&getPanelSession(session.tipo)?.token!==session.token)location.reload();};window.addEventListener('storage',sync);return()=>window.removeEventListener('storage',sync);},[session]);
  const lojaId=session?.tipo==='admin'?new URLSearchParams(location.search).get('lojaId')||undefined:undefined;
  const requested=new URLSearchParams(location.search).get('secao');
  const section:ClientSection=location.pathname.startsWith('/implantacao')?'implantacao':requested&&Object.hasOwn(sectionLabels,requested)?requested as ClientSection:'inicio';
  const load=useCallback(async()=>{if(!session)return;try{setError('');setState(await implementationRequest(session.token,session.tipo==='loja'&&section==='implantacao'?'/inicio':'',session.tipo==='loja'&&section==='implantacao'?'POST':'GET',lojaId));}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar.');}},[session,lojaId,section]);
- useEffect(()=>{if(!session){location.replace('/app?next=area-cliente');return;}if(session.tipo==='admin'&&!lojaId){location.replace('/app?adminArea=implantacao');return;}void load();},[session,lojaId,load]);
+ useEffect(()=>{if(!session){location.replace('/app?perfil=loja&next=area-cliente');return;}if(session.tipo==='admin'&&!lojaId){location.replace('/app?perfil=admin&adminArea=implantacao');return;}void load();},[session,lojaId,load]);
  async function complete(step:number){if(!session||busy)return;setBusy(true);setError('');try{setState(await implementationRequest(session.token,`/etapas/${step}`,'POST',lojaId));}catch(e){setError(e instanceof Error?e.message:'Não foi possível concluir.');}finally{setBusy(false);}}
  return <div className="imp-shell"><Sidebar name={state?.nomeLoja} section={section} lojaId={lojaId}/><div className="imp-page">
   <header className="imp-topbar"><span>Área do Cliente / <strong>{sectionLabels[section]}</strong></span><span className="imp-preview-badge">{session?.tipo==='admin'?'ACOMPANHAMENTO':'PROGRESSO DA LOJA'}</span></header>
@@ -24,7 +26,7 @@ export default function ImplementationPanel(){
    <p className="imp-demo-note">Vídeos, modelos e manual serão disponibilizados depois. Conhecimento prévio é confirmado pela loja; tarefas práticas são verificadas com dados reais.</p>
    <Timeline state={state} busy={busy} readOnly={session?.tipo==='admin'} onComplete={step=>void complete(step)}/>
    {state.completed===7&&<div className="imp-finished" role="status"><Icon name="check"/><div><strong>Implantação concluída!</strong><p>Conclusão registrada em {new Date(state.completedAt!).toLocaleString('pt-BR',{timeZone:'America/Fortaleza'})}.</p></div><a className="imp-button primary" href="/app">Acessar Operação</a></div>}
-   <div className="imp-bottom"><button className="imp-text-button" disabled={busy} onClick={()=>void load()}>Atualizar progresso</button><a className="imp-text-button" href="/app">{session?.tipo==='admin'?'Voltar ao Admin Master':'Acessar meu painel'}</a></div>
+   <div className="imp-bottom"><button className="imp-text-button" disabled={busy} onClick={()=>void load()}>Atualizar progresso</button><a className="imp-text-button" href={session?.tipo==='admin'?'/app?perfil=admin':'/app?perfil=loja'}>{session?.tipo==='admin'?'Voltar ao Admin Master':'Acessar meu painel'}</a></div>
    <span className="sr-only" role="status" aria-live="polite">{state.currentTitle}</span></>}
   </main><aside className="imp-support" id="ajuda">{section==='cobrancas'?<section><Icon name="help" size={26}/><h2>Regularize sua assinatura.</h2><p>A conta permanece acessível durante a suspensão da operação.</p><h3>Confirmação de pagamento</h3><p>A operação será liberada quando o pagamento for confirmado e não houver outras pendências impeditivas. Use Atualizar situação do pagamento para conferir.</p><p>Em contratos de rede, a regularização da fatura libera as filiais abrangidas pelo contrato.</p></section>:<section><Icon name="help" size={26}/><h2>Um passo de cada vez.</h2><p>O progresso é individual por loja. Etapas práticas só avançam após a conferência do servidor.</p><h3 id="materiais">Materiais em preparação</h3><p>As aulas, modelos e manual de operação serão produzidos depois. Conhecimento prévio fica registrado como confirmação da loja, sem comprovar aula assistida.</p></section>}</aside></div>
   <footer className="imp-footer">DISTRE <span>Preparando sua próxima etapa.</span></footer>
