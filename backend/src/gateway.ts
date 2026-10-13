@@ -1,8 +1,9 @@
+import { finalizarPedidoParaEntrega, receberRetornoIntegral, pedidoOrigemId, ErroPedido } from './pedidoLifecycle';
 import { asyncHandler } from './http/asyncHandler';
 import { Router, Request, Response } from 'express';
 import { broker } from './broker';
 import { salvarCancelamentoComEstoque } from './estoque';
-import { iniciarConferencia, registrarLeitura, exigirConferenciaCompleta, ErroConferencia } from './conferencia';
+import { iniciarConferencia, registrarLeitura, ErroConferencia } from './conferencia';
 import { registrarFalta, validarEntradaFalta } from './faltas';
 import { Entrega, Motorista, StatusEntrega, Prioridade, TipoCarga, FormaPagamento, LogWebhook, Incidente, TipoVeiculo } from './types';
 import { salvarEntrega, obterEntregas, obterMotoristas, salvarMotorista, deletarMotorista, obterTiposVeiculos, salvarTipoVeiculo, obterProdutos } from './database';
@@ -993,23 +994,28 @@ router.post('/deliveries/:id/return-stock', asyncHandler(async (req: Request, re
     return;
   }
 
-  if (delivery.status !== 'AGUARDANDO_RETORNO_CD') {
-    res.status(400).json({ error: 'Entrega não está aguardando retorno a Loja.' });
-    return;
+  if (req.body?.confirmacaoIntegral !== true) {
+    res.status(400).json({ error: 'Confirme o recebimento físico integral dos produtos em condições de revenda.' }); return;
   }
-
-  // Libera o motorista
+  const origemId = pedidoOrigemId(delivery);
+  let resultado;
+  try {
+    resultado = await receberRetornoIntegral(delivery, origemId ? deliveries.get(origemId) : undefined);
+  } catch (error) {
+    if (error instanceof ErroPedido) { res.status(error.status).json({ error: error.message }); return; }
+    throw error;
+  }
+  Object.assign(delivery, resultado.entrega);
+  if (resultado.pedido) deliveries.set(resultado.pedido.id, resultado.pedido);
   if (delivery.motorista) {
-    const motoristaFrota = drivers.find(d => d.id === delivery.motorista!.id);
-    if (motoristaFrota) motoristaFrota.status = 'ocioso';
-    delivery.motorista.status = 'ocioso';
+    const motorista = drivers.find(d => d.id === delivery.motorista!.id);
+    if (motorista) {
+      const outrasAtivas = Array.from(deliveries.values()).some(d => d.id !== delivery.id && d.motorista?.id === motorista.id
+        && ['DESPACHADO','EM_TRANSITO','NO_LOCAL','ALERTA_INCIDENTE','SLA_ALERTA','AGUARDANDO_RETORNO_CD'].includes(d.status));
+      motorista.status = outrasAtivas ? 'ocupado' : 'ocioso'; await salvarMotorista(motorista);
+    }
   }
-
-  delivery.status = 'PRODUTO_RETORNADO_ESTOQUE';
-  delivery.atualizadoEm = new Date().toISOString();
-
-  // Persiste no SQL Server
-  await salvarEntrega(delivery);
+  if (resultado.repetido) { res.json(delivery); return; }
 
   // Publica evento final
   broker.publish('entrega.monitorada', delivery.id, {
@@ -1441,15 +1447,14 @@ router.post('/deliveries/:id/finalize-order', asyncHandler(async (req: Request, 
       res.status(400).json({ error: 'Esta comanda não é do tipo pedido.' });
       return;
     }
-    if (order.status !== 'EM_PREPARO') { res.status(409).json({ error: 'O pedido precisa estar em separação.' }); return; }
-    await exigirConferenciaCompleta(order.id);
+
 
     // Documento fiscal escolhido no painel ao concluir a separação (NFC-e, NF-e ou nenhum).
     // Valida ANTES de mexer no status: dado fiscal faltando não pode deixar a comanda pela metade.
     const modeloFiscal = req.body?.fiscal?.modelo as ModeloNota | undefined;
     const destinatarioFiscal = normalizarDestinatario(req.body?.fiscal?.destinatario);
     const emitirFiscal = modeloFiscal === 'NFCE' || modeloFiscal === 'NFE';
-    if (emitirFiscal) {
+    if (emitirFiscal && !order.entregaVinculadaId) {
       if (!order.lojaId) {
         res.status(400).json({ error: 'Comanda sem loja vinculada — não é possível emitir nota fiscal.' });
         return;
@@ -1462,47 +1467,19 @@ router.post('/deliveries/:id/finalize-order', asyncHandler(async (req: Request, 
       }
     }
 
-    // 1. Atualiza o status do pedido para finalizado (usamos status ENTREGUE/sucesso para controle interno)
-    order.status = 'ENTREGUE';
-    order.atualizadoEm = new Date().toISOString();
-    await salvarEntrega(order);
-
-    // 2. Cria uma nova comanda de entrega vinculada
-    const deliveryId = gerarIdComanda();
-    const newDelivery: Entrega = {
-      ...order,
-      id: deliveryId,
-      tipoComanda: 'entrega',
-      status: 'RECEBIDO',
-      criadoEm: new Date().toISOString(),
-      atualizadoEm: new Date().toISOString(),
-      referencia: `Origem: Pedido ${order.id}`
-    };
-
-    // Remove referências a rotas antigas
-    newDelivery.motorista = undefined;
-    newDelivery.rota = undefined;
-    newDelivery.telemetria = undefined;
-    newDelivery.incidentes = [];
-
-    await salvarEntrega(newDelivery);
-    deliveries.set(deliveryId, newDelivery);
-
-    // 3. Publica no Broker de Eventos para que o Dispatcher Agende a Entrega
-    broker.publish('entrega.recebida', deliveryId, {
-      deliveryId: deliveryId,
-      cargoType: newDelivery.tipoCarga,
-      priority: newDelivery.prioridade,
-      clientName: newDelivery.nomeCliente,
-      address: newDelivery.endereco,
-      x: 40 + Math.floor(Math.random() * 55),
-      y: 40 + Math.floor(Math.random() * 55)
+    const resultado = await finalizarPedidoParaEntrega(order, gerarIdComanda());
+    Object.assign(order, resultado.pedido);
+    const newDelivery = resultado.repetido ? (deliveries.get(resultado.entrega.id) || resultado.entrega) : resultado.entrega;
+    deliveries.set(newDelivery.id, newDelivery);
+    if (!resultado.repetido) broker.publish('entrega.recebida', newDelivery.id, {
+      deliveryId: newDelivery.id, cargoType: newDelivery.tipoCarga, priority: newDelivery.prioridade,
+      clientName: newDelivery.nomeCliente, address: newDelivery.endereco
     });
 
     // 4. Emite a nota fiscal da venda. Falha de SEFAZ/provedor NÃO desfaz a separação:
     //    a comanda segue para despacho e a nota pode ser reemitida pelo card do Kanban.
     let fiscal: { nota?: unknown; erro?: string } | undefined;
-    if (emitirFiscal) {
+    if (emitirFiscal && !resultado.repetido) {
       try {
         const nota = await emitirNotaDaVenda({
           lojaId: order.lojaId!,
@@ -1520,7 +1497,7 @@ router.post('/deliveries/:id/finalize-order', asyncHandler(async (req: Request, 
     res.json({ success: true, message: 'Pedido finalizado e enviado para entrega.', order, delivery: newDelivery, fiscal });
   } catch (err: any) {
     console.error('[Gateway] Erro ao finalizar comanda de pedido:', err);
-    res.status(err instanceof ErroConferencia ? err.status : 500).json({ error: err.message });
+    res.status(err instanceof ErroConferencia || err instanceof ErroPedido ? err.status : 500).json({ error: err.message });
   }
 }));
 

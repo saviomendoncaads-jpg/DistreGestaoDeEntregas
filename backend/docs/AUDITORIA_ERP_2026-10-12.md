@@ -2,6 +2,8 @@
 
 Data de referência: **12/10/2026 — America/Fortaleza**.
 
+Continuação validada em **13/10/2026**: vínculo pedido/entrega, relatórios sem duplicação e recebimento integral de retorno.
+
 ## Resultado e limites da análise
 
 O DISTRE possui uma base funcional de comércio e entregas: empresas/lojas, catálogo, vitrine, checkout, estoque por loja, separação por EAN, faltas, despacho, módulo fiscal, assinatura e cobrança da plataforma. O Admin Master e os relatórios comerciais foram organizados em módulos próprios nesta entrega.
@@ -38,13 +40,13 @@ P0: acesso/perda de dados. P1: impede operação confiável ou fechamento financ
 
 ## Inventário de pendências e critérios de conclusão
 
-Todas as linhas abaixo permanecem **abertas**. As implementações citadas são evidência do estado atual, não promessa de que o ajuste já existe.
+A01 e A02 foram **fechadas nesta continuação**. A03 foi corrigida para recebimento integral vendável e permanece **parcialmente aberta** para retorno parcial, avaria e quarentena. A04–A28 permanecem abertas.
 
 | ID | Área / prioridade | Lacuna e impacto | Ajuste proposto | Critério verificável para fechar |
 |---|---|---|---|---|
-| A01 | Venda/entrega — P1 | `finalize-order` grava pedido concluído e comanda filha em chamadas separadas; repetição concorrente pode criar duplicatas ou deixar pedido sem entrega. | Relação explícita venda→entrega, transação única, versão otimista e chave idempotente. | Duas requisições simultâneas criam exatamente uma entrega; falha em qualquer gravação não altera nenhuma das duas comandas. |
-| A02 | Relatórios/status — P1 | ENTREGUE no pedido pode significar fim da separação; não comprova entrega ao cliente. | Separar estados comerciais/logísticos; derivar entrega real da comanda vinculada. | Relatório de entregues não inclui pedido só separado; pedido e filho nunca duplicam venda/ticket. |
-| A03 | Devolução — P1 | `return-stock` muda status, mas não aciona o estorno físico do movimento da venda de origem. | Devolver quantidade recebida à venda correta; quarentena/avaria separadas; transação e idempotência. | Pedido da vitrine→separação→insucesso→retorno restaura saldo uma vez; retorno parcial/avariado não aumenta saldo vendável indevidamente. |
+| A01 | Venda/entrega — P1 — **fechada** | Gravações separadas e repetição podiam criar duplicatas. | Transação serializável, bloqueio da venda, vínculo explícito e índice único. Retry retorna a entrega já criada, inclusive após recarga. Legado ambíguo é bloqueado. | Testes SQL de concorrência, rollback, colisão de ID e recarga; fluxo HTTP real confirmou uma entrega. |
+| A02 | Relatórios/status — P1 — **fechada** | Pedido separado aparecia como entregue; pedido e entrega duplicavam vendas. | Pedido fica SEPARADO; relatório conta a venda original uma vez e usa o status da entrega vinculada. Vínculo ambíguo é sinalizado e não prova entrega. Painel operacional representa a comanda filha. | Testes SQL verificam valor, unidades e base entregues antes/depois da entrega física; legado duplicado gera aviso. |
+| A03 | Devolução — P1 — **parcial** | Retorno não estornava a saída da venda original. | Recebimento integral vendável estorna o saldo remanescente da venda de origem e atualiza ambas as comandas na mesma transação. Exige confirmação física explícita; retries não repetem estorno. Parcial/avaria/quarentena ainda não implementados. | Concorrência e falha SQL preservam saldo e estados; HTTP exige confirmação e repetições geram um estorno. Falta aceite de retorno parcial/avariado sem aumento indevido de saldo vendável. |
 | A04 | Todos os canais — P1 | Vitrine grava itens/preço/estoque juntos; WhatsApp, integração e criação direta ainda usam majoritariamente linhas de texto. | Serviço único de venda com itens estruturados, SKU/EAN, preço, descontos, frete, origem e chave externa. | O mesmo produto vendido nos canais habilitados produz itens históricos e movimentos reconciliáveis, ou é explicitamente externo sem baixa local. |
 | A05 | Pagamento de vendas — P1 | `formaPagamento` é uma escolha; não há evidência de recebimento/estorno da venda da loja. | Títulos de clientes, recebimento parcial, caixa/turno, liquidação Pix/cartão e conciliação. | Pedido de R$ 100 com recebimentos de R$ 40+60 fecha R$ 100; devolução gera obrigação de reembolso rastreável. |
 | A06 | Compras/fornecedores — P1 | Entrada de estoque é recebimento manual, sem ciclo completo de compra. | Fornecedor, pedido de compra, recebimento parcial, custo/despesa de aquisição e documento de entrada. | Compra→recebimento→estoque→contas a pagar compartilha documento/origem; repetição não duplica entrada. |
@@ -77,7 +79,7 @@ O painel inclui vendas/pedidos, evolução diária e comparação de períodos, 
 
 Os preços conhecidos vêm dos registros disponíveis de conferência; custos atuais não são usados para inventar margem. Catálogo sem linha estruturada não prova ausência de venda. Forma de pagamento não comprova recebimento. Cobertura de estoque considera o tempo observado desde o início do controle. Falta de preço/histórico é exibida; volumes acima do limite resultam em erro, sem publicar somas truncadas. Datas comerciais usam Fortaleza.
 
-Há duas limitações de origem que precisam ser fechadas para a métrica ficar definitiva: o preço de alguns legados pode ter sido preenchido por reconstrução (A13) e o status do pedido pode representar conclusão da separação (A02). O conjunto de dados histórico não deve ser tratado como certificação de faturamento, caixa ou margem. O relatório não calcula resultado contábil.
+O preço de alguns legados pode ter sido preenchido por reconstrução (A13). O relatório agora deriva o status da entrega vinculada; legados sem vínculo inequívoco recebem aviso de qualidade e não entram como entrega comprovada. O conjunto histórico não certifica faturamento, caixa ou margem. O relatório não calcula resultado contábil.
 
 ## Sequência de consolidação
 
@@ -103,8 +105,9 @@ Cada área mantém a mesma importância de negócio. A ordem acima reflete depen
 
 - Instalação limpa a partir dos lockfiles em diretório independente da produção.
 - Build backend e frontend completo, incluindo TypeScript, concluídos.
-- Suite backend: **206 testes** validados; inclui **22 testes SQL** em bancos temporários próprios (estoque, faltas e segurança de inicialização). Sem alteração no banco da operação.
+- Suite backend: **217 testes** validados; inclui **31 testes SQL** em bancos temporários próprios (estoque, faltas, inicialização e ciclo pedido/entrega/retorno). Sem alteração no banco da operação.
 - Smoke real de servidor: boot/health SQL, aplicação servida, bloqueio de API anônima, criação de empresa/loja/plano e login, cardápio público, handshake Socket.io anônimo recusado/sessão válida aceita e relatório comercial vazio correto.
+- Continuação do smoke real: produto/entrada de estoque, checkout público, preparação/conferência EAN, finalização concorrente, relatório sem duplicação, insucesso e retorno integral repetido com confirmação obrigatória e um estorno. O servidor e banco exclusivos foram encerrados após o teste.
 - Auditoria de dependências após atualização: frontend zero; backend um alerta high de node-forge sem fix publicado. Validação de sintaxe do script de deploy; sem execução em produção.
 - Lint global continua com dívida conhecida descrita em A21. Não foi desabilitado para declarar sucesso.
 - CI remoto, carga, emissão fiscal real, cobrança real, restauração de desastre e jornadas completas de compras/caixa não fazem parte das evidências acima.

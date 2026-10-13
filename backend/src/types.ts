@@ -2,6 +2,7 @@ import type { ConfigVitrine } from './configVitrine';
 export type StatusEntrega =
   | 'RECEBIDO'
   | 'EM_PREPARO'
+  | 'SEPARADO'
   | 'DESPACHADO'
   | 'EM_TRANSITO'
   | 'NO_LOCAL'
@@ -114,6 +115,8 @@ export interface Entrega {
   nomeLoja?: string;
   nomeEmpresa?: string;
   tipoComanda?: 'pedido' | 'entrega';
+  pedidoOrigemId?: string;
+  entregaVinculadaId?: string;
 }
 
 export interface LogWebhook {

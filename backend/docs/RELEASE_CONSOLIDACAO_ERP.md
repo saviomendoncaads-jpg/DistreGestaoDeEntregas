@@ -12,6 +12,9 @@ Esta proposta não foi publicada durante a auditoria. A operação atual permane
 - Callback de entregas exige `DELIVERY_WEBHOOK_ALLOWED_HOSTS` e `DELIVERY_WEBHOOK_SECRET` de pelo menos 32 bytes. O receptor valida `X-Delivery-Engine-Signature` como HMAC-SHA256 do corpo bruto. Retentativas preservam ID/corpo. Não há fila durável de entrega nesta proposta.
 - Conclusão exige nome de recebedor. Foto, CPF e assinatura não enviados permanecem ausentes; nenhum comprovante fictício é criado.
 - Schema ENTREGAS incompatível interrompe startup. A migração legada deve ser planejada e validada separadamente. Nunca resolver o bloqueio apagando a tabela de produção.
+- Finalização de pedido grava SEPARADO e uma única entrega vinculada atomicamente. Repetir a operação retorna a entrega existente. Consumidores de status precisam reconhecer SEPARADO como fim da separação, sem comprovar entrega ao cliente.
+- A coluna aditiva PEDIDO_ORIGEM_ID e seu índice único vinculam a entrega à venda. O boot só associa automaticamente referências legadas exatas, na mesma loja e com uma única entrega; ambiguidades exigem revisão e são sinalizadas nos relatórios.
+- `/api/deliveries/:id/return-stock` exige JSON `{ "confirmacaoIntegral": true }`, após recebimento físico de todos os produtos em condições de revenda. Estorna a saída original e conclui o retorno na mesma transação. Não usar para recebimento parcial, avaria ou quarentena; esses fluxos seguem pendentes. Repetir a chamada não duplica estoque.
 
 ## Antes da promoção
 
@@ -20,7 +23,7 @@ Esta proposta não foi publicada durante a auditoria. A operação atual permane
 3. Fazer backup SQL consistente e verificado, além de uploads, configuração privada e chave fiscal. Confirmar restauração em ambiente isolado. Manter backups fora do checkout e com acesso restrito.
 4. Revisar configurações sem publicar segredos: ambiente, demo/simulador, driver/banco, gateway, fiscal por loja, domínios, proxy confiável e jobs. Uma instância controla os jobs; Redis não resolve sozinho o estado em memória.
 5. Resolver ou tratar formalmente a pendência node-forge da auditoria. Emissão real e documentos históricos precisam das homologações descritas em A12/A13; o relatório não certifica caixa/margem.
-6. Executar os testes SQL em banco temporário e o aceite operacional de criação, separação, cancelamento e retorno. Os itens A01–A03 ainda limitam o ciclo completo e precisam ser tratados para declarar o ERP consolidado.
+6. Executar os testes SQL em banco temporário e o aceite operacional de criação, separação, cancelamento e retorno. A01/A02 passaram nos testes desta proposta; A03 cobre retorno integral vendável, com retorno parcial/avariado ainda pendente. Conferir os avisos de vínculos legados antes de usar relatórios de entrega como fechamento.
 
 ## Execução e recuperação
 

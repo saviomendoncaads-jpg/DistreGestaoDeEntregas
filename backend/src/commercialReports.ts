@@ -12,10 +12,20 @@ export async function readCommercialReport(query: Record<string, unknown>) {
   const result = await pool.request().input('start',mssql.DateTime2,new Date(window.previousStart)).input('currentStart',mssql.DateTime2,new Date(window.start)).input('end',mssql.DateTime2,new Date(window.endExclusive)).input('company',mssql.VarChar(100),filter.companyId).input('store',mssql.VarChar(100),filter.storeId).query(`
     IF OBJECT_ID('tempdb..#ReportOrders') IS NOT NULL DROP TABLE #ReportOrders;
     SELECT TOP (50001) e.ID id,e.LOJA_ID storeId,COALESCE(l.NOME,e.NOME_LOJA,'Loja removida') storeName,
-      COALESCE(c.NOME,e.NOME_EMPRESA,'Empresa removida') companyName,e.CRIADO_EM createdAt,e.STATUS status,e.VALOR value,e.FORMA_PAGAMENTO payment
+      COALESCE(c.NOME,e.NOME_EMPRESA,'Empresa removida') companyName,e.CRIADO_EM createdAt,
+      CASE WHEN e.TIPO_COMANDA='pedido' AND filhos.quantidade=1 THEN filhos.status
+        WHEN e.TIPO_COMANDA='pedido' AND (filhos.quantidade>1 OR e.STATUS IN ('SEPARADO','ENTREGUE','DESPACHADO')) THEN 'VINCULO_PENDENTE'
+        ELSE e.STATUS END status,
+      CAST(CASE WHEN e.TIPO_COMANDA='pedido' AND (filhos.quantidade>1 OR (filhos.quantidade=0 AND e.STATUS IN ('SEPARADO','ENTREGUE','DESPACHADO'))) THEN 1 ELSE 0 END AS BIT) linkIssue,
+      e.VALOR value,e.FORMA_PAGAMENTO payment
     INTO #ReportOrders FROM ENTREGAS e LEFT JOIN LOJAS l ON l.ID=e.LOJA_ID LEFT JOIN EMPRESAS c ON c.ID=l.EMPRESA_ID
+    OUTER APPLY (SELECT COUNT(*) quantidade,MAX(d.STATUS) status FROM ENTREGAS d
+      WHERE e.TIPO_COMANDA='pedido' AND d.TIPO_COMANDA='entrega' AND d.LOJA_ID=e.LOJA_ID
+        AND (d.PEDIDO_ORIGEM_ID=e.ID OR d.REFERENCIA='Origem: Pedido '+e.ID)) filhos
     WHERE CAST(SWITCHOFFSET(TRY_CONVERT(datetimeoffset,e.CRIADO_EM,127),'+00:00') AS datetime2)>=@start
       AND CAST(SWITCHOFFSET(TRY_CONVERT(datetimeoffset,e.CRIADO_EM,127),'+00:00') AS datetime2)<@end
+      AND NOT EXISTS (SELECT 1 FROM ENTREGAS p WHERE e.TIPO_COMANDA='entrega' AND p.TIPO_COMANDA='pedido'
+        AND p.LOJA_ID=e.LOJA_ID AND (e.PEDIDO_ORIGEM_ID=p.ID OR e.REFERENCIA='Origem: Pedido '+p.ID))
       AND e.LOJA_ID IS NOT NULL AND (@store='' OR e.LOJA_ID=@store) AND (@company='' OR l.EMPRESA_ID=@company);
     SELECT * FROM #ReportOrders;
     SELECT TOP (250001) i.PEDIDO_ID orderId,i.PRODUTO_ID productId,i.NOME name,i.QUANTIDADE quantity,i.PRECO price

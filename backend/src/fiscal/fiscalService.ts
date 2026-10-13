@@ -322,6 +322,7 @@ const provedorDaNota = (n: NotaFiscal) => getProvedorFiscal(n.provedor === 'FOCU
 
 /** Id da VENDA: pedido de origem quando a entrega nasceu de um pedido; senão a própria entrega. */
 export function vendaIdDaEntrega(entrega: Entrega): string {
+  if (entrega.pedidoOrigemId) return entrega.pedidoOrigemId;
   const m = (entrega.referencia || '').match(/Origem: Pedido (\S+)/);
   return m ? m[1] : entrega.id;
 }
