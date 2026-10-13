@@ -13,7 +13,7 @@ type Props = ComponentProps<typeof KanbanComandas> & {
   menuActions?: { key: string; label: string; icon: 'products' | 'stock' | 'reports' | 'drivers' | 'vehicles' | 'settings'; onClick: () => void }[];
 };
 type Order = Props['deliveries'][number];
-type Stage = 'todos' | 'novos' | 'separacao' | 'prontos' | 'rota' | 'atrasados' | 'fiscal';
+type Stage = 'todos' | 'novos' | 'separacao' | 'prontos' | 'rota' | 'atrasados' | 'concluidos' | 'fiscal';
 
 // ─── Ícones (traço único, herdam a cor do texto) ─────────────────────────────
 const Ico = ({ children, size = 16 }: { children: ReactNode; size?: number }) => (
@@ -36,14 +36,17 @@ const stages: { key: Stage; label: string; icon: ReactNode }[] = [
   { key: 'prontos', label: 'Despacho', icon: <IcoTruck size={18} /> },
   { key: 'rota', label: 'Entregas', icon: <IcoPin size={18} /> },
   { key: 'atrasados', label: 'Atrasados', icon: <IcoAlert size={18} /> },
+  { key: 'concluidos', label: 'Concluídos', icon: <IcoCheck size={18} /> },
   { key: 'fiscal', label: 'Notas fiscais', icon: <IcoDoc size={18} /> },
 ];
 const onRoute = new Set(['DESPACHADO', 'EM_TRANSITO', 'NO_LOCAL', 'ALERTA_INCIDENTE', 'SLA_ALERTA', 'AGUARDANDO_RETORNO_CD']);
+const completedStatuses = new Set(['ENTREGUE', 'RECUSADO_INSUCESSO', 'PRODUTO_RETORNADO_ESTOQUE', 'CANCELADO']);
 const fiscalIssues = new Set(['REJEITADA', 'ERRO']);
 const LIMITE_ATRASO_MIN = 30;
 const money = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 function normalize(value: string) { return value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLocaleLowerCase('pt-BR'); }
 function stageOf(order: Order): Stage {
+  if (completedStatuses.has(order.status)) return 'concluidos';
   if (order.tipoComanda === 'pedido' && order.status === 'RECEBIDO') return 'novos';
   if (order.tipoComanda === 'pedido' && order.status === 'EM_PREPARO') return 'separacao';
   if (order.tipoComanda !== 'pedido' && order.status === 'RECEBIDO') return 'prontos';
@@ -123,10 +126,11 @@ export default function OperationsWorkspace(props: Props) {
   const sitOf = (o: Order) => situacaoOf(o, nota(o));
 
   const counts = useMemo(() => {
-    const r: Record<Stage, number> = { todos: props.deliveries.length, novos: 0, separacao: 0, prontos: 0, rota: 0, atrasados: 0, fiscal: 0 };
+    const r: Record<Stage, number> = { todos: 0, novos: 0, separacao: 0, prontos: 0, rota: 0, atrasados: 0, concluidos: 0, fiscal: 0 };
     for (const o of props.deliveries) {
       const k = stageOf(o);
       if (k !== 'todos') r[k]++;
+      if (k !== 'concluidos') r.todos++;
       if (atrasado(o, sitOf(o))) r.atrasados++;
       if (fiscalIssues.has(nota(o)?.status ?? '')) r.fiscal++;
     }
@@ -135,7 +139,7 @@ export default function OperationsWorkspace(props: Props) {
   }, [props.deliveries, props.notasPorComanda]);
 
   const filtered = props.deliveries.filter(o => {
-    const ok = stage === 'todos' ? true
+    const ok = stage === 'todos' ? !completedStatuses.has(o.status)
       : stage === 'fiscal' ? fiscalIssues.has(nota(o)?.status ?? '')
         : stage === 'atrasados' ? atrasado(o, sitOf(o))
           : stageOf(o) === stage;
@@ -170,6 +174,7 @@ export default function OperationsWorkspace(props: Props) {
     { key: 'separacao', rotulo: 'Em separação', icone: <IcoBox size={22} /> },
     { key: 'prontos', rotulo: 'Prontos', icone: <IcoCheck size={22} /> },
     { key: 'atrasados', rotulo: 'Atrasados', icone: <IcoAlert size={22} /> },
+    { key: 'concluidos', rotulo: 'Concluídos', icone: <IcoCheck size={22} /> },
   ];
 
   return (
@@ -213,7 +218,8 @@ export default function OperationsWorkspace(props: Props) {
           ))}
         </div>
 
-        <div className="ops-results" role="status">{filtered.length} {filtered.length === 1 ? 'pedido' : 'pedidos'}{stage !== 'todos' && <button type="button" onClick={() => changeStage('todos')}>Ver todos</button>}{query && <button type="button" onClick={() => { setQuery(''); setFocused(null); }}>Limpar busca</button>}</div>
+        {stage === 'concluidos' && <p className="ops-results">Histórico de entregas finalizadas, insucessos encerrados, cancelamentos e retornos ao estoque. O resultado de cada pedido permanece identificado.</p>}
+        <div className="ops-results" role="status">{filtered.length} {filtered.length === 1 ? 'pedido' : 'pedidos'}{stage !== 'todos' && <button type="button" onClick={() => changeStage('todos')}>Ver em andamento</button>}{query && <button type="button" onClick={() => { setQuery(''); setFocused(null); }}>Limpar busca</button>}</div>
 
         {view === 'lista' ? <div className="ops-table-wrap"><table className="ops-table"><caption className="ops-sr-only">Pedidos e situação operacional e fiscal</caption>
           <thead><tr><th>Pedido</th><th>Cliente</th><th>Recebido</th><th>Operação</th><th>Fiscal</th><th>Ação</th></tr></thead>
@@ -237,7 +243,7 @@ export default function OperationsWorkspace(props: Props) {
               </tr>;
             })}
           </tbody></table>
-          {filtered.length === 0 && <div className="ops-empty"><strong>Nenhum pedido nesta visualização</strong><p>Escolha outra etapa ou ajuste a busca.</p><button type="button" onClick={() => { changeStage('todos'); setQuery(''); }}>Ver todos os pedidos</button></div>}
+          {filtered.length === 0 && <div className="ops-empty"><strong>{stage === 'todos' ? 'Nenhum pedido em andamento' : 'Nenhum pedido nesta visualização'}</strong><p>{stage === 'todos' ? 'Os pedidos finalizados estão em Concluídos.' : 'Escolha outra etapa ou ajuste a busca.'}</p><button type="button" onClick={() => { changeStage(stage === 'todos' ? 'concluidos' : 'todos'); setQuery(''); }}>{stage === 'todos' ? 'Ver concluídos' : 'Ver em andamento'}</button></div>}
         </div> : <div className={`ops-board ${focused ? 'ops-board--focused' : ''}`}>
           {focused && <div className="ops-focus-banner"><button type="button" onClick={() => { setFocused(null); setView('lista'); }}>← Voltar à lista</button><span>Pedido {focused}</span></div>}
           {hiddenSelections.length > 0 && <div className="ops-selection-warning" role="alert">Há {hiddenSelections.length} pedido(s) selecionado(s) fora desta visualização. Remova essas seleções antes de despachar. <button type="button" onClick={() => hiddenSelections.forEach(id => props.onToggleManifest(id, false))}>Remover seleções ocultas</button></div>}
