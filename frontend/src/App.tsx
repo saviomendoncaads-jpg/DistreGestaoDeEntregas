@@ -2482,6 +2482,14 @@ export default function App() {
           onPreparar={handlePrepararPedido}
           onFinalizar={handleFinalizarPedido}
           onCancelar={handleCancelarPedido}
+          onConcluirEntrega={async id => {
+            const response = await apiFetch(`${BACKEND_URL}/api/deliveries/${id}/complete`, {
+              method: 'POST', body: JSON.stringify({})
+            });
+            const updated = await response.json();
+            if (!response.ok) throw new Error(updated.error || 'Não foi possível finalizar a entrega.');
+            setAllDeliveries(previous => previous.map(d => d.id === updated.id ? updated : d));
+          }}
           onAbrirComanda={id => {
             setSelectedDeliveryId(id);
             requestAnimationFrame(() => requestAnimationFrame(() => {

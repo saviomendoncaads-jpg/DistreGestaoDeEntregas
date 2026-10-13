@@ -5,7 +5,6 @@ export default function ManualDeliveryActions({ status, onAction }: {
   status: string;
   onAction: (action: Action, payload: Record<string, string>) => Promise<void>;
 }) {
-  const [receiver, setReceiver] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -21,12 +20,8 @@ export default function ManualDeliveryActions({ status, onAction }: {
     <p>Registre o andamento após receber a confirmação do entregador.</p>
     {status !== 'NO_LOCAL' && <button className="btn btn-secondary" disabled={busy}
       onClick={() => submit('arrive', {})}>Registrar chegada ao cliente</button>}
-    <form onSubmit={event => { event.preventDefault(); if (receiver.trim()) void submit('complete', { recebedorNome: receiver.trim() }); }}>
-      <label htmlFor="delivery-receiver">Nome de quem recebeu</label>
-      <input id="delivery-receiver" className="form-input" value={receiver} maxLength={200} required disabled={busy}
-        onChange={event => setReceiver(event.target.value)} />
-      <button className="btn btn-success" type="submit" disabled={busy || !receiver.trim()}>Confirmar entrega realizada</button>
-    </form>
+    <button className="btn btn-success" type="button" disabled={busy}
+      onClick={() => submit('complete', {})}>{busy ? 'Registrando…' : 'Finalizar entrega'}</button>
     <form onSubmit={event => { event.preventDefault(); if (reason.trim()) void submit('fail', { motivoInsucesso: reason.trim() }); }}>
       <label htmlFor="delivery-failure">Motivo do insucesso</label>
       <input id="delivery-failure" className="form-input" value={reason} maxLength={500} required disabled={busy}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import KanbanComandas from './KanbanComandas';
 import { NOME_MODELO, type NotaResumo } from './fiscal/fiscalApi';
 import './operations-workspace.css';
@@ -10,6 +10,7 @@ type Props = ComponentProps<typeof KanbanComandas> & {
   onWorkspaceExit?: () => boolean | Promise<boolean>;
   onDispatchViewChange?: (active: boolean) => void;
   onDespacharProntos: (ids: string[], driverId: string) => Promise<void>;
+  onConcluirEntrega: (id: string) => Promise<void>;
   menuActions?: { key: string; label: string; icon: 'products' | 'stock' | 'reports' | 'drivers' | 'vehicles' | 'settings'; onClick: () => void }[];
 };
 type Order = Props['deliveries'][number];
@@ -119,6 +120,18 @@ export default function OperationsWorkspace(props: Props) {
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'lista' | 'quadro'>('lista');
   const [focused, setFocused] = useState<string | null>(null);
+  const submitting = useRef(new Set<string>());
+  const [pending, setPending] = useState<string[]>([]);
+  const [completionError, setCompletionError] = useState('');
+  async function concluirEntrega(id: string) {
+    if (submitting.current.has(id)) return;
+    submitting.current.add(id);
+    setPending([...submitting.current]);
+    setCompletionError('');
+    try { await props.onConcluirEntrega(id); }
+    catch (error) { setCompletionError(`${id}: ${error instanceof Error ? error.message : 'Não foi possível finalizar a entrega. Tente novamente.'}`); }
+    finally { submitting.current.delete(id); setPending([...submitting.current]); }
+  }
   useEffect(() => {
     props.onDispatchViewChange?.(stage === 'prontos' && !props.activeMenuKey);
     return () => props.onDispatchViewChange?.(false);
@@ -159,7 +172,9 @@ export default function OperationsWorkspace(props: Props) {
   function acao(o: Order): { rotulo: string; fazer: (e: React.MouseEvent) => void; tom?: 'alerta' } | null {
     const sit = sitOf(o);
     const n = nota(o);
-    if (sit === 'rota') return { rotulo: o.status === 'AGUARDANDO_RETORNO_CD' ? 'Registrar retorno' : 'Finalizar entrega', fazer: () => props.onAbrirComanda(o.id) };
+    if (sit === 'rota') return o.status === 'AGUARDANDO_RETORNO_CD'
+      ? { rotulo: 'Registrar retorno', fazer: () => props.onAbrirComanda(o.id) }
+      : { rotulo: pending.includes(o.id) ? 'Finalizando…' : 'Finalizar entrega', fazer: () => { void concluirEntrega(o.id); } };
     if (n && fiscalIssues.has(n.status) && props.onNotaFiscal) return { rotulo: 'Corrigir', tom: 'alerta', fazer: () => props.onNotaFiscal!(o.id, n) };
     if (sit === 'novo') return { rotulo: 'Separar', fazer: e => props.onPreparar(o.id, e) };
     if (sit === 'separacao') return { rotulo: 'Iniciar separação', fazer: e => props.onFinalizar(o.id, e) };
@@ -220,6 +235,7 @@ export default function OperationsWorkspace(props: Props) {
           ))}
         </div>
 
+        {completionError && <p role="alert">{completionError}</p>}
         {stage === 'concluidos' && <p className="ops-results">Histórico de entregas finalizadas, insucessos encerrados, cancelamentos e retornos ao estoque. O resultado de cada pedido permanece identificado.</p>}
         <div className="ops-results" role="status">{filtered.length} {filtered.length === 1 ? 'pedido' : 'pedidos'}{stage !== 'todos' && <button type="button" onClick={() => changeStage('todos')}>Ver em andamento</button>}{query && <button type="button" onClick={() => { setQuery(''); setFocused(null); }}>Limpar busca</button>}</div>
 
@@ -239,7 +255,7 @@ export default function OperationsWorkspace(props: Props) {
                 <td data-label="Operação"><BadgeOperacao sit={sit} order={o} getStatusText={props.getStatusText} />{sit === 'rota' && <div className="ops-route-details"><span>{props.getStatusText(o.status)}</span><span>Entregador: {o.motorista?.name || 'Não informado'}</span><span>{o.endereco}</span></div>}</td>
                 <td data-label="Fiscal"><BadgeFiscal nota={n} sit={sit} onClick={n && props.onNotaFiscal ? () => props.onNotaFiscal!(o.id, n) : undefined} /></td>
                 <td className="ops-acoes"><div className="ops-acoes-inner">
-                  {a && <button type="button" className={`ops-acao ${a.tom === 'alerta' ? 'ops-acao--alerta' : ''}`} onClick={a.fazer}>{a.rotulo}</button>}
+                  {a && <button type="button" disabled={pending.includes(o.id)} className={`ops-acao ${a.tom === 'alerta' ? 'ops-acao--alerta' : ''}`} onClick={a.fazer}>{a.rotulo}</button>}
                   <button type="button" className="ops-abrir" aria-label={`Abrir pedido ${o.id}`} onClick={() => abrir(o)}>›</button>
                 </div></td>
               </tr>;
@@ -249,7 +265,7 @@ export default function OperationsWorkspace(props: Props) {
         </div> : <div className={`ops-board ${focused ? 'ops-board--focused' : ''}`}>
           {focused && <div className="ops-focus-banner"><button type="button" onClick={() => { setFocused(null); setView('lista'); }}>← Voltar à lista</button><span>Pedido {focused}</span></div>}
           {hiddenSelections.length > 0 && <div className="ops-selection-warning" role="alert">Há {hiddenSelections.length} pedido(s) selecionado(s) fora desta visualização. Remova essas seleções antes de despachar. <button type="button" onClick={() => hiddenSelections.forEach(id => props.onToggleManifest(id, false))}>Remover seleções ocultas</button></div>}
-          {focused && !focusExists ? <p className="ops-empty">Este pedido não está mais disponível. Volte à lista para atualizar a seleção.</p> : <KanbanComandas {...props} deliveries={boardOrders} onDespachar={driverId => { if (hiddenSelections.length === 0) props.onDespachar(driverId); }} />}
+          {focused && !focusExists ? <p className="ops-empty">Este pedido não está mais disponível. Volte à lista para atualizar a seleção.</p> : <KanbanComandas {...props} onConcluirEntrega={concluirEntrega} pendingDeliveryIds={pending} deliveries={boardOrders} onDespachar={driverId => { if (hiddenSelections.length === 0) props.onDespachar(driverId); }} />}
         </div>}
         </>}
       </section>

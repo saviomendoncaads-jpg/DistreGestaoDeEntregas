@@ -52,6 +52,24 @@ const request = (path: string, token?: string, method = 'GET', body?: unknown) =
 });
 
 describe('proteção do fluxo operacional', () => {
+  it('finaliza com um clique sem nome do recebedor e não repete a gravação', async () => {
+    deliveries.get('pedido-l1')!.status = 'DESPACHADO';
+    const response = await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', {});
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.status).toBe('ENTREGUE');
+    expect(result.recebedorNome).toBeUndefined();
+    expect(result.dataHoraConclusao).toBeTruthy();
+    expect(mocks.salvar).toHaveBeenCalledTimes(1);
+    expect((await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', {})).status).toBe(200);
+    expect(mocks.salvar).toHaveBeenCalledTimes(1);
+  });
+  it('preserva o nome opcional informado por integrações', async () => {
+    deliveries.get('pedido-l1')!.status = 'EM_TRANSITO';
+    const response = await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', { recebedorNome: ' Maria ' });
+    expect(response.status).toBe(200);
+    expect((await response.json()).recebedorNome).toBe('Maria');
+  });
   it('não permite concluir ou falhar novamente uma entrega já devolvida ao estoque', async () => {
     deliveries.get('pedido-l1')!.status = 'PRODUTO_RETORNADO_ESTOQUE';
     for (const action of ['complete','fail']) expect((await request(`/api/deliveries/pedido-l1/${action}`, 'loja-test', 'POST', { recebedorNome: 'Recebedor' })).status).toBe(409);

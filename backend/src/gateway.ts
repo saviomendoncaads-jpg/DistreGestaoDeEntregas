@@ -782,8 +782,8 @@ router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: R
     res.status(409).json({ error: 'Somente entregas despachadas em andamento podem ser concluídas.' }); return;
   }
   const { recebedorNome, recebedorCPF, comprovanteFotoUrl, assinaturaBase64, justificativaDesvioCoordenada } = req.body;
-  if (typeof recebedorNome !== 'string' || !recebedorNome.trim()) {
-    res.status(400).json({ error: 'Informe o nome do recebedor.' }); return;
+  if (recebedorNome !== undefined && typeof recebedorNome !== 'string') {
+    res.status(400).json({ error: 'Nome do recebedor inválido.' }); return;
   }
 
   // Libera o motorista
@@ -794,7 +794,7 @@ router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: R
   }
 
   delivery.status = 'ENTREGUE';
-  delivery.recebedorNome = recebedorNome.trim();
+  delivery.recebedorNome = typeof recebedorNome === 'string' ? recebedorNome.trim() || undefined : delivery.recebedorNome;
   delivery.recebedorCPF = recebedorCPF || undefined;
   delivery.comprovanteFotoUrl = comprovanteFotoUrl || undefined;
   delivery.assinaturaBase64 = assinaturaBase64 || undefined;

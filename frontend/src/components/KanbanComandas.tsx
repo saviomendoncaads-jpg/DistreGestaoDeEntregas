@@ -46,6 +46,8 @@ interface Props {
   onFinalizar: (id: string, e: React.MouseEvent) => void;
   onCancelar: (id: string, e: React.MouseEvent) => void;
   onAbrirComanda: (id: string) => void;
+  onConcluirEntrega?: (id: string) => Promise<void>;
+  pendingDeliveryIds?: string[];
   onDespachar: (driverId: string) => void;
   onImprimir: (c: ComandaLite) => void;
   getValor: (c: ComandaLite) => number;
@@ -122,7 +124,7 @@ const COLUNAS: ColDef[] = [
 export default function KanbanComandas({
   deliveries, drivers, selectedForManifest, onToggleManifest,
   onPreparar, onFinalizar, onCancelar, onAbrirComanda, onDespachar,
-  getValor, getStatusText, notasPorComanda, onNotaFiscal,
+  getValor, getStatusText, notasPorComanda, onNotaFiscal, onConcluirEntrega, pendingDeliveryIds = [],
 }: Props) {
   const [colAtiva, setColAtiva] = useState<ColKey>('novos');
   const [dispatchOpen, setDispatchOpen] = useState(false);
@@ -254,7 +256,7 @@ export default function KanbanComandas({
         )}
         {col === 'rota' && (
           <div className="kanban-card-actions">
-            <button className="kanban-btn kanban-btn-emerald-soft" onClick={e => { e.stopPropagation(); onAbrirComanda(d.id); }}>Confirmar Entrega</button>
+            <button className="kanban-btn kanban-btn-emerald-soft" disabled={pendingDeliveryIds.includes(d.id)} onClick={e => { e.stopPropagation(); if (d.status === 'AGUARDANDO_RETORNO_CD' || !onConcluirEntrega) onAbrirComanda(d.id); else void onConcluirEntrega(d.id); }}>{d.status === 'AGUARDANDO_RETORNO_CD' ? 'Registrar retorno' : pendingDeliveryIds.includes(d.id) ? 'Finalizando…' : 'Finalizar entrega'}</button>
             <button className="kanban-btn kanban-btn-amber-soft" onClick={e => { e.stopPropagation(); onAbrirComanda(d.id); }}>Reportar Problema</button>
           </div>
         )}
