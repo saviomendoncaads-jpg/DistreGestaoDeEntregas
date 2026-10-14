@@ -1540,12 +1540,8 @@ export default function App() {
   const printInitRef = useRef(false);
   useEffect(() => {
     const pedidosRecebidos = deliveries.filter(d => d.tipoComanda === 'pedido' && d.status === 'RECEBIDO');
-    // Na 1ª carga, marca o backlog como "já visto" para não imprimir pedidos antigos de uma vez.
-    if (!printInitRef.current) {
-      pedidosRecebidos.forEach(d => comandasImpressasRef.current.add(d.id));
-      printInitRef.current = true;
-      return;
-    }
+    // Aguarda a primeira sincronização; a renderização inicial ainda não tem pedidos.
+    if (!printInitRef.current) return;
     // Só auto-imprime no contexto operacional da própria loja (não no admin observando).
     if (comandaPrintMode === 'off' || sessao?.tipo !== 'loja') return;
     pedidosRecebidos
@@ -1567,6 +1563,8 @@ export default function App() {
       setAllDeliveries([]);
       setAllDrivers([]);
       setLiveEvents([]);
+      comandasImpressasRef.current.clear();
+      printInitRef.current = false;
       return;
     }
 
@@ -1603,12 +1601,20 @@ export default function App() {
     });
 
     socket.on('initial_state', (data: any) => {
+      if (!printInitRef.current) {
+        data.deliveries.filter((d: Entrega) => d.tipoComanda === 'pedido' && d.status === 'RECEBIDO').forEach((d: Entrega) => comandasImpressasRef.current.add(d.id));
+        printInitRef.current = true;
+      }
       setAllDeliveries(data.deliveries);
       setAllDrivers(data.drivers);
       // Logs de eventos e webhooks não são mais salvos no estado
     });
 
     socket.on('system_status', (data: any) => {
+      if (!printInitRef.current) {
+        data.deliveries.filter((d: Entrega) => d.tipoComanda === 'pedido' && d.status === 'RECEBIDO').forEach((d: Entrega) => comandasImpressasRef.current.add(d.id));
+        printInitRef.current = true;
+      }
       setAllDeliveries(data.deliveries);
       setAllDrivers(data.drivers);
     });
