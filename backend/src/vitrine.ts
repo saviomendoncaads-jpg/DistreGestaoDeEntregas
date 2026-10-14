@@ -13,7 +13,7 @@ import { normalizarCpfCheckout } from './cpfCheckout';
 import { publicadoNaVitrine, precoVenda } from './catalogoProduto';
 
 // ============================================================================
-// VITRINE PÚBLICA — Painel do Cliente (cardápio + checkout)
+// VITRINE PÚBLICA — Painel do Cliente (catálogo + checkout)
 //
 // Diferente de /api/integracao (server-to-server, autenticado por X-Api-Key),
 // estas rotas são consumidas DIRETO pelo navegador do cliente final, então:
@@ -102,7 +102,7 @@ function rankingMaisVendidos(lojaId: string, produtos: Produto[]): string[] {
   return [...contagem.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
 }
 
-// GET /api/vitrine/:lojaId — Dados públicos da loja + cardápio (produtos ativos)
+// GET /api/vitrine/:lojaId — Dados públicos da loja + catálogo (produtos ativos)
 router.get('/:lojaId', asyncHandler(async (req: Request<{ lojaId: string }>, res: Response) => {
   try {
     const loja = buscarLojaAtiva(req.params.lojaId);
@@ -156,8 +156,8 @@ router.get('/:lojaId', asyncHandler(async (req: Request<{ lojaId: string }>, res
       }))
     });
   } catch (err: any) {
-    console.error('[Vitrine] Erro ao montar cardápio:', err);
-    res.status(500).json({ error: 'Erro interno ao carregar o cardápio.' });
+    console.error('[Vitrine] Erro ao montar catálogo:', err);
+    res.status(500).json({ error: 'Erro interno ao carregar o catálogo.' });
   }
 }));
 
@@ -234,7 +234,7 @@ router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: strin
     for (const [i, item] of itens.entries()) {
       const produto = item?.produtoId ? porId.get(String(item.produtoId)) : undefined;
       if (!produto) {
-        res.status(400).json({ error: `itens[${i}]: produto não encontrado no cardápio desta loja.` });
+        res.status(400).json({ error: `itens[${i}]: produto não encontrado no catálogo desta loja.` });
         return;
       }
       const quantidade = Number(item.quantidade);
@@ -313,7 +313,7 @@ router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: strin
         textoLimpo(payload.observacao, MAX_TEXTO_LONGO),
         telefone ? `Tel: ${telefone}` : undefined,
         troco !== undefined ? `Troco para R$ ${troco.toFixed(2)}` : undefined,
-        'Pedido via Cardápio Online'
+        'Pedido via Catálogo Online'
       ].filter(Boolean).join(' | ') || undefined,
       lojaId: loja.id,
       nomeLoja: loja.nome,

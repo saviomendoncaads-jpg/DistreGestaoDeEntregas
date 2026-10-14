@@ -24,6 +24,7 @@ import { ErroFiscal, emitirNotaDaVenda, normalizarDestinatario, validarEmissao }
 import { notaParaImpressao } from './fiscal/notaApresentacao';
 import { ModeloNota } from './fiscal/tipos';
 import { gerarComandaPdf } from './comandaPdf';
+import { driverOccupied, reconcileDrivers } from './driverAvailability';
 
 const VEHICLE_TYPES_FILE = path.join(__dirname, '..', 'vehicle_types.json');
 
@@ -206,15 +207,6 @@ export async function carregarEntregasDoBanco() {
   try {
     const lista = await obterEntregas();
     lista.forEach(d => {
-      // Se a entrega carregada ainda tem motorista associado em andamento, libera o motorista local
-      // para não travar a frota caso o servidor tenha reiniciado
-      if (d.motorista && (d.status === 'ENTREGUE' || d.status === 'RECUSADO_INSUCESSO')) {
-        const motoristaFrota = drivers.find(drv => drv.id === d.motorista!.id);
-        if (motoristaFrota) motoristaFrota.status = 'ocioso';
-      } else if (d.motorista && (d.status === 'EM_TRANSITO' || d.status === 'DESPACHADO' || d.status === 'NO_LOCAL')) {
-        const motoristaFrota = drivers.find(drv => drv.id === d.motorista!.id);
-        if (motoristaFrota) motoristaFrota.status = 'ocupado';
-      }
       // Extrai o número sequencial do ID para inicializar o cmdCounter
       if (d.id.startsWith('COMANDA-')) {
         const num = parseInt(d.id.replace('COMANDA-', ''), 10);
@@ -232,6 +224,7 @@ export async function carregarEntregasDoBanco() {
       }
       deliveries.set(d.id, d);
     });
+    reconcileDrivers(drivers, deliveries.values());
     console.log(`[Gateway] ${lista.length} entregas carregadas do SQL Server.`);
 
     // Backfill em background: geocodifica entregas antigas que ainda não têm destinoLat/Lng.
@@ -593,7 +586,7 @@ router.get('/loja-atual/uso', asyncHandler(async (req: Request, res: Response) =
 // 5.1. Cadastrar novo motorista (vinculado à loja da sessão)
 router.post('/drivers', asyncHandler(async (req: Request, res: Response) => {
   const { name, vehicleType } = req.body;
-  if (!name || !vehicleType) {
+  if (typeof name !== 'string' || !name.trim() || typeof vehicleType !== 'string' || !vehicleType.trim()) {
     res.status(400).json({ error: 'Nome e tipo de veículo são obrigatórios' });
     return;
   }
@@ -629,8 +622,8 @@ router.post('/drivers', asyncHandler(async (req: Request, res: Response) => {
     dispositivoConectado: true
   };
 
-  drivers.push(newDriver);
   await salvarMotorista(newDriver);
+  drivers.push(newDriver);
   res.status(201).json(newDriver);
 }));
 
@@ -658,8 +651,8 @@ router.delete('/drivers/:id', asyncHandler(async (req: Request, res: Response) =
     return;
   }
 
-  drivers.splice(index, 1);
   await deletarMotorista(id as string);
+  drivers.splice(index, 1);
   res.json({ success: true, message: 'Motoboy removido com sucesso' });
 }));
 
@@ -782,7 +775,8 @@ router.post('/deliveries/:id/resolve', asyncHandler(async (req: Request, res: Re
 
 // 10. Confirmar conclusão da entrega (ENTREGUE - Com critérios POD)
 router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: Response) => {
-  const delivery = deliveries.get(req.params.id as string);
+  const source = deliveries.get(req.params.id as string);
+  const delivery = source ? structuredClone(source) : undefined;
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
     return;
@@ -798,11 +792,9 @@ router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: R
     res.status(400).json({ error: 'Nome do recebedor inválido.' }); return;
   }
 
-  // Libera o motorista
+  // Só libera após concluir todas as entregas e retornos sob sua responsabilidade.
   if (delivery.motorista) {
-    const motoristaFrota = drivers.find(d => d.id === delivery.motorista!.id);
-    if (motoristaFrota) motoristaFrota.status = 'ocioso';
-    delivery.motorista.status = 'ocioso';
+    delivery.motorista.status = driverOccupied(delivery.motorista.id, deliveries.values(), delivery.id) ? 'ocupado' : 'ocioso';
   }
 
   delivery.status = 'ENTREGUE';
@@ -827,8 +819,13 @@ router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: R
     delivery.incidentes.push(newIncident);
   }
 
-  // Persiste no SQL Server
+  // Publica o estado na memória somente após confirmar a gravação.
   await salvarEntrega(delivery);
+  deliveries.set(delivery.id, delivery);
+  if (delivery.motorista) {
+    const driver = drivers.find(d => d.id === delivery.motorista!.id);
+    if (driver) driver.status = delivery.motorista.status;
+  }
 
   // Checa desvio de rota sequencial (se pulou alguma comanda anterior)
   checarDesvioSequencia(delivery);
@@ -851,7 +848,8 @@ router.post('/deliveries/:id/complete', asyncHandler(async (req: Request, res: R
 
 // 11. Registrar insucesso/devolução (AGUARDANDO_RETORNO_CD)
 router.post('/deliveries/:id/fail', asyncHandler(async (req: Request, res: Response) => {
-  const delivery = deliveries.get(req.params.id as string);
+  const source = deliveries.get(req.params.id as string);
+  const delivery = source ? structuredClone(source) : undefined;
   if (!delivery) {
     res.status(404).json({ error: 'Entrega não encontrada' });
     return;
@@ -866,8 +864,6 @@ router.post('/deliveries/:id/fail', asyncHandler(async (req: Request, res: Respo
 
   // O motorista permanece ocupado para custódia temporária
   if (delivery.motorista) {
-    const motoristaFrota = drivers.find(d => d.id === delivery.motorista!.id);
-    if (motoristaFrota) motoristaFrota.status = 'ocupado';
     delivery.motorista.status = 'ocupado';
   }
 
@@ -888,6 +884,11 @@ router.post('/deliveries/:id/fail', asyncHandler(async (req: Request, res: Respo
 
   // Persiste no SQL Server
   await salvarEntrega(delivery);
+  deliveries.set(delivery.id, delivery);
+  if (delivery.motorista) {
+    const driver = drivers.find(d => d.id === delivery.motorista!.id);
+    if (driver) driver.status = 'ocupado';
+  }
 
   // Checa desvio de rota sequencial (se pulou alguma comanda anterior)
   checarDesvioSequencia(delivery);

@@ -209,7 +209,7 @@ export default function PainelCliente() {
         if (ativo) setCardapio(dados);
       })
       .catch(err => {
-        if (ativo) setErro(err?.message || 'Não foi possível carregar o cardápio.');
+        if (ativo) setErro(err?.message || 'Não foi possível carregar o catálogo.');
       });
     return () => {
       ativo = false;
@@ -223,7 +223,7 @@ export default function PainelCliente() {
           <span className="v-estado-vazio-icone" aria-hidden="true">🔗</span>
           <h2>Link incompleto</h2>
           <p>
-            Este cardápio é acessado por um link no formato <code>/loja/&lt;id-da-loja&gt;</code>.
+            Este catálogo é acessado por um link no formato <code>/loja/&lt;id-da-loja&gt;</code>.
             Peça o link correto à loja.
           </p>
         </div>
@@ -236,7 +236,7 @@ export default function PainelCliente() {
       <div className="v-pagina v-pagina--centro">
         <div className="v-estado-vazio">
           <span className="v-estado-vazio-icone" aria-hidden="true">😕</span>
-          <h2>Não foi possível abrir o cardápio</h2>
+          <h2>Não foi possível abrir o catálogo</h2>
           <p>{erro}</p>
           <button type="button" className="v-btn-secundario" onClick={() => window.location.reload()}>
             Tentar novamente
@@ -249,7 +249,7 @@ export default function PainelCliente() {
   if (!cardapio) {
     return (
       <div className="v-pagina v-pagina--centro">
-        <div className="v-carregando" role="status" aria-label="Carregando cardápio">
+        <div className="v-carregando" role="status" aria-label="Carregando catálogo">
           <span /><span /><span />
         </div>
       </div>

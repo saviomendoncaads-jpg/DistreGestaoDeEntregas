@@ -120,6 +120,7 @@ export default function OperationsWorkspace(props: Props) {
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'lista' | 'quadro'>('lista');
   const [focused, setFocused] = useState<string | null>(null);
+  const [listPage, setListPage] = useState(0);
   const submitting = useRef(new Set<string>());
   const [pending, setPending] = useState<string[]>([]);
   const [completionError, setCompletionError] = useState('');
@@ -160,7 +161,10 @@ export default function OperationsWorkspace(props: Props) {
     return ok && normalize(`${o.id} ${o.nomeCliente} ${o.endereco}`).includes(normalize(query.trim()));
   }).sort((a, b) => (ORDEM[sitOf(a)] - ORDEM[sitOf(b)]) || (tempo(b) - tempo(a)));
 
-  const changeStage = async (next: Stage) => { if (await props.onWorkspaceExit?.() === false) return; setStage(next); if (next === 'rota') setQuery(''); setFocused(null); setView('lista'); };
+  const pageCount = Math.max(1, Math.ceil(filtered.length / 50));
+  const pageIndex = Math.min(listPage, pageCount - 1);
+  const listedOrders = filtered.slice(pageIndex * 50, (pageIndex + 1) * 50);
+  const changeStage = async (next: Stage) => { if (await props.onWorkspaceExit?.() === false) return; setStage(next); setListPage(0); if (next === 'rota') setQuery(''); setFocused(null); setView('lista'); };
   const title = stage === 'todos' ? 'Pedidos' : stages.find(s => s.key === stage)?.label ?? 'Pedidos';
   const focusExists = props.deliveries.some(o => o.id === focused);
   const boardOrders = focused ? props.deliveries.filter(o => o.id === focused) : filtered;
@@ -220,7 +224,7 @@ export default function OperationsWorkspace(props: Props) {
         <div className="ops-heading">
           <h2>{title}</h2>
           <label className="ops-search"><Ico size={18}><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></Ico>
-            <input type="search" aria-label="Buscar pedido ou cliente" placeholder="Buscar pedido ou cliente" value={query} onChange={e => { setQuery(e.target.value); setFocused(null); }} />
+            <input type="search" aria-label="Buscar pedido ou cliente" placeholder="Buscar pedido ou cliente" value={query} onChange={e => { setQuery(e.target.value); setListPage(0); setFocused(null); }} />
           </label>
           <div className="ops-view-switch" aria-label="Visualização">{(['lista', 'quadro'] as const).map(mode => <button type="button" key={mode} aria-pressed={view === mode} onClick={() => { setView(mode); setFocused(null); }}>{mode === 'lista' ? 'Lista' : 'Quadro'}</button>)}</div>
         </div>
@@ -236,12 +240,13 @@ export default function OperationsWorkspace(props: Props) {
 
         {completionError && <p role="alert">{completionError}</p>}
         {stage === 'concluidos' && <p className="ops-results">Histórico de entregas finalizadas, insucessos encerrados, cancelamentos e retornos ao estoque. O resultado de cada pedido permanece identificado.</p>}
-        <div className="ops-results" role="status">{filtered.length} {filtered.length === 1 ? 'pedido' : 'pedidos'}{stage !== 'todos' && <button type="button" onClick={() => changeStage('todos')}>Ver em andamento</button>}{query && <button type="button" onClick={() => { setQuery(''); setFocused(null); }}>Limpar busca</button>}</div>
+        <div className="ops-results" role="status">{filtered.length} {filtered.length === 1 ? 'pedido' : 'pedidos'}{stage !== 'todos' && <button type="button" onClick={() => changeStage('todos')}>Ver em andamento</button>}{query && <button type="button" onClick={() => { setQuery(''); setListPage(0); setFocused(null); }}>Limpar busca</button>}</div>
+        {view === 'lista' && pageCount > 1 && <nav className="ops-results" aria-label="Páginas de pedidos"><span>Mostrando {pageIndex * 50 + 1}–{Math.min((pageIndex + 1) * 50, filtered.length)} de {filtered.length}</span><button type="button" disabled={pageIndex === 0} onClick={() => setListPage(pageIndex - 1)}>Anterior</button><button type="button" disabled={pageIndex === pageCount - 1} onClick={() => setListPage(pageIndex + 1)}>Próxima</button></nav>}
 
         {view === 'lista' ? <div className="ops-table-wrap"><table className="ops-table"><caption className="ops-sr-only">Pedidos e situação operacional e fiscal</caption>
           <thead><tr><th>Pedido</th><th>Cliente</th><th>Recebido</th><th>Operação</th><th>Fiscal</th><th>Ação</th></tr></thead>
           <tbody>
-            {filtered.map(o => {
+            {listedOrders.map(o => {
               const sit = sitOf(o); const n = nota(o); const a = acao(o); const min = minutosNaEtapa(o); const atras = atrasado(o, sit);
               const data = o.criadoEm ? new Date(o.criadoEm) : null;
               return <tr key={o.id} className={`ops-row ops-sit--${sit}${atras ? ' is-atrasado' : ''}`}>

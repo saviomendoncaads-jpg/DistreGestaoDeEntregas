@@ -134,9 +134,9 @@ export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar
       <div className="v-estado-vazio">
         <span className="v-estado-vazio-icone" aria-hidden="true">🛒</span>
         <h2>Sua sacola está vazia</h2>
-        <p>Adicione itens do cardápio para finalizar um pedido.</p>
+        <p>Adicione itens do catálogo para finalizar um pedido.</p>
         <button type="button" className="v-btn-secundario" onClick={onVoltar}>
-          Voltar ao cardápio
+          Voltar ao catálogo
         </button>
       </div>
     );
@@ -145,7 +145,7 @@ export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar
   return (
     <div className="v-checkout">
       <button type="button" className="v-btn-voltar" onClick={onVoltar}>
-        ← Voltar ao cardápio
+        ← Voltar ao catálogo
       </button>
 
       {config.pedidoMinimo > 0 && subtotal < config.pedidoMinimo && <div className="vt-aviso" role="status">Pedido mínimo de {formatarPreco(config.pedidoMinimo)} em produtos. Adicione mais {formatarPreco(config.pedidoMinimo - subtotal)} à sua sacola para continuar.</div>}

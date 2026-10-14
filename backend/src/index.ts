@@ -35,6 +35,7 @@ import webhookRouter from './billing/webhookRoutes';
 import { iniciarWorkerWebhooks } from './billing/webhookProcessor';
 import { iniciarDunning } from './billing/dunningScheduler';
 import commercialReportsRouter from './commercialReports';
+import { groupByShop } from './shopSnapshots';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -344,10 +345,12 @@ setInterval(() => {
   };
   const todasEntregas = Array.from(deliveries.values());
 
+  const entregasPorLoja = groupByShop(todasEntregas);
+  const motoristasPorLoja = groupByShop(drivers);
   // Emite para admin/sem-sessão: todos os dados.
   // io.local: cada instância envia o snapshot do SEU estado só aos SEUS clientes —
   // evita snapshots conflitantes entre réplicas (o adapter Redis propagaria o full-state).
-  io.local.to('admin').emit('system_status', {
+  if (io.sockets.adapter.rooms.has('admin')) io.local.to('admin').emit('system_status', {
     deliveries: todasEntregas,
     drivers,
     agents: agentStates,
@@ -358,8 +361,9 @@ setInterval(() => {
 
   // Emite para cada loja: somente seus próprios dados
   for (const loja of lojas) {
-    const entregasLoja = todasEntregas.filter(d => d.lojaId === loja.id);
-    const driversLoja = drivers.filter(d => d.lojaId === loja.id);
+    if (!io.sockets.adapter.rooms.has(`loja-${loja.id}`)) continue;
+    const entregasLoja = entregasPorLoja.get(loja.id) || [];
+    const driversLoja = motoristasPorLoja.get(loja.id) || [];
     io.local.to(`loja-${loja.id}`).emit('system_status', {
       deliveries: entregasLoja,
       drivers: driversLoja,

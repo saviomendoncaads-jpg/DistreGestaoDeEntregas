@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import type { ProdutoVitrine } from '../types';
 
 // ============================================================================
-// SIDEBAR DE CATEGORIAS — navegação do cardápio público.
+// SIDEBAR DE CATEGORIAS — navegação do catálogo público.
 // As categorias NÃO são fixas: a árvore é derivada dos campos categoria/
 // subcategoria que a loja define produto a produto no painel (GestaoVitrine).
 // Produtos sem categoria caem no grupo "Outros" quando a loja usa categorias.
@@ -138,7 +138,7 @@ export default function SidebarCategorias({ categorias, filtro, onFiltrar }: Pro
   }
 
   function aoClicarCategoria(nome: string) {
-    // Clicar na categoria já ativa limpa o filtro (volta ao cardápio completo).
+    // Clicar na categoria já ativa limpa o filtro (volta ao catálogo completo).
     onFiltrar(filtro.categoria === nome ? {} : { categoria: nome });
   }
 
@@ -148,9 +148,9 @@ export default function SidebarCategorias({ categorias, filtro, onFiltrar }: Pro
 
   return (
     <aside className="v-sidebar">
-      <nav aria-label="Categorias do cardápio">
+      <nav aria-label="Categorias do catálogo">
         <ul className="v-sidebar-lista">
-          {/* Item fixo: cardápio completo (estado padrão da vitrine) */}
+          {/* Item fixo: catálogo completo (estado padrão da vitrine) */}
           <li>
             <button
               type="button"

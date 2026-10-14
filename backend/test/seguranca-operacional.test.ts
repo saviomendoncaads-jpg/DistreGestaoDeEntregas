@@ -1,10 +1,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import type { Server } from 'http';
-const mocks = vi.hoisted(() => ({ salvar: vi.fn(), produtos: vi.fn() }));
+const mocks = vi.hoisted(() => ({ salvar: vi.fn(), produtos: vi.fn(), salvarMotorista: vi.fn(), deletarMotorista: vi.fn() }));
 vi.mock('../src/database', () => ({
   pool: undefined, salvarEntrega: mocks.salvar, obterEntregas: vi.fn().mockResolvedValue([]),
-  obterMotoristas: vi.fn().mockResolvedValue([]), salvarMotorista: vi.fn(), deletarMotorista: vi.fn(),
+  obterMotoristas: vi.fn().mockResolvedValue([]), salvarMotorista: mocks.salvarMotorista, deletarMotorista: mocks.deletarMotorista,
   obterTiposVeiculos: vi.fn().mockResolvedValue([]), salvarTipoVeiculo: vi.fn(), obterProdutos: mocks.produtos,
   verificarAdminNoBanco: vi.fn().mockResolvedValue(false), salvarLoja: vi.fn(), salvarSessao: vi.fn(),
   deletarSessao: vi.fn(), deletarSessoesPorLoja: vi.fn(), deletarSessoesPorEmpresa: vi.fn(), obterSessoesValidas: vi.fn(),
@@ -36,6 +36,8 @@ afterAll(async () => { await new Promise<void>(resolve => server.close(() => res
 beforeEach(() => {
   sessions.clear(); deliveries.clear(); drivers.length = 0; whatsappSessions.clear();
   mocks.salvar.mockReset(); mocks.salvar.mockResolvedValue(undefined); mocks.produtos.mockReset(); mocks.produtos.mockResolvedValue([]);
+  mocks.salvarMotorista.mockReset(); mocks.salvarMotorista.mockResolvedValue(undefined);
+  mocks.deletarMotorista.mockReset(); mocks.deletarMotorista.mockResolvedValue(undefined);
   lojas[0].ativo = true; lojas[0].statusFinanceiro = 'REGULAR';
   const now = new Date().toISOString();
   sessions.set('admin-test', { tipo: 'admin', token: 'admin-test', criadoEm: now });
@@ -52,6 +54,41 @@ const request = (path: string, token?: string, method = 'GET', body?: unknown) =
 });
 
 describe('proteção do fluxo operacional', () => {
+  it('não cria nem remove um motorista da memória se a operação no SQL falhar', async () => {
+    mocks.salvarMotorista.mockRejectedValueOnce(new Error('Falha SQL'));
+    expect((await request('/api/drivers', 'admin-test', 'POST', { name: 'Teste', vehicleType: 'motorcycle' })).status).toBe(503);
+    expect(drivers).toHaveLength(0);
+    drivers.push({ id: 'driver-l1', lojaId: 'l1', name: 'Teste', vehicleType: 'motorcycle', status: 'ocioso' });
+    mocks.deletarMotorista.mockRejectedValueOnce(new Error('Falha SQL'));
+    expect((await request('/api/drivers/driver-l1', 'loja-test', 'DELETE')).status).toBe(503);
+    expect(drivers).toHaveLength(1);
+  });
+  it('não confirma entrega na memória nem libera o motoboy quando a gravação falha', async () => {
+    const driver = { id: 'driver-l1', lojaId: 'l1', name: 'Teste', vehicleType: 'motorcycle', status: 'ocupado' as const };
+    drivers.push(driver);
+    Object.assign(deliveries.get('pedido-l1')!, { status: 'DESPACHADO', motorista: driver });
+    mocks.salvar.mockRejectedValueOnce(new Error('Falha SQL'));
+    expect((await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', {})).status).toBe(503);
+    expect(deliveries.get('pedido-l1')!.status).toBe('DESPACHADO');
+    expect(drivers[0].status).toBe('ocupado');
+  });
+  it('mantém o motoboy ocupado até a última entrega de um lote', async () => {
+    const driver = { id: 'driver-l1', lojaId: 'l1', name: 'Teste', vehicleType: 'motorcycle', status: 'ocupado' as const };
+    drivers.push(driver);
+    Object.assign(deliveries.get('pedido-l1')!, { status: 'DESPACHADO', motorista: driver });
+    deliveries.set('segunda-l1', { ...comanda('segunda-l1', 'l1'), status: 'DESPACHADO', motorista: driver });
+    expect((await request('/api/deliveries/pedido-l1/complete', 'loja-test', 'POST', {})).status).toBe(200);
+    expect(drivers[0].status).toBe('ocupado');
+    expect((await request('/api/deliveries/segunda-l1/complete', 'loja-test', 'POST', {})).status).toBe(200);
+    expect(drivers[0].status).toBe('ocioso');
+  });
+  it('falha de gravação do insucesso preserva a entrega e os incidentes anteriores', async () => {
+    deliveries.get('pedido-l1')!.status = 'DESPACHADO';
+    mocks.salvar.mockRejectedValueOnce(new Error('Falha SQL'));
+    expect((await request('/api/deliveries/pedido-l1/fail', 'loja-test', 'POST', { motivoInsucesso: 'Cliente ausente' })).status).toBe(503);
+    expect(deliveries.get('pedido-l1')!.status).toBe('DESPACHADO');
+    expect(deliveries.get('pedido-l1')!.incidentes).toHaveLength(0);
+  });
   it('baixa a comanda em PDF como arquivo e respeita a loja da sessão', async () => {
     const response = await request('/api/deliveries/pedido-l1/comanda.pdf', 'loja-test');
     expect(response.status).toBe(200);

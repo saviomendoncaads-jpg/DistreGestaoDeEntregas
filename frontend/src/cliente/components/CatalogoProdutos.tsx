@@ -79,14 +79,14 @@ export default function CatalogoProdutos({ produtos }: { produtos: ProdutoVitrin
     return (
       <div className="v-estado-vazio">
         <span className="v-estado-vazio-icone" aria-hidden="true">🍽️</span>
-        <h2>Cardápio em preparação</h2>
+        <h2>Catálogo em preparação</h2>
         <p>Esta loja ainda não publicou produtos. Volte em breve!</p>
       </div>
     );
   }
 
   return (
-    <section className="v-grid" aria-label="Cardápio de produtos">
+    <section className="v-grid" aria-label="Catálogo de produtos">
       {produtos.map((p, i) => (
         <CardProduto key={p.id} produto={p} indice={i} />
       ))}
