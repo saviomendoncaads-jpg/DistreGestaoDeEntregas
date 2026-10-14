@@ -9,3 +9,7 @@ Em Configurações, escolha Impressão automática, busque as impressoras, selec
 Impressoras Microsoft Print To PDF salvam arquivos individuais em `%LOCALAPPDATA%\Distre\Impressao`. Fax, OneNote e XPS ficam indisponíveis no modo automático porque dependem de interação adicional. Impressoras físicas precisam de driver instalado e conexão funcional.
 
 As origens autorizadas são verificadas antes de listar ou imprimir; cada processo gera uma credencial aleatória para as requisições de impressão. Trabalhos são limitados em tamanho e entram em fila. O conector recebe texto de comandas; não executa comandos enviados pelo navegador.
+
+Opcional: `DISTRE_PDF_PYTHON` aponta para um Python com `pypdf` e `pdfplumber`. Nessa instalação, esses pacotes ajustam a página gerada pelo driver virtual para uma comanda de 80 mm, sem alterar o conteúdo. O conector permite baixar o resultado do teste por uma rota local protegida.
+
+Um inicializador na pasta Inicializar do usuário mantém o conector disponível ao entrar no Windows, sem abrir janela e sem iniciar outro processo quando a porta local já está ativa.

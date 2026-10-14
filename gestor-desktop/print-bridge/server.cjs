@@ -28,8 +28,15 @@ const server = http.createServer(async (req, res) => {
       const printers = (Array.isArray(result) ? result : [result]).map(p => ({ name: p.Name, driver: p.DriverName, automatic: !/OneNote|Fax|XPS/i.test(`${p.Name} ${p.DriverName}`) }));
       reply(200, { printers, token }); return;
     }
-    if (req.url !== '/print' || req.method !== 'POST') { reply(404, { error: 'Recurso não encontrado.' }); return; }
     if (req.headers['x-distre-print-token'] !== token) { reply(403, { error: 'Reconecte as impressoras locais.' }); return; }
+    const fileMatch = req.url.match(/^\/files\/(comanda-[a-f0-9-]{36}\.pdf)$/);
+    if (req.method === 'GET' && fileMatch) {
+      const file = path.join(output, fileMatch[1]);
+      if (!fs.existsSync(file)) { reply(404, { error: 'Arquivo de teste não encontrado.' }); return; }
+      res.writeHead(200, { 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${fileMatch[1]}"` });
+      fs.createReadStream(file).pipe(res); return;
+    }
+    if (req.url !== '/print' || req.method !== 'POST') { reply(404, { error: 'Recurso não encontrado.' }); return; }
     if (pending >= 20) { reply(429, { error: 'Fila de impressão cheia. Aguarde e tente novamente.' }); return; }
     let body = '';
     for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body) > 100000) { reply(413, { error: 'Comanda muito grande.' }); return; } }
@@ -43,11 +50,14 @@ const server = http.createServer(async (req, res) => {
       try {
         fs.writeFileSync(requestPath, JSON.stringify({ ...job, id, outputPath }), 'utf8');
         await run(['-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'print-job.ps1'), '-RequestPath', requestPath]);
+        if (fs.existsSync(outputPath) && process.env.DISTRE_PDF_PYTHON) {
+          await new Promise((resolve, reject) => execFile(process.env.DISTRE_PDF_PYTHON, [path.join(__dirname, 'crop-pdf.py'), outputPath], { windowsHide: true, timeout: 30000 }, error => error ? reject(Error('A impressão foi concluída, mas o formato do PDF de teste não pôde ser ajustado.')) : resolve()));
+        }
       } finally { pending--; fs.rmSync(requestPath, { force: true }); }
     });
     printQueue = task;
     await task;
-    reply(200, { success: true, file: fs.existsSync(outputPath) ? outputPath : undefined });
+    reply(200, { success: true, file: fs.existsSync(outputPath) ? outputPath : undefined, fileName: fs.existsSync(outputPath) ? path.basename(outputPath) : undefined });
   } catch (error) { reply(500, { error: error.message || 'Falha na impressão local.' }); }
 });
 server.listen(17891, '127.0.0.1');

@@ -1441,7 +1441,7 @@ export default function App() {
         `Data: ${new Date().toLocaleString('pt-BR')}`, '', 'CLIENTE', e.nomeCliente,
         '', 'ENTREGA', e.endereco, ...(e.referencia ? [`Referência: ${e.referencia}`] : []),
         '', 'ITENS', ...e.itens, '', `Pagamento: ${e.formaPagamento || 'Não informado'}`,
-        `TOTAL: R$ ${getDeliveryValue(e).toFixed(2)}`, '', 'Comanda de pedido — não é documento fiscal',
+        `TOTAL: ${getDeliveryValue(e).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, '', 'Comanda de pedido — não é documento fiscal',
       ]).catch(error => {
         avisarErro(`Comanda ${e.id}: ${error instanceof Error ? error.message : 'Falha na impressão local.'}`);
       });
