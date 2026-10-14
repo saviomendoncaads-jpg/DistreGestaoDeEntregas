@@ -1056,7 +1056,7 @@ export async function deletarEmpresa(id: string) {
 export async function obterLojas(): Promise<Loja[]> {
   try {
     if (!pool) return [];
-    const result = await pool.request().query('SELECT * FROM LOJAS');
+    const result = await pool.request().query(`SELECT l.*, t.TRIAL_EXPIRA_EM FROM LOJAS l OUTER APPLY (SELECT TOP(1) s.TRIAL_EXPIRA_EM FROM ASSINATURAS_EMPRESAS s WHERE s.LOJA_ID=l.ID AND s.STATUS IN ('TRIAL','PENDENTE') AND s.TRIAL_EXPIRA_EM IS NOT NULL ORDER BY s.CRIADO_EM DESC) t`);
     return result.recordset.map((row: any) => ({
       id: row.ID,
       empresaId: row.EMPRESA_ID,
@@ -1076,6 +1076,7 @@ export async function obterLojas(): Promise<Loja[]> {
       recebePedidos: row.RECEBE_PEDIDOS === 1 || row.RECEBE_PEDIDOS === true,
       statusFinanceiro: row.STATUS_FINANCEIRO || 'REGULAR',
       latitude: row.LATITUDE !== null && row.LATITUDE !== undefined ? Number(row.LATITUDE) : undefined,
+      trialExpiraEm: row.TRIAL_EXPIRA_EM || undefined,
       longitude: row.LONGITUDE !== null && row.LONGITUDE !== undefined ? Number(row.LONGITUDE) : undefined,
       configVitrine: lerConfigVitrine(row.CONFIG_VITRINE),
       logoUrl: row.LOGO_URL || undefined

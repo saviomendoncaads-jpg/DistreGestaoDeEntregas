@@ -170,6 +170,7 @@ const HISTORICO_PERFORMANCE: DadoPerformanceHistorico[] = [];
 
 interface Sessao {
   operacaoBloqueada?: boolean;
+  trialExpiraEm?: string;
   tipo: 'admin' | 'loja';
   lojaId?: string;
   nomeLoja?: string;
@@ -342,11 +343,13 @@ export default function App() {
         nomeLoja: data.nomeLoja,
         nomeEmpresa: data.nomeEmpresa,
         operacaoBloqueada: data.operacaoBloqueada,
+        trialExpiraEm: data.trialExpiraEm,
         token: data.token
       };
 
       setSessao(novaSessao);
       savePanelSession(novaSessao);
+      if(data.aguardandoPagamento){location.assign('/area-cliente?secao=cobrancas');return;}
       const next = new URLSearchParams(location.search).get('next');
       if (next === 'implantacao' || next === 'area-cliente') location.assign(next === 'implantacao' ? '/area-cliente?secao=implantacao' : '/area-cliente');
       setLoginUsuario('');
@@ -959,11 +962,12 @@ export default function App() {
   const [showProdutosModal, setShowProdutosModal] = useState(false);
   const [showVitrineModal, setShowVitrineModal] = useState(false);
   const [operacaoBloqueada,setOperacaoBloqueada]=useState<boolean|null>(null);
+  const [trialExpiraEm,setTrialExpiraEm]=useState<string|undefined>();
   useEffect(()=>{
     if(sessao?.tipo!=='loja'){setOperacaoBloqueada(false);return;}
     setOperacaoBloqueada(sessao.operacaoBloqueada??null);
     let cancelled=false;
-    const refresh=async()=>{try{const r=await fetch(`${BACKEND_URL}/api/auth/me`,{headers:{Authorization:`Bearer ${sessao.token}`}});if(r.status===401){if(!cancelled)void handleLogout();return;}if(!r.ok)return;const d=await r.json();if(!cancelled)setOperacaoBloqueada(d.operacaoBloqueada===true);}catch{/* Permissão anterior preservada; servidor continua protegendo ações. */}};
+    const refresh=async()=>{try{const r=await fetch(`${BACKEND_URL}/api/auth/me`,{headers:{Authorization:`Bearer ${sessao.token}`}});if(r.status===401){if(!cancelled)void handleLogout();return;}if(!r.ok)return;const d=await r.json();if(!cancelled){setOperacaoBloqueada(d.operacaoBloqueada===true);setTrialExpiraEm(d.trialExpiraEm);}}catch{/* Permissão anterior preservada; servidor continua protegendo ações. */}};
     void refresh();const timer=setInterval(()=>void refresh(),15000);window.addEventListener('focus',refresh);return()=>{cancelled=true;clearInterval(timer);window.removeEventListener('focus',refresh);};
   },[sessao?.token]);
   const [implementationState,setImplementationState]=useState<ImplementationState|null>(null);
@@ -1595,6 +1599,7 @@ export default function App() {
       setIsConnected(false);
     });
 
+    socket.on('payment_required', () => { location.assign('/area-cliente?secao=cobrancas'); });
     socket.on('session_expired', () => {
       console.warn('[Socket] Sessão expirou ou o servidor reiniciou. Forçando logout...');
       handleLogout();
@@ -2255,7 +2260,8 @@ export default function App() {
         </div>
       </header>
 
-      {sessao.tipo==='loja'&&operacaoBloqueada!==false&&<section className="operation-payment-banner" role="status"><div><strong>{operacaoBloqueada?'Operação suspensa por inadimplência':'Verificando acesso à operação…'}</strong><p>{operacaoBloqueada?'Regularize o pagamento para continuar operando. Sua conta e suas cobranças continuam disponíveis.':'Aguarde a conferência da sua assinatura.'}</p></div><a className="btn btn-primary" href="/area-cliente?secao=cobrancas">Acessar cobranças e pagamentos</a></section>}
+      {sessao.tipo==='loja'&&trialExpiraEm&&operacaoBloqueada===false&&<section className="operation-payment-banner" role="status"><div><strong>Seu teste gratuito de 7 dias está ativo</strong><p>Use operação e implantação até {new Date(trialExpiraEm).toLocaleString('pt-BR',{timeZone:'America/Fortaleza'})}. Depois, continue com o Pix confirmado.</p></div><a className="btn btn-primary" href="/area-cliente?secao=cobrancas">Ver plano e pagamento</a></section>}
+      {sessao.tipo==='loja'&&operacaoBloqueada!==false&&<section className="operation-payment-banner" role="status"><div><strong>{operacaoBloqueada?'Pagamento necessário para continuar':'Verificando acesso à operação…'}</strong><p>{operacaoBloqueada?'Regularize o pagamento para continuar operando. Sua conta e suas cobranças continuam disponíveis.':'Aguarde a conferência da sua assinatura.'}</p></div><a className="btn btn-primary" href="/area-cliente?secao=cobrancas">Acessar cobranças e pagamentos</a></section>}
       <div className={sessao.tipo==='loja'&&operacaoBloqueada!==false?'operation-payment-muted':undefined} inert={sessao.tipo==='loja'&&operacaoBloqueada!==false} aria-label="Área de operação">
       {/* 2. Incidents Alerts Banner */}
       {alertDeliveries.length > 0 && (

@@ -4,6 +4,7 @@ import mssql from '../db';
 import { pool } from '../database';
 import { getGateway } from './gatewayFactory';
 import { appendLedger } from './ledgerService';
+import { meiosPagamento } from './clientBilling';
 
 // Criação de assinatura POR LOJA + primeira fatura. Usado pelo cadastro de loja
 // (tenants.ts). Mantém a regra de billing no módulo billing — tenants não toca
@@ -14,6 +15,8 @@ export async function criarAssinaturaComPrimeiraFatura(opts: {
   lojaId: string;
   planoId: string;
   diaVencimento?: number;
+  aguardarPrimeiroPagamento?: boolean;
+  trialDias?: number;
 }): Promise<{
   assinaturaId: string;
   faturaId: string;
@@ -24,6 +27,8 @@ export async function criarAssinaturaComPrimeiraFatura(opts: {
   boletoUrl?: string;
   pixCopiaCola?: string;
   linkPagamento?: string;
+  pixChave?: string;
+  trialExpiraEm?: string;
 }> {
   if (!pool) throw new Error('Banco indisponível');
 
@@ -38,33 +43,24 @@ export async function criarAssinaturaComPrimeiraFatura(opts: {
   }
   const plano = planoRes.recordset[0];
   const valor = Number(plano.VALOR_MENSAL);
+  if(!Number.isFinite(valor)||valor<=0)throw new Error('O plano precisa ter uma mensalidade válida. Contate a administração.');
   const dia = opts.diaVencimento && opts.diaVencimento >= 1 && opts.diaVencimento <= 28 ? opts.diaVencimento : 10;
 
   const agora = new Date();
   const agoraIso = agora.toISOString();
+  const trialExpiraEm = opts.trialDias === 7 ? new Date(agora.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString() : undefined;
 
-  // Assinatura ATIVA da loja.
+  // Cadastro público permanece pendente até a confirmação do recebimento.
   const assinaturaId = `sub-${crypto.randomUUID().substring(0, 8)}`;
-  const hoje=diaCobranca();let vencIso=hoje.slice(0,8)+String(dia).padStart(2,'0');if(vencIso<hoje)vencIso=proximoMes(vencIso,dia);
+  const hoje=diaCobranca();let vencIso=hoje.slice(0,8)+String(dia).padStart(2,'0');if(vencIso<hoje)vencIso=proximoMes(vencIso,dia);if(trialExpiraEm)vencIso=diaCobranca(trialExpiraEm);
   const proximoFat=proximoMes(vencIso,dia);
-  await pool.request()
-    .input('id', mssql.VarChar, assinaturaId)
-    .input('empId', mssql.VarChar, opts.empresaId)
-    .input('lojaId', mssql.VarChar, opts.lojaId)
-    .input('planoId', mssql.VarChar, opts.planoId)
-    .input('valorContrato',mssql.Decimal(10,2),valor)
-    .input('dia', mssql.Int, dia)
-    .input('criado', mssql.VarChar, agoraIso)
-    .input('proximo', mssql.VarChar, proximoFat)
-    .query(`INSERT INTO ASSINATURAS_EMPRESAS (ID, EMPRESA_ID, LOJA_ID, PLANO_ID, STATUS, VALOR_PERSONALIZADO, DIA_VENCIMENTO, CRIADO_EM, PROXIMO_FATURAMENTO)
-            VALUES (@id, @empId, @lojaId, @planoId, 'ATIVA', @valorContrato, @dia, @criado, @proximo)`);
-
   // Primeira fatura PENDENTE: vence no dia escolhido (deste mês se ainda não passou; senão, do próximo).
   const refMesAno = vencIso.slice(5,7)+'/'+vencIso.slice(0,4);
   const faturaId = `fat-${crypto.randomUUID().substring(0, 8)}`;
 
-  const gateway = getGateway();
-  const cobranca = await gateway.criarCobranca({
+  const pixChave = opts.aguardarPrimeiroPagamento ? meiosPagamento({STATUS:'PENDENTE',VALOR_BRUTO:valor,VALOR_DESCONTO:0}).pixChave : undefined;
+  if(opts.aguardarPrimeiroPagamento && !pixChave && (process.env.PAYMENT_GATEWAY||'MOCK').toUpperCase() !== 'ASAAS') throw new Error('O pagamento da plataforma ainda não está configurado. Contate a administração.');
+  const cobranca = pixChave ? {gatewayFaturaId: `manual_${faturaId}`, boletoUrl: undefined, pixCopiaCola: undefined, linkPagamento: undefined} : await getGateway().criarCobranca({
     empresaId: opts.empresaId,
     faturaId,
     valor,
@@ -73,7 +69,24 @@ export async function criarAssinaturaComPrimeiraFatura(opts: {
     descricao: `Mensalidade ${plano.NOME} ${refMesAno}`,
   });
 
-  await pool.request()
+  const tx = new mssql.Transaction(pool);
+  await tx.begin();
+  try {
+  await tx.request()
+    .input('id', mssql.VarChar, assinaturaId)
+    .input('empId', mssql.VarChar, opts.empresaId)
+    .input('lojaId', mssql.VarChar, opts.lojaId)
+    .input('planoId', mssql.VarChar, opts.planoId)
+    .input('valorContrato',mssql.Decimal(10,2),valor)
+    .input('dia', mssql.Int, dia)
+    .input('criado', mssql.VarChar, agoraIso)
+    .input('proximo', mssql.VarChar, proximoFat)
+    .input('status', mssql.VarChar, trialExpiraEm ? 'TRIAL' : opts.aguardarPrimeiroPagamento ? 'PENDENTE' : 'ATIVA')
+    .input('trial', mssql.VarChar, trialExpiraEm || null)
+    .query(`INSERT INTO ASSINATURAS_EMPRESAS (ID, EMPRESA_ID, LOJA_ID, PLANO_ID, STATUS, VALOR_PERSONALIZADO, DIA_VENCIMENTO, CRIADO_EM, PROXIMO_FATURAMENTO, TRIAL_EXPIRA_EM)
+            VALUES (@id, @empId, @lojaId, @planoId, @status, @valorContrato, @dia, @criado, @proximo, @trial)`);
+
+  await tx.request()
     .input('id', mssql.VarChar, faturaId)
     .input('empId', mssql.VarChar, opts.empresaId)
     .input('lojaId', mssql.VarChar, opts.lojaId)
@@ -99,8 +112,15 @@ export async function criarAssinaturaComPrimeiraFatura(opts: {
     valor,
     origem: 'MANUAL_ADMIN',
     metadados: { evento: 'cadastro_loja', lojaId: opts.lojaId, planoId: opts.planoId },
-    criadoPor: 'ADMIN',
-  });
+    criadoPor: opts.aguardarPrimeiroPagamento ? 'CADASTRO_PUBLICO' : 'ADMIN',
+  }, tx);
+  if(trialExpiraEm)await tx.request().input('id',mssql.VarChar,opts.lojaId).query("UPDATE LOJAS SET STATUS_FINANCEIRO='REGULAR' WHERE ID=@id");
+  await tx.commit();
+  } catch (error) {
+    await tx.rollback();
+    if(!pixChave)await getGateway().cancelarCobranca(cobranca.gatewayFaturaId).catch(()=>{});
+    throw error;
+  }
 
   return {
     assinaturaId,
@@ -112,6 +132,8 @@ export async function criarAssinaturaComPrimeiraFatura(opts: {
     boletoUrl: cobranca.boletoUrl,
     pixCopiaCola: cobranca.pixCopiaCola,
     linkPagamento: cobranca.linkPagamento,
+    pixChave,
+    trialExpiraEm,
   };
 }
 

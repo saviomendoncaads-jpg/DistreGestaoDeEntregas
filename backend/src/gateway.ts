@@ -7,7 +7,7 @@ import { iniciarConferencia, registrarLeitura, ErroConferencia } from './confere
 import { registrarFalta, validarEntradaFalta } from './faltas';
 import { Entrega, Motorista, StatusEntrega, Prioridade, TipoCarga, FormaPagamento, LogWebhook, Incidente, TipoVeiculo } from './types';
 import { salvarEntrega, obterEntregas, obterMotoristas, salvarMotorista, deletarMotorista, obterTiposVeiculos, salvarTipoVeiculo, obterProdutos } from './database';
-import { obterSessaoDoRequest, exigirLojaAdimplente, verificarSessao, verificarAdmin } from './auth';
+import { obterSessaoDoRequest, exigirLojaAdimplente, exigirPrimeiroPagamento, verificarSessao, verificarAdmin } from './auth';
 import { podeAcessarLoja, simuladorHabilitado } from './security/sessionPolicy';
 import { lojas, empresas } from './tenants';
 import { autoDispatchSettings } from './config';
@@ -310,6 +310,7 @@ async function backfillCoordenadasDestino() {
 
 const router = Router();
 router.use(verificarSessao);
+router.use(exigirPrimeiroPagamento);
 router.use((req, res, next) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') return exigirLojaAdimplente(req, res, next);
   next();

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import mssql, { Transaction } from './db';
 import { pool } from './database';
 import { transacao } from './estoque';
-import { obterSessaoDoRequest, verificarSessao } from './auth';
+import { obterSessaoDoRequest, verificarSessao, exigirPrimeiroPagamento } from './auth';
 import { lojas } from './tenants';
 import { asyncHandler } from './http/asyncHandler';
 export const IMPLANTACAO_SCHEMA = `
@@ -56,7 +56,7 @@ export async function concluirEtapa(lojaId:string,passo:number,confirmacao:boole
    UPDATE IMPLANTACAO_LOJAS SET PASSOS_CONCLUIDOS=@passo,CONCLUIDO_EM=CASE WHEN @passo=7 THEN SYSUTCDATETIME() ELSE NULL END WHERE LOJA_ID=@loja`);
  });return lerImplantacao(lojaId);
 }
-const router=Router();router.use(verificarSessao);
+const router=Router();router.use(verificarSessao);router.use(exigirPrimeiroPagamento);
 /** Indicadores somente de consulta; pagamento registrado não comprova a data de liberação do acesso. */
 export async function lerIndicadoresImplantacao(){
  const r=await pool.request().query(`

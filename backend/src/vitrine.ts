@@ -6,6 +6,7 @@ import { obterProdutos } from './database';
 import { saldosPublicos, salvarVendaComEstoque, ErroEstoque } from './estoque';
 import { Entrega, FormaPagamento, Produto } from './types';
 import { lojas, empresas } from './tenants';
+import { lojaBloqueadaFinanceiro } from './auth';
 import { deliveries, gerarIdComanda } from './gateway';
 import { geocodificarEndereco } from './geocoding';
 import { verificarLimiteEntregasMes, erroLimite } from './billing/planLimitsService';
@@ -112,7 +113,7 @@ router.get('/:lojaId', asyncHandler(async (req: Request<{ lojaId: string }>, res
     }
 
     const config = lerConfigVitrine(loja.configVitrine);
-    const suspensa = loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO';
+    const suspensa = lojaBloqueadaFinanceiro(loja);
     const produtos = suspensa ? [] : (await obterProdutos(loja.id)).filter(publicadoNaVitrine);
     const saldos = suspensa ? new Map<string, number>() : await saldosPublicos(loja.id);
     const empresa = empresas.find(e => e.id === loja.empresaId);
@@ -169,7 +170,7 @@ router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: strin
       res.status(404).json({ error: 'Loja não encontrada.' });
       return;
     }
-    if (loja.statusFinanceiro === 'SUSPENSO' || loja.statusFinanceiro === 'CANCELADO') {
+    if (lojaBloqueadaFinanceiro(loja)) {
       res.status(503).json({ error: 'Esta loja não está aceitando pedidos no momento.' });
       return;
     }

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { lojas } from '../tenants';
-import { verificarSessao, obterSessaoDoRequest, lojaBloqueadaFinanceiro } from '../auth';
+import { verificarSessao, obterSessaoDoRequest, lojaBloqueadaFinanceiro, lojaAguardandoPagamento } from '../auth';
 import { pool } from '../database';
 import mssql from '../db';
 import { asyncHandler } from '../http/asyncHandler';
@@ -26,7 +26,7 @@ router.get('/', verificarSessao, asyncHandler(async (req,res) => {
     LEFT JOIN ASSINATURAS_EMPRESAS A ON A.ID=F.ASSINATURAS_EMPRESAS_ID
     WHERE F.EMPRESA_ID=@empresa AND (F.LOJA_ID=@loja OR (F.LOJA_ID IS NULL AND (A.LOJA_ID=@loja OR A.LOJA_ID IS NULL)))
     ORDER BY CASE WHEN F.STATUS IN ('PENDENTE','ATRASADA','VENCIDA') THEN 0 ELSE 1 END, F.DATA_VENCIMENTO DESC`);
-  res.json({operacaoBloqueada:lojaBloqueadaFinanceiro(loja),nomeLoja:loja.nome,faturas:result.recordset.map((f:any)=>({
+  res.json({operacaoBloqueada:lojaBloqueadaFinanceiro(loja),aguardandoPagamento:lojaAguardandoPagamento(loja),trialExpiraEm:loja.trialExpiraEm,nomeLoja:loja.nome,faturas:result.recordset.map((f:any)=>({
     id:f.ID,escopo:f.ESCOPO_LOJA?'LOJA':'REDE',referencia:f.REFERENCIA_MES_ANO,valor:Number(f.VALOR_BRUTO)-Number(f.VALOR_DESCONTO),status:f.STATUS,
     vencimento:f.DATA_VENCIMENTO,pagamento:f.DATA_PAGAMENTO,...meiosPagamento(f)
   }))});

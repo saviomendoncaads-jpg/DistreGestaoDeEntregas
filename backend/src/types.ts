@@ -177,6 +177,7 @@ export interface Loja {
   criadoEm: string;
   recebePedidos?: boolean;
   statusFinanceiro?: string;  // 'REGULAR' | 'INADIMPLENTE' | 'SUSPENSO' | 'CANCELADO' — billing por loja
+  trialExpiraEm?: string;
   latitude?: number;   // coordenada geográfica resolvida a partir do endereço (Nominatim)
   longitude?: number;
   configVitrine?: ConfigVitrine;

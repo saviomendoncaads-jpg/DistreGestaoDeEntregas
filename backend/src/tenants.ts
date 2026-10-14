@@ -172,6 +172,16 @@ const signupLimiter = rateLimit({
 router.post('/signup', signupLimiter, asyncHandler(async (req: Request, res: Response) => {
   const { empresa: empIn, loja: lojaIn, planoId, diaVencimento } = req.body || {};
 
+  if (!empIn || !lojaIn || typeof empIn !== 'object' || typeof lojaIn !== 'object' || Array.isArray(empIn) || Array.isArray(lojaIn)) {
+    res.status(400).json({error:'Informe os dados da empresa e da loja.'});return;
+  }
+  const fields = [empIn.nome,empIn.cnpj,lojaIn.nome,lojaIn.usuario,lojaIn.senha,lojaIn.endereco,lojaIn.cidade,planoId];
+  const optional = [empIn.telefone,empIn.email,lojaIn.cnpj,lojaIn.numero,lojaIn.bairro,lojaIn.uf,lojaIn.cep];
+  if(fields.some(v=>typeof v!=='string'||!v.trim()||v.length>1024)||optional.some(v=>v!==undefined&&(typeof v!=='string'||v.length>254))){res.status(400).json({error:'Revise os campos do cadastro. Use textos válidos dentro do tamanho permitido.'});return;}
+  if(lojaIn.usuario.trim().length>50||empIn.nome.trim().length>200||lojaIn.nome.trim().length>200||lojaIn.endereco.trim().length>200||lojaIn.cidade.trim().length>100||String(empIn.cnpj).replace(/[^a-z0-9]/gi,'').length!==14){res.status(400).json({error:'Revise o CNPJ, o usuário e os dados da loja.'});return;}
+  if(diaVencimento!==undefined&&(!Number.isInteger(Number(diaVencimento))||Number(diaVencimento)<1||Number(diaVencimento)>28)){res.status(400).json({error:'O dia de vencimento deve estar entre 1 e 28.'});return;}
+  if(empIn.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empIn.email)){res.status(400).json({error:'Informe um e-mail válido.'});return;}
+
   if (!empIn?.nome || !empIn?.cnpj) {
     res.status(400).json({ error: 'Dados da empresa (nome e CNPJ) são obrigatórios.' });
     return;
@@ -193,11 +203,11 @@ router.post('/signup', signupLimiter, asyncHandler(async (req: Request, res: Res
     return;
   }
 
-  const empresaCnpj = String(empIn.cnpj).trim();
+  const empresaCnpj = String(empIn.cnpj).replace(/[^a-z0-9]/gi,'').toUpperCase();
   const lojaUsuario = String(lojaIn.usuario).trim().toLowerCase();
-  const lojaCnpj = lojaIn.cnpj ? String(lojaIn.cnpj).trim() : undefined;
+  const lojaCnpj = lojaIn.cnpj ? String(lojaIn.cnpj).replace(/[^a-z0-9]/gi,'').toUpperCase() : undefined;
 
-  if (empresas.some(e => e.cnpj === empresaCnpj)) {
+  if (empresas.some(e => e.cnpj.replace(/[^a-z0-9]/gi,'').toUpperCase() === empresaCnpj.replace(/[^a-z0-9]/gi,'').toUpperCase())) {
     res.status(409).json({ error: 'Já existe uma empresa com este CNPJ.' });
     return;
   }
@@ -247,6 +257,7 @@ router.post('/signup', signupLimiter, asyncHandler(async (req: Request, res: Res
     ativo: true,
     criadoEm: new Date().toISOString(),
     recebePedidos: lojaIn.recebePedidos === true || lojaIn.recebePedidos === 'true',
+    statusFinanceiro: 'AGUARDANDO_PAGAMENTO',
   };
   try {
     await resolverCoordenadasLoja(loja);
@@ -266,25 +277,32 @@ router.post('/signup', signupLimiter, asyncHandler(async (req: Request, res: Res
       empresaId: empresa.id,
       lojaId: loja.id,
       planoId,
+      aguardarPrimeiroPagamento: true,
+      trialDias: 7,
       diaVencimento: diaVencimento ? Number(diaVencimento) : undefined,
     });
 
+    loja.trialExpiraEm = assinatura.trialExpiraEm;
+    loja.statusFinanceiro = 'REGULAR';
     res.status(201).json({
       success: true,
-      mensagem: 'Conta criada com sucesso! Pague a 1ª mensalidade para ativar o painel.',
+      mensagem: 'Conta criada! Você tem 7 dias gratuitos de operação e implantação. Depois, continue mediante pagamento confirmado.',
       empresa: { id: empresa.id, nome: empresa.nome },
-      loja: { id: loja.id, nome: loja.nome, usuario: loja.usuario, chaveAcesso: loja.chaveAcesso },
+      loja: { id: loja.id, nome: loja.nome, usuario: loja.usuario },
       assinatura: {
         id: assinatura.assinaturaId,
         plano: assinatura.planoNome,
         valor: assinatura.valor,
         vencimento: assinatura.vencimento,
+        trialExpiraEm: assinatura.trialExpiraEm,
       },
       pagamento: {
         faturaId: assinatura.faturaId,
         pixCopiaCola: assinatura.pixCopiaCola,
         boletoUrl: assinatura.boletoUrl,
         linkPagamento: assinatura.linkPagamento,
+        pixChave: assinatura.pixChave,
+        confirmacaoPagamento: assinatura.pixChave ? 'MANUAL' : 'GATEWAY',
       },
     });
   } catch (subErr: any) {

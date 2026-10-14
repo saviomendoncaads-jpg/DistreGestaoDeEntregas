@@ -1,4 +1,4 @@
-import { bloqueiaFatura,carenciaValida } from './billingPolicy';
+import { bloqueiaFatura,carenciaValida,diaCobranca,proximoMes } from './billingPolicy';
 import mssql, { Transaction } from '../db';
 import { pool } from '../database';
 import { appendLedger } from './ledgerService';
@@ -10,7 +10,7 @@ import { empresas, lojas } from '../tenants';
 // assinatura), deriva EMPRESAS.STATUS_FINANCEIRO e registra no ledger. Transição
 // inválida é auditada como TRANSICAO_REJEITADA — nunca aplicada em silêncio.
 
-export type StatusAssinatura = 'TRIAL' | 'ATIVA' | 'ATRASADA' | 'SUSPENSA' | 'CANCELADA';
+export type StatusAssinatura = 'PENDENTE' | 'TRIAL' | 'ATIVA' | 'ATRASADA' | 'SUSPENSA' | 'CANCELADA';
 
 export type EventoAssinatura =
   | 'payment.confirmed'
@@ -22,7 +22,8 @@ export type EventoAssinatura =
   | 'trial.expired';
 
 const TRANSICOES: Record<string, Partial<Record<EventoAssinatura, StatusAssinatura>>> = {
-  TRIAL:     { 'payment.confirmed': 'ATIVA', 'trial.expired': 'CANCELADA', 'CANCELAR': 'CANCELADA', 'subscription.deleted': 'CANCELADA' },
+  PENDENTE: { 'payment.confirmed': 'ATIVA', 'CANCELAR': 'CANCELADA', 'subscription.deleted': 'CANCELADA' },
+  TRIAL:     { 'payment.confirmed': 'ATIVA', 'trial.expired': 'PENDENTE', 'CANCELAR': 'CANCELADA', 'subscription.deleted': 'CANCELADA' },
   ATIVA:     { 'payment.overdue': 'ATRASADA', 'payment.failed': 'ATRASADA', 'SUSPENDER': 'SUSPENSA', 'CANCELAR': 'CANCELADA', 'subscription.deleted': 'CANCELADA' },
   ATRASADA:  { 'payment.confirmed': 'ATIVA', 'SUSPENDER': 'SUSPENSA', 'CANCELAR': 'CANCELADA', 'subscription.deleted': 'CANCELADA' },
   SUSPENSA:  { 'payment.confirmed': 'ATIVA', 'CANCELAR': 'CANCELADA', 'subscription.deleted': 'CANCELADA' },
@@ -31,6 +32,7 @@ const TRANSICOES: Record<string, Partial<Record<EventoAssinatura, StatusAssinatu
 
 // Deriva o status financeiro da empresa a partir do estado da assinatura.
 const STATUS_EMPRESA: Record<StatusAssinatura, string> = {
+  PENDENTE: 'AGUARDANDO_PAGAMENTO',
   TRIAL: 'REGULAR',
   ATIVA: 'REGULAR',
   ATRASADA: 'INADIMPLENTE',
@@ -64,6 +66,8 @@ export async function transicionar(assinaturaId: string, evento: EventoAssinatur
 
     const sub = r.recordset[0];
     if(evento==='payment.confirmed'){
+      const paid = (await tx.request().input('sub',mssql.VarChar,assinaturaId).query("SELECT TOP(1) ID FROM FATURAS WHERE ASSINATURAS_EMPRESAS_ID=@sub AND STATUS='PAGA'")).recordset[0];
+      if(['PENDENTE','TRIAL'].includes(sub.STATUS) && !paid){await tx.rollback(); return {ok:false,motivo:'primeiro_pagamento_nao_confirmado',de:sub.STATUS};}
       const cfg=(await tx.request().query('SELECT TOP(1) DIAS_CARENCIA_BLOQUEIO FROM CONFIGURACOES_COBRANCA ORDER BY ID')).recordset[0];
       const grace=carenciaValida(cfg?.DIAS_CARENCIA_BLOQUEIO??5);
       const debts=(await tx.request().input('emp',mssql.VarChar,sub.EMPRESA_ID).query("SELECT f.*,a.LOJA_ID assinaturaLoja FROM FATURAS f WITH(UPDLOCK,HOLDLOCK) LEFT JOIN ASSINATURAS_EMPRESAS a ON a.ID=f.ASSINATURAS_EMPRESAS_ID WHERE f.EMPRESA_ID=@emp AND f.STATUS IN ('PENDENTE','ATRASADA','VENCIDA')")).recordset;
@@ -110,6 +114,10 @@ export async function transicionar(assinaturaId: string, evento: EventoAssinatur
     }
 
     // Deriva o status financeiro da LOJA (cobrança por loja). Fallback p/ empresa
+    if(destino==='ATIVA' && ['TRIAL','PENDENTE'].includes(atual)) {
+      const inicio=new Date(Math.max(Date.now(),Date.parse(sub.TRIAL_EXPIRA_EM||'')||0)).toISOString();
+      await tx.request().input('id',mssql.VarChar,assinaturaId).input('next',mssql.VarChar,proximoMes(diaCobranca(inicio),sub.DIA_VENCIMENTO)).query('UPDATE ASSINATURAS_EMPRESAS SET PROXIMO_FATURAMENTO=@next WHERE ID=@id');
+    }
     // em assinaturas legadas sem LOJA_ID.
     await sincronizarStatusFinanceiro(tx, sub, destino);
 
@@ -143,7 +151,7 @@ async function sincronizarStatusFinanceiro(tx: Transaction, sub: any, destino: S
       .input('s', mssql.VarChar, novo)
       .query('UPDATE LOJAS SET STATUS_FINANCEIRO = @s WHERE ID = @id');
     const loja = lojas.find((l) => l.id === sub.LOJA_ID);
-    if (loja) loja.statusFinanceiro = novo;
+    if (loja) {loja.statusFinanceiro = novo; if(destino==='ATIVA')loja.trialExpiraEm=undefined;}
   } else {
     // Legado: assinatura por empresa.
     await tx.request()

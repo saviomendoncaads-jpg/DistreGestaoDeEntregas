@@ -39,12 +39,22 @@ beforeEach(() => {
   mocks.salvarMotorista.mockReset(); mocks.salvarMotorista.mockResolvedValue(undefined);
   mocks.deletarMotorista.mockReset(); mocks.deletarMotorista.mockResolvedValue(undefined);
   lojas[0].ativo = true; lojas[0].statusFinanceiro = 'REGULAR';
+  delete lojas[0].trialExpiraEm;
   const now = new Date().toISOString();
   sessions.set('admin-test', { tipo: 'admin', token: 'admin-test', criadoEm: now });
   sessions.set('loja-test', { tipo: 'loja', lojaId: 'l1', token: 'loja-test', criadoEm: now });
   deliveries.set('pedido-l1', comanda('pedido-l1', 'l1')); deliveries.set('pedido-l2', comanda('pedido-l2', 'l2'));
 });
-afterEach(() => { vi.unstubAllEnvs(); });
+afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
+it('bloqueia no instante do fim do teste gratuito, mesmo sem rodar a cobrança',async()=>{
+ const expiry=Date.now()+60000;lojas[0].trialExpiraEm=new Date(expiry).toISOString();
+ const clock=vi.spyOn(Date,'now').mockReturnValue(expiry-1);
+ expect((await request('/api/deliveries','loja-test')).status).toBe(200);
+ clock.mockReturnValue(expiry);
+ expect((await request('/api/deliveries','loja-test')).status).toBe(402);
+ const current=await (await request('/auth/me','loja-test')).json();expect(current.aguardandoPagamento).toBe(true);
+ expect((await request('/auth/me','loja-test')).status).toBe(200);
+});
 function comanda(id: string, lojaId: string): Entrega {
   return { id, lojaId, nomeCliente: 'Cliente de teste', endereco: 'Endereço de teste', itens: [], prioridade: 'media', tipoCarga: 'normal', status: 'RECEBIDO', incidentes: [], logsWebhook: [], criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString() };
 }

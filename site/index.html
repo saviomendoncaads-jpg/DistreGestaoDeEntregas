@@ -593,22 +593,22 @@
             <div class="field"><label>Senha <span class="req">*</span></label><input name="loja_senha" type="password" autocomplete="new-password" placeholder="mín. 6 caracteres" /><div class="err">Mínimo de 6 caracteres.</div></div>
             <div class="field"><label>Confirmar senha <span class="req">*</span></label><input name="loja_senha2" type="password" autocomplete="new-password" placeholder="repita a senha" /><div class="err">As senhas não conferem.</div></div>
           </div>
-          <div class="form-actions"><button type="button" class="btn btn-ghost" data-back>Voltar</button><button type="submit" class="btn btn-ok" id="submitBtn">Criar conta e gerar Pix</button></div>
+          <div class="form-actions"><button type="button" class="btn btn-ghost" data-back>Voltar</button><button type="submit" class="btn btn-ok" id="submitBtn">Criar conta e testar por 7 dias</button></div>
         </div>
       </form>
       <div id="successPane" hidden>
         <div class="success-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
         <h3 style="text-align:center;font-size:20px">Conta criada</h3>
-        <p style="text-align:center;color:var(--slate-2);font-size:13.5px;margin-top:8px">Pague a 1ª mensalidade para ativar seu painel.</p>
-        <div class="pix-box"><div class="lbl">Pix copia e cola</div><div class="pix-code" id="pixCode">—</div><button class="btn btn-primary btn-block" id="copyPix">Copiar código Pix</button><a class="btn btn-ghost btn-block" id="boletoLink" style="margin-top:8px;display:none" target="_blank" rel="noopener">Pagar com Boleto / Cartão</a></div>
+        <p style="text-align:center;color:var(--slate-2);font-size:13.5px;margin-top:8px">Seu teste gratuito de 7 dias começou. Depois, continue com o pagamento confirmado.</p>
+        <div class="pix-box"><div class="lbl" id="pixLabel">Pix</div><div class="pix-code" id="pixCode">—</div><button class="btn btn-primary btn-block" id="copyPix">Copiar Pix</button><p id="paymentNotice" style="margin-top:12px;font-size:13px"></p><a class="btn btn-ghost btn-block" id="boletoLink" style="margin-top:8px;display:none" target="_blank" rel="noopener">Abrir cobrança</a></div>
         <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-sm);padding:16px;margin-bottom:16px">
           <div class="kv"><span class="k">Plano</span><span class="v" id="okPlano">—</span></div>
           <div class="kv"><span class="k">Valor</span><span class="v" id="okValor">—</span></div>
           <div class="kv"><span class="k">Vencimento</span><span class="v" id="okVenc">—</span></div>
           <div class="kv"><span class="k">Seu usuário</span><span class="v" id="okUser">—</span></div>
-          <div class="kv"><span class="k">Chave de acesso</span><span class="v" id="okChave">—</span></div>
+          <div class="kv"><span class="k">Acesso ao sistema</span><span class="v" id="trialExpiry">7 dias gratuitos</span></div>
         </div>
-        <a class="btn btn-ok btn-block" id="goPanel">Ir para o painel</a>
+        <a class="btn btn-ok btn-block" id="goPanel">Começar meu teste gratuito</a>
       </div>
     </div>
   </div>
@@ -695,11 +695,14 @@
     form.hidden = true; $('#stepper').style.display = 'none'; clearError();
     var pane = $('#successPane'); pane.hidden = false;
     var pg = (data.pagamento || {}), as = (data.assinatura || {}), lj = (data.loja || {});
-    $('#pixCode').textContent = pg.pixCopiaCola || '(Pix indisponível — use o boleto/link abaixo)';
+    $('#pixLabel').textContent = pg.pixChave ? 'Chave Pix da plataforma' : 'Pix copia e cola';
+    $('#pixCode').textContent = pg.pixChave || pg.pixCopiaCola || 'Pagamento indisponível. Contate a administração.';
+    $('#copyPix').disabled = !(pg.pixChave || pg.pixCopiaCola);
+    $('#paymentNotice').textContent = pg.confirmacaoPagamento === 'MANUAL' ? 'Pague o valor exato exibido abaixo. A administração confere o recebimento para manter operação e implantação após os 7 dias gratuitos. Clicar em copiar ou informar que pagou não libera o acesso.' : 'A operação e a implantação continuam disponíveis após os 7 dias gratuitos com o recebimento confirmado pelo serviço de pagamento.';
     if (pg.boletoUrl || pg.linkPagamento) { var bl = $('#boletoLink'); bl.style.display = 'flex'; bl.href = pg.boletoUrl || pg.linkPagamento; }
     $('#okPlano').textContent = as.plano || '—'; $('#okValor').textContent = as.valor != null ? brl(as.valor) : '—';
     $('#okVenc').textContent = as.vencimento ? new Date(as.vencimento).toLocaleDateString('pt-BR') : '—';
-    $('#okUser').textContent = lj.usuario || '—'; $('#okChave').textContent = lj.chaveAcesso || '—';
+    $('#okUser').textContent = lj.usuario || '—'; if(as.trialExpiraEm) $('#trialExpiry').textContent = 'Gratuito até ' + new Date(as.trialExpiraEm).toLocaleString('pt-BR');
     pane.scrollIntoView({ block: 'start' });
   }
   $('#copyPix').onclick = function () { var c = $('#pixCode').textContent || ''; if (navigator.clipboard && c) navigator.clipboard.writeText(c).then(function () { toast('Código Pix copiado'); }); else toast('Selecione e copie o código manualmente.'); };

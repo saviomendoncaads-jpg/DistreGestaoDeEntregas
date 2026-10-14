@@ -13,7 +13,7 @@ import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { createClient } from 'redis';
 import tenantsRouter, { carregarTenantsDoBanco, lojas } from './tenants';
-import authRouter, { obterSessaoPorToken, carregarSessoesDoBanco, verificarApiKeyIntegracao } from './auth';
+import authRouter, { obterSessaoPorToken, carregarSessoesDoBanco, verificarApiKeyIntegracao, exigirPrimeiroPagamento } from './auth';
 import apiRouter, { deliveries, webhooksReceived, drivers, carregarEntregasDoBanco, carregarMotoristasDoBanco, carregarVeiculosDoBanco } from './gateway';
 import whatsappRouter, { whatsappBotService, obterSessaoWhatsapp } from './whatsapp';
 import { broker } from './broker';
@@ -84,12 +84,12 @@ app.use('/api/billing/webhooks', express.raw({ type: '*/*' }), webhookRouter);
 
 // Gestão da vitrine (painel da loja): CRUD de produtos, logo e upload de imagens.
 // Montado ANTES do json global para usar um limite maior (imagens em base64).
-app.use('/api/gestao', express.json({ limit: '5mb' }), gestaoVitrineRouter);
-app.use('/api/implantacao', express.json({ limit: '20kb' }), implantacaoRouter);
+app.use('/api/gestao', exigirPrimeiroPagamento, express.json({ limit: '5mb' }), gestaoVitrineRouter);
+app.use('/api/implantacao', exigirPrimeiroPagamento, express.json({ limit: '20kb' }), implantacaoRouter);
 
 // Módulo Fiscal: NFC-e / NF-e por loja (emitente, credenciais, emissão, DANFE, cancelamento).
 // Antes do json global: o upload do certificado A1 (base64) passa do limite padrão.
-app.use('/api/fiscal', express.json({ limit: '1mb' }), fiscalRouter);
+app.use('/api/fiscal', exigirPrimeiroPagamento, express.json({ limit: '1mb' }), fiscalRouter);
 
 app.use(express.json());
 
@@ -109,7 +109,7 @@ app.use('/api/auth', authLimiter, authRouter);
 app.use('/api', tenantsRouter);
 
 // Roteador do assistente virtual WhatsApp
-app.use('/api/whatsapp', whatsappRouter);
+app.use('/api/whatsapp', exigirPrimeiroPagamento, whatsappRouter);
 
 // Roteador do Módulo Financeiro (admin)
 app.use('/api/cliente/cobrancas', clientBillingRouter);
@@ -133,7 +133,7 @@ const vitrineLimiter = rateLimit({
 app.use('/api/vitrine', vitrineLimiter, vitrineRouter);
 
 // Monta o Roteador de API do Gateway Ingress
-app.use('/api', apiRouter);
+app.use('/api', exigirPrimeiroPagamento, apiRouter);
 
 // Endpoint básico de status de saúde do servidor
 app.get('/health', async (_req, res) => {

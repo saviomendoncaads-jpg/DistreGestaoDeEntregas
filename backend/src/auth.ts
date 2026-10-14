@@ -10,9 +10,13 @@ import {
 } from './database';
 import { hashPassword, verifyPassword } from './security/password';
 
+export function lojaAguardandoPagamento(loja: typeof lojas[number]) {
+  const trialExpirado = !!loja.trialExpiraEm && (!Number.isFinite(Date.parse(loja.trialExpiraEm)) || Date.now() >= Date.parse(loja.trialExpiraEm));
+  return trialExpirado || loja.statusFinanceiro === 'AGUARDANDO_PAGAMENTO' || empresas.find(e=>e.id===loja.empresaId)?.statusFinanceiro === 'AGUARDANDO_PAGAMENTO';
+}
 export function lojaBloqueadaFinanceiro(loja: typeof lojas[number]) {
   const empresa=empresas.find(e=>e.id===loja.empresaId);
-  return ['SUSPENSO','CANCELADO'].includes(loja.statusFinanceiro||'') || ['SUSPENSO','CANCELADO'].includes(empresa?.statusFinanceiro||'');
+  return lojaAguardandoPagamento(loja) || ['SUSPENSO','CANCELADO'].includes(loja.statusFinanceiro||'') || ['SUSPENSO','CANCELADO'].includes(empresa?.statusFinanceiro||'');
 }
 const router = Router();
 
@@ -131,7 +135,7 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
     recebePedidos: loja.recebePedidos,
     latitude: loja.latitude,
     longitude: loja.longitude,
-    operacaoBloqueada: lojaBloqueadaFinanceiro(loja)
+    operacaoBloqueada: lojaBloqueadaFinanceiro(loja), aguardandoPagamento: lojaAguardandoPagamento(loja), trialExpiraEm: loja.trialExpiraEm
   });
 }));
 
@@ -171,7 +175,7 @@ router.get('/me', (req: Request, res: Response) => {
   // Retorna tudo menos o token interno
   const { token: _t, ...dadosSessao } = sessao;
   const loja = sessao.tipo === 'loja' ? lojas.find(l=>l.id===sessao.lojaId) : undefined;
-  res.json({ ...dadosSessao, token, operacaoBloqueada: loja ? lojaBloqueadaFinanceiro(loja) : false });
+  res.json({ ...dadosSessao, token, operacaoBloqueada: loja ? lojaBloqueadaFinanceiro(loja) : false, aguardandoPagamento: loja ? lojaAguardandoPagamento(loja) : false, trialExpiraEm: loja?.trialExpiraEm });
 });
 
 // ─── LOGOUT ───────────────────────────────────────────────────────────────────
@@ -221,6 +225,14 @@ export function verificarSessao(req: Request & { sessao?: Sessao }, res: Respons
  * inadimplência após a carência configurada. Cobrança individual de uma loja
  * não bloqueia as outras filiais; dívida da rede bloqueia sua operação conjunta. Conta e leitura permanecem acessíveis.
  */
+export function exigirPrimeiroPagamento(req: Request, res: Response, next: NextFunction) {
+  const s = obterSessaoDoRequest(req);
+  const loja = s?.tipo === 'loja' ? lojas.find(l=>l.id===s.lojaId) : undefined;
+  if (loja && lojaAguardandoPagamento(loja)) {
+    res.status(402).json({ error: 'Seu período gratuito terminou. Confirme o pagamento da mensalidade para continuar na operação e na implantação.', codigo: 'FIRST_PAYMENT_REQUIRED' }); return;
+  }
+  next();
+}
 export function exigirLojaAdimplente(req: Request & { sessao?: Sessao }, res: Response, next: NextFunction) {
   const sessao = obterSessaoDoRequest(req);
   if (sessao?.tipo === 'loja' && sessao.lojaId) {
