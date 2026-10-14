@@ -2587,7 +2587,7 @@ export default function App() {
                 </select>
               </label>
             )}
-            {tenantLojaId && comandaPrintMode === 'local' && <LocalPrinterSettings printer={localPrinter} onChange={name => { setLocalPrinter(name); localStorage.setItem('distre_local_printer', name); }} />}
+            {tenantLojaId && <LocalPrinterSettings printer={localPrinter} onChange={name => { setLocalPrinter(name); localStorage.setItem('distre_local_printer', name); if (name) alterarModoImpressao('local'); }} />}
             {tenantLojaId && fiscalApi && (
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
                 <span aria-hidden="true">🧾</span>
