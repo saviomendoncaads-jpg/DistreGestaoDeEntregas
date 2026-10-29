@@ -6,7 +6,9 @@ Esta atualização reúne a linha operacional local e os ajustes de modalidades 
 
 ## Escopo demonstrável
 
-O [README](../README.md) descreve o fluxo atual: catálogo, produtos, estoque, conferência por EAN, central de pedidos, despacho, entregas manuais, retorno integral vendável, modalidades/taxas, comandas, relatórios, administração, cobranças da plataforma e implantação com conteúdo de treinamento.
+O [README](../README.md) descreve o fluxo atual: catálogo, produtos, estoque, conferência por EAN, central de pedidos, despacho, entregas manuais, retorno integral vendável, comandas, relatórios, administração, cobranças da plataforma e implantação com conteúdo de treinamento.
+
+Conforme a operação informada pelo autor, modalidades e tarifação configuráveis não integram a apresentação da operação em uso. O código desses recursos permanece versionado, com sua documentação técnica, mas sua presença no repositório não equivale a recurso ativo na loja.
 
 A finalização rápida no painel não obriga informar nome do recebedor. Isso não constitui assinatura, foto ou prova geográfica de entrega. Despacho mantém a seleção do operador; não calcula rota otimizada. O cálculo de quilômetros para tarifação é um recurso separado.
 

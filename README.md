@@ -17,15 +17,12 @@ Projeto de portfólio desenvolvido do zero para conectar catálogo, estoque, sep
 | Pedidos | Lista e quadro por etapas, busca, paginação, detalhes e atualização do painel por Socket.IO. |
 | Despacho | Seleção de pedidos, vinculação a entregador e ordem definida pelo operador, incluindo despacho em lote. |
 | Entregas | Acompanhamento de status pela central, finalização, registro de insucesso e recebimento integral de retorno vendável ao estoque. |
-| Regras de entrega | Modalidades expressa, roteirizada e agendada; prazos; taxa fixa por modalidade ou por faixas de distância, quando habilitadas na loja. |
 | Documentos operacionais | Comanda para impressão e download em PDF; seleção de impressoras e impressão automática com conector Windows local. |
 | Administração | Empresas e lojas, sessões administrativas e de loja, isolamento de acesso e acompanhamento da operação. |
 | Relatórios | Pedidos, valores registrados, ticket médio, produtos, estoque e análises por loja/período, com exportação CSV e avisos de cobertura dos dados. |
 | Cobranças da plataforma | Faturas, assinaturas, inadimplência, regras de acesso e Pix com confirmação manual pelo administrador. Não representa o financeiro das vendas da loja. |
 | Implantação | Jornada em sete etapas, progresso por loja, verificação de tarefas, vídeos, manuais e modelos de importação. |
-| API de integração | Ingresso de pedidos e entregas, consulta de modalidades e cotação, autenticados por chave da loja. |
-
-**Roteirizada** é uma modalidade configurável de serviço. Esse nome não significa otimização automática de rotas nem rastreamento por GPS. O cálculo da taxa por distância usa serviços de localização e OSRM; não acompanha o deslocamento do entregador.
+| API de integração | Ingresso de pedidos e entregas, autenticado por chave da loja. |
 
 ![Central de pedidos em ambiente demonstrativo](docs/imagens/operacao.png)
 
@@ -33,13 +30,13 @@ Projeto de portfólio desenvolvido do zero para conectar catálogo, estoque, sep
 
 1. A loja cadastra ou importa os produtos e configura estoque e catálogo.
 2. O cliente monta a sacola e informa seus dados e endereço.
-3. Quando as regras de entrega estão ativas, o servidor calcula e valida modalidade, taxa e prazo.
+3. O servidor valida os itens e os dados do pedido antes de registrá-lo.
 4. O pedido entra na central; o operador separa e confere as unidades por EAN.
 5. A separação concluída gera uma entrega vinculada à venda, sem duplicá-la ao repetir a solicitação.
 6. O operador seleciona pedidos e entregador e registra o despacho.
 7. A central registra conclusão ou insucesso. No retorno integral vendável, o recebimento físico confirmado permite estornar a saída e encerrar o retorno.
 
-Preço, taxa e prazo contratados ficam preservados no pedido. Alterações posteriores da configuração não devem reescrever esse snapshot.
+Os dados do pedido ficam preservados ao gerar a entrega vinculada.
 
 ## Decisões técnicas
 
@@ -119,7 +116,6 @@ Os testes SQL são opt-in e criam bancos temporários próprios; exigem instânc
 - `backend/src/billing/` e `backend/src/fiscal/`: cobranças e fiscal.
 - `backend/test/`: testes automatizados.
 - `gestor-desktop/print-bridge/`: [conector local de impressão](gestor-desktop/print-bridge/README.md).
-- [Regras de entrega](backend/docs/TIPOS_ENTREGA.md).
 - [Estoque](backend/docs/estoque.md) e [conferência EAN](backend/docs/conferencia-ean.md).
 - [Estado atual e validação](docs/STATUS_ATUAL.md).
 
