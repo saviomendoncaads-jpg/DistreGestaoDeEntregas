@@ -43,7 +43,7 @@ Os dados do pedido ficam preservados ao gerar a entrega vinculada.
 - **Frontend:** React, TypeScript, Vite e CSS/Tailwind. Vitrine, operação e área de implantação têm carregamento separado.
 - **Backend:** Node.js, TypeScript e Express, com API HTTP e Socket.IO.
 - **Persistência:** SQL Server, com driver nativo Windows ou `tedious` selecionado por configuração.
-- **Eventos:** broker interno baseado em `EventEmitter`, com automações para despacho, monitoramento de estados e integrações. Esses componentes executam regras de negócio; não são agentes de IA.
+- **Eventos:** broker interno baseado em `EventEmitter`, com automações para despacho, monitoramento de estados e integrações. Esses componentes executam regras de negócio.
 - **Consistência:** transações no ciclo pedido → entrega → retorno, controle de concorrência e regressões de repetição de ações, falhas de persistência e isolamento por loja.
 - **Acesso:** sessões com expiração, verificação de loja em HTTP/Socket e chave própria nas APIs de integração.
 - **Impressão:** PDFKit no backend e conector Windows separado, acessível apenas localmente e com origens autorizadas.
