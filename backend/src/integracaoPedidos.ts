@@ -9,7 +9,25 @@ import { deliveries, gerarIdComanda } from './gateway';
 import { geocodificarEndereco } from './geocoding';
 import { verificarLimiteEntregasMes, erroLimite } from './billing/planLimitsService';
 
+import { obterConfigEntrega, cotarEntrega, confirmarCotacao, type SelecaoEntrega } from './entregaService';
+import { ErroEntrega } from './configEntrega';
+
 const router = Router();
+
+// Disponíveis para a finalização da pré-venda no ERP, sob a mesma API key da loja.
+router.get('/entrega/opcoes', asyncHandler(async (req, res) => {
+  const lojaId = (req.header('x-loja-id') || '').trim();
+  const loja = lojas.find(l => l.id === lojaId);
+  if (!loja) { res.status(404).json({ error: 'Loja não encontrada.' }); return; }
+  res.json(await obterConfigEntrega(loja.id, loja.cep));
+}));
+router.post('/entrega/cotacao', asyncHandler(async (req, res) => {
+  const lojaId = (req.header('x-loja-id') || req.body?.lojaId || '').trim();
+  const loja = lojas.find(l => l.id === lojaId);
+  if (!loja) { res.status(404).json({ error: 'Loja não encontrada.' }); return; }
+  try { res.json(await cotarEntrega(loja.id, await obterConfigEntrega(loja.id, loja.cep), req.body?.endereco || {}, req.body?.entrega)); }
+  catch(e) { if (e instanceof ErroEntrega) { res.status(e.status).json({ error: e.message }); return; } throw e; }
+}));
 
 type FormaPgtoEntrada =
   | 'pix'
@@ -29,6 +47,7 @@ interface PedidoEntradaProduto {
 }
 
 interface PedidoEntrada {
+  entrega?: SelecaoEntrega;
   lojaId?: string;
   cliente: {
     nome: string;
@@ -148,9 +167,20 @@ router.post('/pedidos', asyncHandler(async (req: Request, res: Response) => {
       0
     );
     const subtotal = valores?.subtotal ?? subtotalCalc;
-    const taxaEntrega = valores?.taxaEntrega ?? 0;
+    const regrasEntrega = await obterConfigEntrega(lojaId, loja.cep);
+    let servicoEntrega;
+    if (regrasEntrega.ativa) {
+      if (!payload.entrega) throw new ErroEntrega('Selecione o tipo de entrega na pré-venda.');
+      servicoEntrega = payload.entrega.cotacaoId
+        ? confirmarCotacao(lojaId, regrasEntrega, endereco, payload.entrega)
+        : (await cotarEntrega(lojaId, regrasEntrega, endereco, payload.entrega)).servico;
+    }
+    const taxaEntrega = servicoEntrega?.taxa ?? valores?.taxaEntrega ?? 0;
+    if (servicoEntrega && valores?.taxaEntrega !== undefined && Math.round(valores.taxaEntrega*100) !== Math.round(taxaEntrega*100)) throw new ErroEntrega('A taxa informada diverge das regras de entrega. Atualize a cotação.', 409);
     const desconto = valores?.desconto ?? 0;
-    const total = valores?.total ?? Number((subtotal + taxaEntrega - desconto).toFixed(2));
+    const totalCalculado = Number((subtotal + taxaEntrega - desconto).toFixed(2));
+    if (servicoEntrega && valores?.total !== undefined && Math.round(valores.total*100) !== Math.round(totalCalculado*100)) throw new ErroEntrega('O total informado diverge do total com a entrega.', 409);
+    const total = servicoEntrega ? totalCalculado : valores?.total ?? totalCalculado;
 
     const itensTexto = produtos.map(p => `${p.quantidade}x ${p.nome}`);
     const enderecoTexto = montarEndereco(endereco);
@@ -177,7 +207,8 @@ router.post('/pedidos', asyncHandler(async (req: Request, res: Response) => {
       endereco: enderecoTexto,
       itens: itensTexto,
       prioridade: (payload.prioridade || 'media') as Prioridade,
-      tipoCarga: (payload.tipoCarga || 'normal') as TipoCarga,
+      tipoCarga: servicoEntrega?.tipo === 'EXPRESS' ? 'expressa' : servicoEntrega?.tipo === 'AGENDADA' ? 'agendado' : servicoEntrega ? 'normal' : (payload.tipoCarga || 'normal') as TipoCarga,
+      servicoEntrega,
       status: 'RECEBIDO',
       valor: total,
       incidentes: [],
@@ -223,11 +254,12 @@ router.post('/pedidos', asyncHandler(async (req: Request, res: Response) => {
       total,
       subtotal,
       taxaEntrega,
+      servicoEntrega,
       desconto
     });
   } catch (err: any) {
     console.error('[IntegracaoPedidos] Erro ao receber pedido:', err);
-    res.status(500).json({ error: err.message || 'Erro interno ao processar pedido.' });
+    res.status(err instanceof ErroEntrega ? err.status : 500).json({ error: err.message || 'Erro interno ao processar pedido.' });
   }
 }));
 

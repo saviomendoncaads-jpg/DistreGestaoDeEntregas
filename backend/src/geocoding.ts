@@ -26,11 +26,12 @@ function normalizarCep(cep?: string): string | undefined {
 
 async function aguardarThrottle(): Promise<void> {
   const agora = Date.now();
-  const espera = lastCallAt + MIN_INTERVAL_MS - agora;
+  const reservado = Math.max(agora, lastCallAt + MIN_INTERVAL_MS);
+  const espera = reservado - agora;
+  lastCallAt = reservado;
   if (espera > 0) {
     await new Promise(resolve => setTimeout(resolve, espera));
   }
-  lastCallAt = Date.now();
 }
 
 export interface EnderecoParaGeocodificar {
@@ -63,8 +64,8 @@ function montarQuery(end: EnderecoParaGeocodificar, incluirCep: boolean): string
     .join(', ');
 }
 
-async function consultarNominatim(query: string, params?: URLSearchParams): Promise<{ latitude: number; longitude: number } | null> {
-  const chave = normalizar(params ? `STRUCT|${params.toString()}` : query);
+async function consultarNominatim(query: string, params?: URLSearchParams, exigirRua = false): Promise<{ latitude: number; longitude: number } | null> {
+  const chave = (exigirRua ? 'RUA|' : '') + normalizar(params ? `STRUCT|${params.toString()}` : query);
   if (cache.has(chave)) {
     const r = cache.get(chave) ?? null;
     console.log(`[Geocoding] cache: "${query}" → ${r ? `(${r.latitude}, ${r.longitude})` : 'null'}`);
@@ -82,7 +83,7 @@ async function consultarNominatim(query: string, params?: URLSearchParams): Prom
       headers: {
         'User-Agent': USER_AGENT,
         'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.5'
-      }
+      }, signal: AbortSignal.timeout(8000)
     });
 
     if (!resp.ok) {
@@ -98,6 +99,10 @@ async function consultarNominatim(query: string, params?: URLSearchParams): Prom
       return null;
     }
 
+    // Nominatim pode devolver apenas a cidade mesmo recebendo um logradouro.
+    // Esses resultados servem ao mapa, mas nunca à cobrança por distância.
+    const endereco = data[0].address;
+    if (exigirRua && !(endereco?.road || endereco?.pedestrian || endereco?.residential)) return null;
     const lat = Number(data[0].lat);
     const lng = Number(data[0].lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -118,11 +123,11 @@ async function consultarNominatim(query: string, params?: URLSearchParams): Prom
 }
 
 // Enriquece endereço usando ViaCEP quando há CEP — preenche bairro/cidade/UF se vierem em branco.
-async function enriquecerComViaCep(end: EnderecoParaGeocodificar): Promise<EnderecoParaGeocodificar> {
+export async function enriquecerComViaCep(end: EnderecoParaGeocodificar): Promise<EnderecoParaGeocodificar> {
   const cep = normalizarCep(end.cep);
   if (!cep) return end;
   try {
-    const resp = await fetch(`https://viacep.com.br/ws/${cep.replace('-', '')}/json/`);
+    const resp = await fetch(`https://viacep.com.br/ws/${cep.replace('-', '')}/json/`, { signal: AbortSignal.timeout(8000) });
     if (!resp.ok) return end;
     const data: any = await resp.json();
     if (data?.erro) return end;
@@ -172,7 +177,7 @@ function montarStructuredParams(end: EnderecoParaGeocodificar): URLSearchParams 
 }
 
 export async function geocodificarEndereco(
-  endIn: EnderecoParaGeocodificar
+  endIn: EnderecoParaGeocodificar, aceitarAproximacao = true
 ): Promise<{ latitude: number; longitude: number } | null> {
   // Enriquece com ViaCEP (preenche campos vazios a partir do CEP — gratuito, oficial dos Correios)
   const end = await enriquecerComViaCep(endIn);
@@ -183,22 +188,24 @@ export async function geocodificarEndereco(
   const structured = montarStructuredParams(end);
   if (structured) {
     const desc = `street=${structured.get('street') || ''} city=${structured.get('city') || ''} cep=${structured.get('postalcode') || ''}`;
-    const r = await consultarNominatim(desc, structured);
+    const r = await consultarNominatim(desc, structured, !aceitarAproximacao);
     if (r) return r;
   }
 
   // 1. Free-form com CEP (se houver) — algumas vezes acerta onde a estruturada não acha
   if (normalizarCep(end.cep)) {
-    const r = await consultarNominatim(montarQuery({ ...end, endereco: capitalizar(end.endereco), cidade: capitalizar(end.cidade) }, true));
+    const r = await consultarNominatim(montarQuery({ ...end, endereco: capitalizar(end.endereco), cidade: capitalizar(end.cidade) }, true), undefined, !aceitarAproximacao);
     if (r) return r;
   }
 
   // 2. Free-form sem CEP, capitalizado
   const queryCompleta = montarQuery({ ...end, endereco: capitalizar(end.endereco), cidade: capitalizar(end.cidade) }, false);
   if (queryCompleta && queryCompleta !== 'Brasil') {
-    const r = await consultarNominatim(queryCompleta);
+    const r = await consultarNominatim(queryCompleta, undefined, !aceitarAproximacao);
     if (r) return r;
   }
+
+  if (!aceitarAproximacao) return null;
 
   // 3. Fallback de bairro
   if (end.bairro || end.cidade) {

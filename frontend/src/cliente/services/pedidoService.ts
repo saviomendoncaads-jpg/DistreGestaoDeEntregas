@@ -14,6 +14,7 @@ export function buscarCardapio(lojaId: string): Promise<CardapioResposta> {
 }
 
 interface DadosCheckout {
+  entrega?: import('../../delivery').SelecaoEntrega;
   nome: string;
   telefone: string;
   cpf: string;
@@ -28,6 +29,7 @@ interface DadosCheckout {
 // pelo catálogo real da loja (anti-fraude de preço no cliente).
 export function montarPayload(itens: ItemCarrinho[], dados: DadosCheckout): PedidoPayload {
   return {
+    entrega: dados.entrega,
     cliente: {
       nome: dados.nome.trim(),
       telefone: dados.telefone.trim() || undefined,

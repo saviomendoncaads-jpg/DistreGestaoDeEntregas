@@ -91,6 +91,7 @@ export interface EnderecoEntrega {
 // Payload aceito por POST /api/vitrine/:lojaId/pedidos — os preços NÃO viajam
 // no payload: o backend recalcula tudo a partir dos produtoId.
 export interface PedidoPayload {
+  entrega?: import('../delivery').SelecaoEntrega;
   cliente: {
     nome: string;
     telefone?: string;
@@ -119,6 +120,7 @@ export interface PedidoPayload {
 }
 
 export interface PedidoConfirmacao {
+  servicoEntrega?: import('../delivery').ServicoEntrega;
   success: boolean;
   pedidoId: string;
   status: string;

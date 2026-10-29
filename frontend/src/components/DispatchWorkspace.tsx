@@ -1,3 +1,4 @@
+import DeliveryBadge from './DeliveryBadge';
 import { useRef, useState, type ComponentProps } from 'react';
 import KanbanComandas from './KanbanComandas';
 import { NOME_MODELO } from './fiscal/fiscalApi';
@@ -64,7 +65,7 @@ export default function DispatchWorkspace(props: Props) {
           const status = n?.status === 'AUTORIZADA' ? 'autorizada' : n?.status === 'REJEITADA' ? 'rejeitada' : n?.status === 'ERRO' ? 'erro' : n?.status === 'CANCELADA' ? 'cancelada' : 'processando';
           return <article key={o.id} className={`dispatch-order ${checked ? 'is-selected' : ''}`}>
             <input type="checkbox" aria-label={`Selecionar pedido ${o.id}`} checked={checked} disabled={busy} onChange={e => props.onToggleManifest(o.id, e.target.checked)} />
-            <div className="dispatch-order-info"><strong>{o.id}</strong><span className="dispatch-customer">{o.nomeCliente}</span><span className="dispatch-address"><Icon kind="pin" />{o.endereco}</span><button type="button" className="dispatch-link" onClick={() => props.onAbrirComanda(o.id)}>Ver pedido →</button></div>
+            <div className="dispatch-order-info"><strong>{o.id}</strong><span className="dispatch-customer">{o.nomeCliente}</span><DeliveryBadge servico={o.servicoEntrega} /><span className="dispatch-address"><Icon kind="pin" />{o.endereco}</span><button type="button" className="dispatch-link" onClick={() => props.onAbrirComanda(o.id)}>Ver pedido →</button></div>
             <div className="dispatch-order-meta"><strong>{money.format(props.getValor(o))}</strong><button type="button" disabled={!props.onNotaFiscal} onClick={() => props.onNotaFiscal?.(o.id, n)} className={`dispatch-fiscal ${n?.status === 'AUTORIZADA' ? 'is-authorized' : n?.status === 'ERRO' || n?.status === 'REJEITADA' ? 'is-error' : ''}`}>{n ? `${NOME_MODELO[n.modelo]} ${status}` : 'Sem nota'}</button><span className="dispatch-time"><Icon kind="clock" />{elapsed(o.atualizadoEm || o.criadoEm)}</span></div>
           </article>;
         })}</div>

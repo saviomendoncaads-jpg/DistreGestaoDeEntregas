@@ -25,6 +25,9 @@ import { publicadoNaVitrine, precoVenda } from './catalogoProduto';
 //   - são montadas no index.ts atrás de rate limit próprio.
 // ============================================================================
 
+import { obterConfigEntrega, cotarEntrega, confirmarCotacao, type SelecaoEntrega } from './entregaService';
+import { ErroEntrega } from './configEntrega';
+
 const router = Router();
 
 type FormaPgtoVitrine = 'pix' | 'cartao' | 'dinheiro';
@@ -36,6 +39,7 @@ interface ItemCarrinhoEntrada {
 }
 
 interface PedidoVitrineEntrada {
+  entrega?: SelecaoEntrega;
   cliente: {
     nome: string;
     telefone?: string;
@@ -162,6 +166,19 @@ router.get('/:lojaId', asyncHandler(async (req: Request<{ lojaId: string }>, res
   }
 }));
 
+router.get('/:lojaId/entrega', asyncHandler(async (req, res) => {
+  const loja = buscarLojaAtiva(String(req.params.lojaId));
+  if (!loja || lojaBloqueadaFinanceiro(loja)) { res.status(404).json({ error: 'Loja indisponível.' }); return; }
+  const c = await obterConfigEntrega(loja.id, loja.cep);
+  res.json(c.ativa ? c : null);
+}));
+router.post('/:lojaId/entrega/cotacao', asyncHandler(async (req, res) => {
+  const loja = buscarLojaAtiva(String(req.params.lojaId));
+  if (!loja || lojaBloqueadaFinanceiro(loja)) { res.status(404).json({ error: 'Loja indisponível.' }); return; }
+  try { res.json(await cotarEntrega(loja.id, await obterConfigEntrega(loja.id, loja.cep), req.body?.endereco || {}, req.body?.entrega)); }
+  catch (e) { if (e instanceof ErroEntrega) { res.status(e.status).json({ error: e.message }); return; } throw e; }
+}));
+
 // POST /api/vitrine/:lojaId/pedidos — Checkout público do Painel do Cliente
 router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: string }>, res: Response) => {
   try {
@@ -250,7 +267,10 @@ router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: strin
     const subtotal = itensValidados.reduce((acc, it) => acc + precoVenda(it.produto) * it.quantidade, 0);
     const erroRegra = erroRegraCompra(config, subtotal, forma);
     if (erroRegra) { res.status(400).json({ error: erroRegra }); return; }
-    const taxaEntrega = 0; // v1: frete definido pela loja na comanda; campo reservado
+    const configEntrega = await obterConfigEntrega(loja.id, loja.cep);
+    const servicoEntrega = configEntrega.ativa ? confirmarCotacao(loja.id, configEntrega, payload.endereco, payload.entrega) : undefined;
+    if (!configEntrega.ativa && payload.entrega) throw new ErroEntrega('As opções de entrega mudaram. Atualize a página.', 409);
+    const taxaEntrega = servicoEntrega?.taxa ?? 0;
     const total = Number((subtotal + taxaEntrega).toFixed(2));
 
     const troco = forma === 'dinheiro' && Number.isFinite(Number(payload.pagamento?.troco))
@@ -298,7 +318,8 @@ router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: strin
       endereco: partesEndereco.join(', '),
       itens: itensTexto,
       prioridade: 'media',
-      tipoCarga: 'normal',
+      tipoCarga: servicoEntrega?.tipo === 'EXPRESS' ? 'expressa' : servicoEntrega?.tipo === 'AGENDADA' ? 'agendado' : 'normal',
+      servicoEntrega,
       status: 'RECEBIDO',
       valor: total,
       incidentes: [],
@@ -344,6 +365,7 @@ router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: strin
       total,
       subtotal: Number(subtotal.toFixed(2)),
       taxaEntrega,
+      servicoEntrega,
       itens: itensValidados.map(it => ({
         produtoId: it.produto.id,
         nome: it.produto.nome,
@@ -353,7 +375,7 @@ router.post('/:lojaId/pedidos', asyncHandler(async (req: Request<{ lojaId: strin
     });
   } catch (err: any) {
     console.error('[Vitrine] Erro ao receber pedido:', err);
-    res.status(err instanceof ErroEstoque ? err.status : 500).json({ error: err instanceof ErroEstoque ? err.message : 'Erro interno ao processar o pedido.' });
+    res.status(err instanceof ErroEstoque || err instanceof ErroEntrega ? err.status : 500).json({ error: err instanceof ErroEstoque || err instanceof ErroEntrega ? err.message : 'Erro interno ao processar o pedido.' });
   }
 }));
 

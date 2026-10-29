@@ -1,8 +1,9 @@
+import { useDeliveryCheckout } from './useDeliveryCheckout';
 import { configPadrao } from '../configVitrine';
 import type { ConfigVitrine } from '../configVitrine';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useCarrinho } from '../context/CarrinhoContext';
-import { buscarEnderecoPorCep, mascararCep } from '../services/cep';
+import { consultarCep, mascararCep } from '../services/cep';
 import { criarPedido, montarPayload } from '../services/pedidoService';
 import { cpfValido, mascararCpf } from '../services/cpf';
 import { formatarPreco, lerClienteIdentificado } from '../types';
@@ -52,33 +53,47 @@ export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar
   const [trocoStr, setTrocoStr] = useState('');
   const [observacao, setObservacao] = useState('');
   const [buscandoCep, setBuscandoCep] = useState(false);
+  const [avisoCep, setAvisoCep] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  const total = subtotal; // v1: taxa de entrega combinada com a loja (não somada aqui)
+  const entrega = useDeliveryCheckout(lojaId, endereco);
+  const total = Number((subtotal + entrega.taxa).toFixed(2));
 
   function atualizarEndereco(campo: keyof EnderecoEntrega, valor: string) {
-    setEndereco(atual => ({ ...atual, [campo]: valor }));
+    if (campo === 'cep') { setAvisoCep(''); setBuscandoCep(false); }
+    setEndereco(atual => campo === 'cep' && valor !== atual.cep
+      ? { ...atual, cep: valor, logradouro: '', bairro: '', cidade: '', uf: '' }
+      : { ...atual, [campo]: valor });
   }
 
-  // Ao completar o CEP, consulta o ViaCEP e preenche rua/bairro/cidade/UF.
-  async function aoSairDoCep() {
-    if (endereco.cep.replace(/\D/g, '').length !== 8) return;
-    setBuscandoCep(true);
-    const resultado = await buscarEnderecoPorCep(endereco.cep);
-    setBuscandoCep(false);
-    if (resultado) {
-      setEndereco(atual => ({
-        ...atual,
-        logradouro: resultado.logradouro || atual.logradouro,
-        bairro: resultado.bairro || atual.bairro,
-        cidade: resultado.cidade || atual.cidade,
-        uf: resultado.uf || atual.uf
-      }));
-    }
-  }
+  // Busca sem blur; cancela a consulta anterior quando o CEP muda.
+  useEffect(() => {
+    const cep = endereco.cep;
+    if (cep.replace(/\D/g, '').length !== 8) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setBuscandoCep(true);
+      void consultarCep(cep, controller.signal).then(resultado => {
+        if (controller.signal.aborted) return;
+        setBuscandoCep(false);
+        if (resultado.estado === 'encontrado') {
+          const r = resultado.endereco;
+          setEndereco(atual => atual.cep !== cep ? atual : { ...atual,
+            logradouro: atual.logradouro || r.logradouro, bairro: atual.bairro || r.bairro,
+            cidade: atual.cidade || r.cidade, uf: atual.uf || r.uf });
+          setAvisoCep(r.logradouro ? 'Endereço encontrado pelo ViaCEP. Informe o número.' : 'Cidade e UF preenchidas. Informe a rua, o bairro e o número.');
+        } else setAvisoCep(resultado.estado === 'nao_encontrado'
+          ? 'CEP não encontrado no ViaCEP. Confira o CEP ou preencha o endereço completo manualmente.'
+          : 'ViaCEP indisponível no momento. Você pode preencher o endereço manualmente.');
+      });
+    }, 300);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [endereco.cep]);
 
   function validar(): string | null {
+    const erroEntrega = entrega.validar();
+    if (erroEntrega) return erroEntrega;
     if (config.pausada) return config.mensagemPausa;
     if (subtotal < config.pedidoMinimo) return `Pedido mínimo: ${formatarPreco(config.pedidoMinimo)} em produtos.`;
     if (!config.pagamentos.includes(formaPagamento)) return 'Selecione uma forma de pagamento disponível.';
@@ -117,7 +132,8 @@ export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar
         endereco,
         formaPagamento,
         troco,
-        observacao
+        observacao,
+        entrega: entrega.selecao
       });
       const confirmacao = await criarPedido(lojaId, payload);
       limpar();
@@ -209,9 +225,10 @@ export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar
                 autoComplete="postal-code"
                 value={endereco.cep}
                 onChange={e => atualizarEndereco('cep', mascararCep(e.target.value))}
-                onBlur={aoSairDoCep}
+                aria-describedby={avisoCep ? 'v-cep-ajuda' : undefined}
                 placeholder="00000-000"
               />
+              {avisoCep && <small id="v-cep-ajuda" role="status">{avisoCep}</small>}
             </div>
             <div className="v-campo-linha">
               <div className="v-campo v-campo--crescer">
@@ -305,6 +322,7 @@ export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar
             </div>
           </section>
 
+          {entrega.conteudo}
           <section className="v-form-bloco">
             <h2 className="v-form-titulo">Pagamento na entrega</h2>
             <div className="v-pagamentos" role="radiogroup" aria-label="Forma de pagamento">
@@ -365,8 +383,8 @@ export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar
             </p>
           )}
 
-          <button type="submit" className="v-btn-primario v-btn-finalizar" disabled={enviando}>
-            {enviando ? 'Enviando pedido…' : `Finalizar pedido • ${formatarPreco(total)}`}
+          <button type="submit" className="v-btn-primario v-btn-finalizar" disabled={enviando || entrega.pendente}>
+            {enviando ? 'Enviando pedido…' : entrega.pendente ? 'Calcule a entrega para finalizar' : `Finalizar pedido • ${formatarPreco(total)}`}
           </button>
         </form>
 
@@ -390,7 +408,7 @@ export default function CheckoutForm({ lojaId, config = configPadrao(), onVoltar
           </div>
           <div className="v-linha-valor v-linha-valor--suave">
             <span>Taxa de entrega</span>
-            <span>combinada com a loja</span>
+            <span>{entrega.pendente ? 'A calcular' : entrega.selecao ? formatarPreco(entrega.taxa) : 'combinada com a loja'}</span>
           </div>
           <div className="v-linha-valor v-linha-valor--total">
             <span>Total</span>

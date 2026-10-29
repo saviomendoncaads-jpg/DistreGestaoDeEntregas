@@ -14,6 +14,9 @@ import GestaoVitrine from './components/GestaoVitrine';
 import GestaoProdutos from './components/GestaoProdutos';
 import GestaoEstoque from './components/GestaoEstoque';
 import OperationSettingsModal from './components/OperationSettingsModal';
+import DeliverySettings from './components/DeliverySettings';
+import DeliveryBadge from './components/DeliveryBadge';
+import { linhasEntrega, type ServicoEntrega } from './delivery';
 import LocalPrinterSettings from './components/LocalPrinterSettings';
 import { imprimirLocal } from './localPrinting';
 import ConferenciaSeparacao from './components/ConferenciaSeparacao';
@@ -90,6 +93,7 @@ interface TipoVeiculo {
 }
 
 interface Entrega {
+  servicoEntrega?: ServicoEntrega;
   id: string;
   nomeCliente: string;
   clienteDocumento?: string;
@@ -1443,7 +1447,7 @@ export default function App() {
       void imprimirLocal(localPrinter, [
         e.nomeLoja || sessao?.nomeLoja || 'DISTRE', 'COMANDA DE PEDIDO', `Comanda: ${e.id}`,
         `Data: ${new Date().toLocaleString('pt-BR')}`, '', 'CLIENTE', e.nomeCliente,
-        '', 'ENTREGA', e.endereco, ...(e.referencia ? [`Referência: ${e.referencia}`] : []),
+        '', 'ENTREGA', ...linhasEntrega(e.servicoEntrega), e.endereco, ...(e.referencia ? [`Referência: ${e.referencia}`] : []),
         '', 'ITENS', ...e.itens, '', `Pagamento: ${e.formaPagamento || 'Não informado'}`,
         `TOTAL: ${getDeliveryValue(e).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, '', 'Comanda de pedido — não é documento fiscal',
       ]).catch(error => {
@@ -1500,6 +1504,7 @@ export default function App() {
         ${e.clienteDocumento ? `<div>CPF/CNPJ: ${esc(e.clienteDocumento)}</div>` : ''}
         <div class="sep"></div>
         <div class="b">ENTREGA</div>
+        ${linhasEntrega(e.servicoEntrega).map((l,i) => `<div class="${i === 0 ? 'center b xl' : ''}" style="${i === 0 && e.servicoEntrega?.tipo === 'EXPRESS' ? 'border:2px solid #000;padding:4px;margin:4px 0' : ''}">${esc(l)}</div>`).join('')}
         <div>${esc(e.endereco)}</div>
         ${e.bairro ? `<div>Bairro: ${esc(e.bairro)}</div>` : ''}
         ${e.cidade ? `<div>Cidade: ${esc(e.cidade)}</div>` : ''}
@@ -2376,6 +2381,7 @@ export default function App() {
         {selectedDelivery && <section id="delivery-management" className="glass-panel" style={{ minWidth: 0 }}>
           <div className="panel-header"><h2>Gestão da entrega — {selectedDelivery.id}</h2></div>
           <p><strong>Cliente:</strong> {selectedDelivery.nomeCliente}</p>
+          <DeliveryBadge servico={selectedDelivery.servicoEntrega} />
           <p><strong>Endereço:</strong> {selectedDelivery.endereco}</p>
           <p><strong>Status:</strong> {getStatusText(selectedDelivery.status)}</p>
           {selectedDelivery.motorista && <p><strong>Entregador:</strong> {selectedDelivery.motorista.name}</p>}
@@ -2532,6 +2538,7 @@ export default function App() {
                   </div>
                   <div className="thermal-divider-solid" />
                   <div className="thermal-row"><span>COMANDA:</span> <span className="thermal-mono">{d.id}</span></div>
+                  {linhasEntrega(d.servicoEntrega).map((linha, i) => <div key={i} style={{ fontWeight: i === 0 ? 'bold' : 'normal', border: i === 0 && d.servicoEntrega?.tipo === 'EXPRESS' ? '2px solid #000' : undefined, padding: '3px 0' }}>{linha}</div>)}
                   <div className="thermal-row"><span>ROMANEIO:</span> <span className="thermal-mono">{activeManifest.id}</span></div>
                   <div className="thermal-divider-dashed" />
                   <div className="thermal-row"><span>CLIENTE:</span> <span>{d.nomeCliente.toUpperCase()}</span></div>
@@ -2633,6 +2640,7 @@ export default function App() {
                 )}
               </label>
             )}
+          {tenantLojaId && sessao && <DeliverySettings backendUrl={BACKEND_URL} token={sessao.token} lojaId={tenantLojaId} />}
         </OperationSettingsModal>
       )}
 

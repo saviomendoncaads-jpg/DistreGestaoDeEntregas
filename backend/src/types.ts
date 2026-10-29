@@ -64,6 +64,7 @@ export interface Incidente {
 }
 
 export interface Entrega {
+  servicoEntrega?: import('./configEntrega').ServicoEntrega;
   id: string;
   nomeCliente: string;
   clienteDocumento?: string;

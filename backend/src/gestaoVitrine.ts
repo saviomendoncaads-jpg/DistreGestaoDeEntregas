@@ -18,6 +18,9 @@ import { listarEstoque, receberMercadoria, ErroEstoque } from './estoque';
 // admin pode operar qualquer loja via ?lojaId=.
 // ============================================================================
 
+import { obterConfigEntrega, salvarConfigEntrega } from './entregaService';
+import { ErroEntrega } from './configEntrega';
+
 const router = Router();
 
 // Imagens enviadas pelo painel ficam em backend/uploads, servidas em /uploads.
@@ -55,6 +58,18 @@ function textoLimpo(valor: unknown, max: number): string {
 }
 
 router.use(exigirSessao);
+
+router.get('/entrega', asyncHandler(async (req: RequestComSessao, res: Response) => {
+  const loja = lojas.find(l => l.id === resolverLojaId(req));
+  if (!loja) { res.status(404).json({ error: 'Loja não encontrada.' }); return; }
+  res.json(await obterConfigEntrega(loja.id, loja.cep));
+}));
+router.put('/entrega', exigirLojaAdimplente, asyncHandler(async (req: RequestComSessao, res: Response) => {
+  const loja = lojas.find(l => l.id === resolverLojaId(req));
+  if (!loja) { res.status(404).json({ error: 'Loja não encontrada.' }); return; }
+  try { res.json(await salvarConfigEntrega(loja.id, req.body)); }
+  catch (e) { if (e instanceof ErroEntrega) { res.status(e.status).json({ error: e.message }); return; } throw e; }
+}));
 
 router.get('/estoque', asyncHandler(async (req: RequestComSessao, res: Response) => {
   const lojaId = resolverLojaId(req);

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import mssql from '../src/db';
 import type { Entrega } from '../src/types';
+import { calcularServico, configEntregaPadrao } from '../src/configEntrega';
 
 describe.skipIf(process.env.RUN_SQL_ESTOQUE_TESTS !== '1')('ciclo pedido→entrega→retorno no SQL Server real', () => {
   const nomeBanco = `DISTRE_TEST_CICLO_${Date.now()}`;
@@ -42,6 +43,14 @@ describe.skipIf(process.env.RUN_SQL_ESTOQUE_TESTS !== '1')('ciclo pedido→entre
       if (value === undefined) delete process.env[key!]; else process.env[key!] = value;
     }
   }, 30000);
+  it('preserva serviço, taxa e prazo da pré-venda ao gerar a entrega',async()=>{
+    const snapshot=calcularServico({...configEntregaPadrao(),ativa:true},'EXPRESS');
+    pedido.servicoEntrega=snapshot;pedido.valor=17.9;await banco.salvarEntrega(pedido);
+    await conferir();const resultado=await lifecycle.finalizarPedidoParaEntrega(pedido,`servico-${seq}`);
+    expect(resultado.entrega.servicoEntrega).toEqual(snapshot);
+    expect(resultado.entrega.valor).toBe(17.9);
+    expect((await banco.obterEntregas()).find(e=>e.id===resultado.entrega.id)?.servicoEntrega).toEqual(snapshot);
+  });
   it('implantação persiste por loja e inicia uma única jornada sob concorrência',async()=>{
     await Promise.all([onboarding.iniciarImplantacao(loja),onboarding.iniciarImplantacao(loja)]);
     expect((await onboarding.lerImplantacao(loja)).completed).toBe(0);

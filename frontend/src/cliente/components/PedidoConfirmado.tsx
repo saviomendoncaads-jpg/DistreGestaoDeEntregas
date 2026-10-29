@@ -1,3 +1,4 @@
+import DeliveryBadge from '../../components/DeliveryBadge';
 import { formatarPreco } from '../types';
 import type { PedidoConfirmacao } from '../types';
 
@@ -30,6 +31,7 @@ export default function PedidoConfirmado({ confirmacao, nomeLoja, onNovoPedido }
           <span>Status</span>
           <span className="v-chip-status">{confirmacao.status === 'RECEBIDO' ? 'Recebido pela loja' : confirmacao.status}</span>
         </div>
+        <DeliveryBadge servico={confirmacao.servicoEntrega} />
         <ul className="v-resumo-lista">
           {confirmacao.itens.map(item => (
             <li key={item.produtoId}>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import DeliveryBadge from './DeliveryBadge';
 import KanbanComandas from './KanbanComandas';
 import { NOME_MODELO, type NotaResumo } from './fiscal/fiscalApi';
 import './operations-workspace.css';
@@ -69,7 +70,9 @@ function situacaoOf(order: Order, nota?: NotaResumo): Situacao {
 const tempo = (o: Order) => new Date(o.criadoEm || o.atualizadoEm || 0).getTime() || 0;
 // Minutos parado na etapa atual (mesma régua do timer do Kanban).
 const minutosNaEtapa = (o: Order) => Math.max(0, Math.floor((Date.now() - new Date(o.atualizadoEm || o.criadoEm || Date.now()).getTime()) / 60000));
-const atrasado = (o: Order, sit: Situacao) => sit !== 'finalizado' && minutosNaEtapa(o) >= LIMITE_ATRASO_MIN;
+const atrasado = (o: Order, sit: Situacao) => sit !== 'finalizado' && (o.servicoEntrega
+  ? Date.now() > Date.parse(o.servicoEntrega.previstoPara)
+  : minutosNaEtapa(o) >= LIMITE_ATRASO_MIN);
 function decorrido(min: number) {
   if (min < 1) return 'agora';
   if (min < 60) return `há ${min} min`;
@@ -251,7 +254,7 @@ export default function OperationsWorkspace(props: Props) {
               const data = o.criadoEm ? new Date(o.criadoEm) : null;
               return <tr key={o.id} className={`ops-row ops-sit--${sit}${atras ? ' is-atrasado' : ''}`}>
                 <td data-label="Pedido"><strong className="ops-order-id">{o.id}</strong>{sit === 'novo' && <span className="ops-novo-tag">NOVO</span>}</td>
-                <td data-label="Cliente"><span className="ops-customer">{o.nomeCliente}</span><span className="ops-money">{money.format(props.getValor(o))}</span></td>
+                <td data-label="Cliente"><span className="ops-customer">{o.nomeCliente}</span><DeliveryBadge servico={o.servicoEntrega} /><span className="ops-money">{money.format(props.getValor(o))}</span></td>
                 <td data-label="Recebido">
                   <span className="ops-hora">{data && !Number.isNaN(data.getTime()) ? fmtData(data) : '—'}</span>
                   {sit !== 'finalizado' && <span className={`ops-decorrido ${atras ? 'is-atrasado' : ''}`}>{atras && <IcoAlert size={12} />}{decorrido(min)}</span>}

@@ -1,4 +1,5 @@
 import { demoHabilitada } from './security/sessionPolicy';
+import { ENTREGA_SCHEMA } from './configEntrega';
 import { lerConfigVitrine } from './configVitrine';
 import mssql, { ConnectionPool, Transaction } from './db';
 import { Entrega, Motorista, Empresa, Loja, TipoVeiculo, Produto, Sessao } from './types';
@@ -528,6 +529,7 @@ async function inicializarBanco() {
   `;
   try {
     await pool.request().query(query);
+    await pool.request().query(ENTREGA_SCHEMA);
 
     // Vínculo aditivo: legados ambíguos não são ligados automaticamente.
     await pool.request().query(`
@@ -672,6 +674,7 @@ export function entregaDoRegistro(row: any): Entrega {
       itens: JSON.parse(row.ITENS),
       prioridade: row.PRIORIDADE,
       tipoCarga: row.TIPO_CARGA,
+      servicoEntrega: row.SERVICO_ENTREGA ? JSON.parse(row.SERVICO_ENTREGA) : undefined,
       status: row.STATUS,
       motorista: row.MOTORISTA ? JSON.parse(row.MOTORISTA) : undefined,
       rota: row.ROTA ? JSON.parse(row.ROTA) : undefined,
@@ -736,6 +739,7 @@ export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
           ITENS = @itens,
           PRIORIDADE = @prioridade,
           TIPO_CARGA = @tipoCarga,
+          SERVICO_ENTREGA = @servicoEntrega,
           STATUS = @status,
           MOTORISTA = @motorista,
           ROTA = @rota,
@@ -768,8 +772,8 @@ export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
           DESTINO_LAT = @destinoLat,
           DESTINO_LNG = @destinoLng
       WHEN NOT MATCHED THEN
-        INSERT (ID, NOME_CLIENTE, ENDERECO, ITENS, PRIORIDADE, TIPO_CARGA, STATUS, MOTORISTA, ROTA, TELEMETRIA, INCIDENTES, URL_WEBHOOK, LOGS_WEBHOOK, CRIADO_EM, ATUALIZADO_EM, RECEBEDOR_NOME, RECEBEDOR_CPF, COMPROVANTE_FOTO_URL, ASSINATURA_BASE64, JUSTIFICATIVA_DESVIO_COORDENADA, DATA_HORA_CONCLUSAO, SEQUENCIA_ESPERADA, SEQUENCIA_REALIZADA, VALOR, LOJA_ID, NOME_LOJA, NOME_EMPRESA, CLIENTE_DOCUMENTO, ROMANEIO_ID, BAIRRO, CIDADE, FORMA_PAGAMENTO, DESPACHADO_EM, TIPO_COMANDA, REFERENCIA, PEDIDO_ORIGEM_ID, DESTINO_LAT, DESTINO_LNG)
-        VALUES (@id, @nomeCliente, @endereco, @itens, @prioridade, @tipoCarga, @status, @motorista, @rota, @telemetria, @incidentes, @urlWebhook, @logsWebhook, @criadoEm, @atualizadoEm, @recebedorNome, @recebedorCPF, @comprovanteFotoUrl, @assinaturaBase64, @justificativaDesvioCoordenada, @dataHoraConclusao, @sequenciaEsperada, @sequenciaRealizada, @valor, @lojaId, @nomeLoja, @nomeEmpresa, @clienteDocumento, @romaneioId, @bairro, @cidade, @formaPagamento, @despachadoEm, @tipoComanda, @referencia, @pedidoOrigem, @destinoLat, @destinoLng);
+        INSERT (ID, NOME_CLIENTE, ENDERECO, ITENS, PRIORIDADE, TIPO_CARGA, SERVICO_ENTREGA, STATUS, MOTORISTA, ROTA, TELEMETRIA, INCIDENTES, URL_WEBHOOK, LOGS_WEBHOOK, CRIADO_EM, ATUALIZADO_EM, RECEBEDOR_NOME, RECEBEDOR_CPF, COMPROVANTE_FOTO_URL, ASSINATURA_BASE64, JUSTIFICATIVA_DESVIO_COORDENADA, DATA_HORA_CONCLUSAO, SEQUENCIA_ESPERADA, SEQUENCIA_REALIZADA, VALOR, LOJA_ID, NOME_LOJA, NOME_EMPRESA, CLIENTE_DOCUMENTO, ROMANEIO_ID, BAIRRO, CIDADE, FORMA_PAGAMENTO, DESPACHADO_EM, TIPO_COMANDA, REFERENCIA, PEDIDO_ORIGEM_ID, DESTINO_LAT, DESTINO_LNG)
+        VALUES (@id, @nomeCliente, @endereco, @itens, @prioridade, @tipoCarga, @servicoEntrega, @status, @motorista, @rota, @telemetria, @incidentes, @urlWebhook, @logsWebhook, @criadoEm, @atualizadoEm, @recebedorNome, @recebedorCPF, @comprovanteFotoUrl, @assinaturaBase64, @justificativaDesvioCoordenada, @dataHoraConclusao, @sequenciaEsperada, @sequenciaRealizada, @valor, @lojaId, @nomeLoja, @nomeEmpresa, @clienteDocumento, @romaneioId, @bairro, @cidade, @formaPagamento, @despachadoEm, @tipoComanda, @referencia, @pedidoOrigem, @destinoLat, @destinoLng);
     `;
     
     await (transaction ? new mssql.Request(transaction) : pool.request())
@@ -779,6 +783,7 @@ export async function salvarEntrega(e: Entrega, transaction?: Transaction) {
       .input('itens', mssql.NVarChar, JSON.stringify(e.itens))
       .input('prioridade', mssql.VarChar, e.prioridade)
       .input('tipoCarga', mssql.VarChar, e.tipoCarga)
+      .input('servicoEntrega', mssql.NVarChar(mssql.MAX), e.servicoEntrega ? JSON.stringify(e.servicoEntrega) : null)
       .input('status', mssql.VarChar, e.status)
       .input('motorista', mssql.NVarChar, e.motorista ? JSON.stringify(e.motorista) : null)
       .input('rota', mssql.NVarChar, e.rota ? JSON.stringify(e.rota) : null)

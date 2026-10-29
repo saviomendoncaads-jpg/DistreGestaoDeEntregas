@@ -1,3 +1,5 @@
+import DeliveryBadge from './DeliveryBadge';
+import type { ServicoEntrega } from '../delivery';
 import React, { useMemo, useState } from 'react';
 import { BentoItem } from './ui/cybernetic-bento-grid';
 import { NOME_MODELO, type NotaResumo } from './fiscal/fiscalApi';
@@ -12,6 +14,7 @@ import './fiscal/fiscal.css';
  */
 
 interface ComandaLite {
+  servicoEntrega?: ServicoEntrega;
   id: string;
   status: string;
   tipoComanda?: 'pedido' | 'entrega';
@@ -197,7 +200,7 @@ export default function KanbanComandas({
           </div>
 
           <div className="kanban-card-body">
-            <div className="kanban-card-cliente">{d.nomeCliente}</div>
+            <div className="kanban-card-cliente">{d.nomeCliente}</div><DeliveryBadge servico={d.servicoEntrega} />
             {col === 'novos' || col === 'separacao' ? (
               <div className="kanban-card-itens">{d.itens && d.itens.length ? d.itens.join(', ') : 'Sem itens'}</div>
             ) : (
@@ -327,7 +330,7 @@ export default function KanbanComandas({
               <button className="kanban-detalhe-close" onClick={() => setDetalhe(null)} title="Fechar" aria-label="Fechar">✕</button>
             </div>
 
-            <div className="kanban-detalhe-cliente">{detalhe.nomeCliente}</div>
+            <div className="kanban-detalhe-cliente">{detalhe.nomeCliente}</div><DeliveryBadge servico={detalhe.servicoEntrega} />
 
             <div className="kanban-modal-label">Itens do pedido ({detalhe.itens?.length || 0})</div>
             <ul className="kanban-detalhe-itens">
